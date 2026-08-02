@@ -1,6 +1,11 @@
 package com.nuvio.tv.ui.screens.home.netflix
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.animation.core.TweenSpec
+import androidx.compose.animation.core.tween
+import androidx.compose.runtime.Immutable
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.ui.screens.home.ContinueWatchingItem
@@ -38,6 +43,58 @@ internal object NetflixHomeTokens {
     val GenreCardWidth = 150.dp
     val GenreCardHeight = 54.dp
 }
+
+internal object NetflixHomeDimensions {
+    private const val PORTRAIT_ASPECT_WIDTH = 2f / 3f
+    private const val LANDSCAPE_ASPECT_WIDTH = 16f / 9f
+    private const val RAIL_HEIGHT_VIEWPORT_FRACTION = 0.22f
+
+    const val CatalogueRailMinHeightPx = 340f
+    const val CatalogueRailMaxHeightPx = 380f
+    const val CatalogueFocusedMinWidthPx = 600f
+    const val CatalogueFocusedMaxWidthPx = 680f
+    const val CataloguePortraitMinWidthPx = 225f
+    const val CataloguePortraitMaxWidthPx = 255f
+
+    fun catalogueRailGeometry(usableWidth: Dp, density: Density): NetflixRailGeometry {
+        val railMinHeight = with(density) { CatalogueRailMinHeightPx.toDp() }
+        val railMaxHeight = with(density) { CatalogueRailMaxHeightPx.toDp() }
+        val focusedMinWidth = with(density) { CatalogueFocusedMinWidthPx.toDp() }
+        val focusedMaxWidth = with(density) { CatalogueFocusedMaxWidthPx.toDp() }
+        val portraitMinWidth = with(density) { CataloguePortraitMinWidthPx.toDp() }
+        val portraitMaxWidth = with(density) { CataloguePortraitMaxWidthPx.toDp() }
+        val railHeight = (usableWidth * RAIL_HEIGHT_VIEWPORT_FRACTION)
+            .coerceIn(railMinHeight, railMaxHeight)
+        return NetflixRailGeometry(
+            railHeight = railHeight,
+            portraitWidth = (railHeight * PORTRAIT_ASPECT_WIDTH)
+                .coerceIn(portraitMinWidth, portraitMaxWidth),
+            focusedWidth = (railHeight * LANDSCAPE_ASPECT_WIDTH)
+                .coerceIn(focusedMinWidth, focusedMaxWidth)
+        )
+    }
+}
+
+internal object NetflixHomeSpacing {
+    private const val RAIL_HORIZONTAL_GAP_PX = 16f
+    val RailFocusPadding = 10.dp
+
+    fun railHorizontalGap(density: Density): Dp {
+        return with(density) { RAIL_HORIZONTAL_GAP_PX.toDp() }
+    }
+}
+
+internal object NetflixHomeMotion {
+    const val FocusWidthDurationMs = 180
+    val FocusWidthAnimation: TweenSpec<Dp> = tween(durationMillis = FocusWidthDurationMs)
+}
+
+@Immutable
+internal data class NetflixRailGeometry(
+    val railHeight: Dp,
+    val portraitWidth: Dp,
+    val focusedWidth: Dp
+)
 
 internal sealed class NetflixHomeTarget {
     data class Catalog(

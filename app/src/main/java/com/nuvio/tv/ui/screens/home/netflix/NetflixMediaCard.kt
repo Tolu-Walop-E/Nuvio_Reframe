@@ -2,7 +2,7 @@
 
 package com.nuvio.tv.ui.screens.home.netflix
 
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -12,7 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -59,10 +59,10 @@ internal fun NetflixMediaCard(
     onLongClick: (() -> Unit)? = null
 ) {
     var focused by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(
-        targetValue = if (focused) 1.08f else 1f,
-        animationSpec = tween(durationMillis = 170),
-        label = "netflixCardScale"
+    val animatedWidth by animateDpAsState(
+        targetValue = width,
+        animationSpec = NetflixHomeMotion.FocusWidthAnimation,
+        label = "netflixCardWidth"
     )
     val shape = RoundedCornerShape(NetflixHomeTokens.CardCornerRadius)
 
@@ -83,8 +83,6 @@ internal fun NetflixMediaCard(
                 }
             }
             .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
                 shadowElevation = if (focused) 18f else 2f
                 alpha = if (focused) 1f else 0.88f
             }
@@ -92,7 +90,8 @@ internal fun NetflixMediaCard(
                 focused = it.isFocused
                 if (it.isFocused) onFocus()
             }
-            .size(width, height)
+            .width(animatedWidth)
+            .height(height)
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick

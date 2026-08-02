@@ -7,6 +7,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -30,6 +31,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -57,6 +59,7 @@ internal fun NetflixContinueWatchingRail(
     modifier: Modifier = Modifier
 ) {
     if (items.isEmpty()) return
+    val density = LocalDensity.current
     val itemRequesters = remember(railKey, items.size) { List(items.size) { FocusRequester() } }
     NetflixRailScaffold(
         title = title,
@@ -70,10 +73,10 @@ internal fun NetflixContinueWatchingRail(
     ) { rowState, focusedIndex, onCardFocused ->
         LazyRow(
             state = rowState,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(NetflixHomeSpacing.railHorizontalGap(density)),
             contentPadding = PaddingValues(
                 horizontal = NetflixHomeTokens.PageHorizontalPadding,
-                vertical = 12.dp
+                vertical = NetflixHomeSpacing.RailFocusPadding
             )
         ) {
             itemsIndexed(items, key = { _, item -> item.netflixKey() }) { index, item ->
@@ -121,6 +124,7 @@ internal fun NetflixCatalogRail(
     modifier: Modifier = Modifier
 ) {
     if (row.items.isEmpty()) return
+    val density = LocalDensity.current
     val itemRequesters = remember(railKey, row.items.size) { List(row.items.size) { FocusRequester() } }
     var focusedMeta by remember(row.items) { mutableStateOf(row.items.getOrNull(lastFocusedIndex)) }
     var settledMeta by remember(row.items) { mutableStateOf(focusedMeta) }
@@ -144,49 +148,52 @@ internal fun NetflixCatalogRail(
         onFirstCardRequesterReady = onFirstCardRequesterReady,
         modifier = modifier
     ) { rowState, focusedIndex, onCardFocused ->
-        LazyRow(
-            state = rowState,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            contentPadding = PaddingValues(
-                horizontal = NetflixHomeTokens.PageHorizontalPadding,
-                vertical = 12.dp
-            )
-        ) {
-            itemsIndexed(row.items, key = { index, item -> item.netflixCatalogItemKey(row, index) }) { index, item ->
-                val landscape = useLandscapeCards || item.posterShape == PosterShape.LANDSCAPE
-                val focused = index == focusedIndex
-                val itemKey = item.netflixCatalogItemKey(row, index)
-                NetflixMediaCard(
-                    title = item.name,
-                    subtitle = item.releaseInfo,
-                    imageUrl = if (focused) item.backdropUrl ?: item.poster else if (landscape) item.backdropUrl ?: item.poster else item.poster ?: item.backdropUrl,
-                    width = when {
-                        focused && landscape -> NetflixHomeTokens.FocusedLandscapeCardWidth
-                        focused -> NetflixHomeTokens.FocusedPortraitCardWidth
-                        landscape -> NetflixHomeTokens.LandscapeCardWidth
-                        else -> NetflixHomeTokens.PortraitCardWidth
-                    },
-                    height = when {
-                        focused && landscape -> NetflixHomeTokens.FocusedLandscapeCardHeight
-                        focused -> NetflixHomeTokens.FocusedPortraitCardHeight
-                        landscape -> NetflixHomeTokens.LandscapeCardHeight
-                        else -> NetflixHomeTokens.PortraitCardHeight
-                    },
-                    focusRequester = itemRequesters[index],
-                    onClick = { onItemClick(item, row.addonBaseUrl) },
-                    onFocus = {
-                        onCardFocused(index)
-                        focusedMeta = item
-                        onFocusedItemChanged(index, itemKey)
-                        onItemFocused(item)
-                        if (row.hasMore && index >= row.items.lastIndex - 5) {
-                            onLoadMore(row.catalogId, row.addonId, row.apiType)
-                        }
-                    },
-                    onMoveUp = onMoveUp,
-                    onMoveDown = onMoveDown,
-                    onLongClick = { onItemLongClick(item, row.addonBaseUrl) }
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            val usableWidth = (maxWidth - (NetflixHomeTokens.PageHorizontalPadding * 2))
+                .coerceAtLeast(0.dp)
+            val geometry = remember(usableWidth, density) {
+                NetflixHomeDimensions.catalogueRailGeometry(usableWidth, density)
+            }
+            LazyRow(
+                state = rowState,
+                horizontalArrangement = Arrangement.spacedBy(NetflixHomeSpacing.railHorizontalGap(density)),
+                contentPadding = PaddingValues(
+                    horizontal = NetflixHomeTokens.PageHorizontalPadding,
+                    vertical = NetflixHomeSpacing.RailFocusPadding
                 )
+            ) {
+                itemsIndexed(row.items, key = { index, item -> item.netflixCatalogItemKey(row, index) }) { index, item ->
+                    val landscape = useLandscapeCards || item.posterShape == PosterShape.LANDSCAPE
+                    val focused = index == focusedIndex
+                    val itemKey = item.netflixCatalogItemKey(row, index)
+                    NetflixMediaCard(
+                        title = item.name,
+                        subtitle = item.releaseInfo,
+                        imageUrl = if (focused) {
+                            item.backdropUrl ?: item.poster
+                        } else if (landscape) {
+                            item.backdropUrl ?: item.poster
+                        } else {
+                            item.poster ?: item.backdropUrl
+                        },
+                        width = if (focused) geometry.focusedWidth else geometry.portraitWidth,
+                        height = geometry.railHeight,
+                        focusRequester = itemRequesters[index],
+                        onClick = { onItemClick(item, row.addonBaseUrl) },
+                        onFocus = {
+                            onCardFocused(index)
+                            focusedMeta = item
+                            onFocusedItemChanged(index, itemKey)
+                            onItemFocused(item)
+                            if (row.hasMore && index >= row.items.lastIndex - 5) {
+                                onLoadMore(row.catalogId, row.addonId, row.apiType)
+                            }
+                        },
+                        onMoveUp = onMoveUp,
+                        onMoveDown = onMoveDown,
+                        onLongClick = { onItemLongClick(item, row.addonBaseUrl) }
+                    )
+                }
             }
         }
         Crossfade(
