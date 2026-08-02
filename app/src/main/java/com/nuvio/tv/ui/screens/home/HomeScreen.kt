@@ -49,6 +49,8 @@ import com.nuvio.tv.ui.components.LoadingIndicator
 import com.nuvio.tv.ui.components.NuvioDialog
 import com.nuvio.tv.ui.components.PosterCardDefaults
 import com.nuvio.tv.ui.components.PosterCardStyle
+import com.nuvio.tv.ui.screens.home.netflix.NetflixHomeContent
+import com.nuvio.tv.ui.screens.home.netflix.NetflixHomeFeature
 import androidx.compose.ui.res.stringResource
 import com.nuvio.tv.R
 import com.nuvio.tv.core.tracking.LOCAL_LIBRARY_LIST_KEY
@@ -624,6 +626,35 @@ private fun ModernHomeRoute(
         { item: MetaPreview ->
             viewModel.preloadAdjacentItem(item)
         }
+    }
+    if (NetflixHomeFeature.ENABLED) {
+        NetflixHomeContent(
+            uiState = uiState,
+            focusState = focusState,
+            onNavigateToDetail = onNavigateToDetail,
+            onContinueWatchingClick = onContinueWatchingClick,
+            onContinueWatchingStartFromBeginning = onContinueWatchingStartFromBeginning,
+            onContinueWatchingPlayManually = onContinueWatchingPlayManually,
+            showContinueWatchingManualPlayOption = showContinueWatchingManualPlayOption,
+            onLoadMoreCatalog = loadMoreCatalog,
+            onRemoveContinueWatching = removeContinueWatching,
+            isCatalogItemWatched = isCatalogItemWatched,
+            onCatalogItemLongPress = onCatalogItemLongPress,
+            onNavigateToFolderDetail = onNavigateToFolderDetail,
+            onItemFocus = remember(viewModel) {
+                { item -> viewModel.onItemFocus(item) }
+            },
+            onPreloadAdjacentItem = preloadAdjacentItem,
+            trailerPreviewUrls = viewModel.trailerPreviewUrls,
+            trailerPreviewAudioUrls = viewModel.trailerPreviewAudioUrls,
+            onRequestTrailerPreview = requestTrailerPreview,
+            onSaveFocusState = saveModernFocusState,
+            scrollToTopTrigger = scrollToTopTrigger,
+            onRequestLazyCatalogLoad = remember(viewModel) {
+                { catalogKey: String -> viewModel.requestLazyCatalogLoad(catalogKey) }
+            }
+        )
+        return
     }
     ModernHomeContent(
         uiState = uiState,
