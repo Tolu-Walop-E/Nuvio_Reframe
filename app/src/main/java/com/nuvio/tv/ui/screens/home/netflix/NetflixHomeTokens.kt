@@ -4,9 +4,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.animation.core.TweenSpec
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Immutable
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.ui.screens.home.ContinueWatchingItem
 
@@ -45,6 +48,39 @@ internal object NetflixHomeTokens {
     const val ShowCataloguePosterLabels = false
 }
 
+internal object NetflixHomeTypography {
+    val RowTitle = TextStyle(
+        fontSize = 26.sp,
+        lineHeight = 30.sp,
+        fontWeight = FontWeight.SemiBold
+    )
+    val RowSubtitle = TextStyle(
+        fontSize = 17.sp,
+        lineHeight = 20.sp,
+        fontWeight = FontWeight.Normal
+    )
+    val Metadata = TextStyle(
+        fontSize = 18.sp,
+        lineHeight = 22.sp,
+        fontWeight = FontWeight.Medium
+    )
+    val Synopsis = TextStyle(
+        fontSize = 18.sp,
+        lineHeight = 24.sp,
+        fontWeight = FontWeight.Normal
+    )
+    val ContinueTitle = TextStyle(
+        fontSize = 20.sp,
+        lineHeight = 24.sp,
+        fontWeight = FontWeight.SemiBold
+    )
+    val ContinueSecondary = TextStyle(
+        fontSize = 16.sp,
+        lineHeight = 20.sp,
+        fontWeight = FontWeight.Normal
+    )
+}
+
 internal object NetflixHomeDimensions {
     private const val PORTRAIT_ASPECT_WIDTH = 2f / 3f
     private const val LANDSCAPE_ASPECT_WIDTH = 16f / 9f
@@ -79,6 +115,8 @@ internal object NetflixHomeDimensions {
 internal object NetflixHomeSpacing {
     private const val RAIL_HORIZONTAL_GAP_PX = 16f
     val RailFocusPadding = 10.dp
+    val FocusedMetadataHeight = 104.dp
+    val ContinueMetadataHeight = 58.dp
 
     fun railHorizontalGap(density: Density): Dp {
         return with(density) { RAIL_HORIZONTAL_GAP_PX.toDp() }

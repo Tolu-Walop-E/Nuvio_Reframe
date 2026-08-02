@@ -61,6 +61,17 @@ internal fun NetflixContinueWatchingRail(
     if (items.isEmpty()) return
     val density = LocalDensity.current
     val itemRequesters = remember(railKey, items.size) { List(items.size) { FocusRequester() } }
+    var focusedItem by remember(items) { mutableStateOf(items.getOrNull(lastFocusedIndex.coerceIn(0, items.lastIndex))) }
+    var settledItem by remember(items) { mutableStateOf(focusedItem) }
+
+    LaunchedEffect(focusedItem?.netflixKey()) {
+        val candidate = focusedItem
+        kotlinx.coroutines.delay(220L)
+        if (focusedItem?.netflixKey() == candidate?.netflixKey()) {
+            settledItem = candidate
+        }
+    }
+
     NetflixRailScaffold(
         title = title,
         railKey = railKey,
@@ -89,18 +100,38 @@ internal fun NetflixContinueWatchingRail(
                     subtitle = card.subtitle,
                     imageUrl = card.imageUrl,
                     width = if (focused) NetflixHomeTokens.FocusedContinueCardWidth else NetflixHomeTokens.ContinueCardWidth,
-                    height = if (focused) NetflixHomeTokens.FocusedContinueCardHeight else NetflixHomeTokens.ContinueCardHeight,
+                    height = NetflixHomeTokens.FocusedContinueCardHeight,
                     progress = card.progress,
+                    showLabels = false,
+                    showFallbackTitleWhenArtworkMissing = focused,
                     focusRequester = itemRequesters[index],
                     onClick = { onItemClick(item) },
                     onFocus = {
                         onCardFocused(index)
+                        focusedItem = item
                         onFocusedItemChanged(index, itemKey)
                         onItemFocused(item)
                     },
                     onMoveUp = onMoveUp,
                     onMoveDown = onMoveDown
                 )
+            }
+        }
+        Box(
+            modifier = Modifier
+                .height(NetflixHomeSpacing.ContinueMetadataHeight)
+                .padding(
+                    start = NetflixHomeTokens.PageHorizontalPadding,
+                    top = 6.dp,
+                    end = NetflixHomeTokens.PageHorizontalPadding
+                )
+        ) {
+            Crossfade(
+                targetState = settledItem,
+                animationSpec = tween(durationMillis = 200),
+                label = "netflixContinueWatchingMetadata"
+            ) { item ->
+                item?.let { NetflixContinueWatchingMetadata(item = it) }
             }
         }
     }
@@ -141,7 +172,7 @@ internal fun NetflixCatalogRail(
 
     NetflixRailScaffold(
         title = row.catalogName.replaceFirstChar { it.uppercase() },
-        subtitle = "Today's Top Picks for You",
+        subtitle = null,
         railKey = railKey,
         pendingFocusRailKey = pendingFocusRailKey,
         lastFocusedIndex = lastFocusedIndex,
@@ -196,20 +227,26 @@ internal fun NetflixCatalogRail(
                 }
             }
         }
-        Crossfade(
-            targetState = settledMeta,
-            animationSpec = tween(durationMillis = 200),
-            label = "netflixCatalogFocusedMetadata"
-        ) { item ->
-            if (item != null) {
-                NetflixFocusedCatalogMetadata(
-                    item = item,
-                    modifier = Modifier.padding(
-                        start = NetflixHomeTokens.PageHorizontalPadding,
-                        top = 2.dp,
-                        end = NetflixHomeTokens.PageHorizontalPadding
-                    )
+        Box(
+            modifier = Modifier
+                .height(NetflixHomeSpacing.FocusedMetadataHeight)
+                .padding(
+                    start = NetflixHomeTokens.PageHorizontalPadding,
+                    top = 12.dp,
+                    end = NetflixHomeTokens.PageHorizontalPadding
                 )
+        ) {
+            Crossfade(
+                targetState = settledMeta,
+                animationSpec = tween(durationMillis = 200),
+                label = "netflixCatalogFocusedMetadata"
+            ) { item ->
+                if (item != null) {
+                    NetflixFocusedCatalogMetadata(
+                        item = item,
+                        modifier = Modifier
+                    )
+                }
             }
         }
     }
@@ -226,10 +263,12 @@ private fun NetflixRailScaffold(
     onPendingFocusConsumed: () -> Unit,
     onFirstCardRequesterReady: (FocusRequester) -> Unit,
     modifier: Modifier = Modifier,
-    content: @Composable (LazyListState, Int?, (Int) -> Unit) -> Unit
+    content: @Composable (LazyListState, Int, (Int) -> Unit) -> Unit
 ) {
     val bringIntoViewRequester = remember { BringIntoViewRequester() }
-    var focusedIndex by remember { mutableStateOf<Int?>(null) }
+    var focusedIndex by remember(railKey, itemRequesters.size) {
+        mutableStateOf(lastFocusedIndex.coerceIn(0, itemRequesters.lastIndex))
+    }
     var lastBroughtIntoViewIndex by remember { mutableStateOf<Int?>(null) }
     val horizontalListState = rememberLazyListState(
         initialFirstVisibleItemIndex = lastFocusedIndex.coerceAtLeast(0)
@@ -245,13 +284,14 @@ private fun NetflixRailScaffold(
         }
         val targetIndex = lastFocusedIndex.coerceIn(0, itemRequesters.lastIndex)
         runCatching { horizontalListState.scrollToItem(targetIndex) }
+        focusedIndex = targetIndex
         runCatching { itemRequesters[targetIndex].requestFocus() }
         bringIntoViewRequester.bringIntoView()
         onPendingFocusConsumed()
     }
 
     LaunchedEffect(focusedIndex) {
-        val targetIndex = focusedIndex ?: return@LaunchedEffect
+        val targetIndex = focusedIndex
         if (lastBroughtIntoViewIndex == targetIndex) {
             return@LaunchedEffect
         }
@@ -269,27 +309,18 @@ private fun NetflixRailScaffold(
                 .padding(horizontal = NetflixHomeTokens.PageHorizontalPadding),
             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
         ) {
-            Box(
-                modifier = Modifier
-                    .width(3.dp)
-                    .height(20.dp)
-                    .background(NetflixHomeTokens.Accent)
-            )
-            Spacer(modifier = Modifier.width(8.dp))
             Column {
                 Text(
                     text = title,
                     color = NetflixHomeTokens.TextPrimary,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
+                    style = NetflixHomeTypography.RowTitle,
                     maxLines = 1
                 )
                 if (!subtitle.isNullOrBlank()) {
                     Text(
                         text = subtitle,
                         color = NetflixHomeTokens.TextSecondary,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.SemiBold,
+                        style = NetflixHomeTypography.RowSubtitle,
                         maxLines = 1
                     )
                 }
@@ -306,32 +337,57 @@ private fun NetflixFocusedCatalogMetadata(
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier.fillMaxWidth(0.52f)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             item.imdbRating?.let {
                 Text(
                     text = "${String.format("%.0f", it * 10)}%",
                     color = Color(0xFF31D76B),
-                    style = MaterialTheme.typography.bodySmall,
+                    style = NetflixHomeTypography.Metadata,
                     fontWeight = FontWeight.Bold
                 )
             }
-            item.releaseInfo?.let { fact ->
-                Text(text = fact.take(4), color = NetflixHomeTokens.TextPrimary, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
-            }
-            item.genres.firstOrNull()?.let { genre ->
-                Text(text = genre, color = NetflixHomeTokens.TextPrimary, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
-            }
-            item.runtime?.let { runtime ->
-                Text(text = runtime, color = NetflixHomeTokens.TextPrimary, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+            item.metadataFacts().forEach { fact ->
+                Text(
+                    text = fact,
+                    color = NetflixHomeTokens.TextPrimary,
+                    style = NetflixHomeTypography.Metadata,
+                    maxLines = 1
+                )
             }
         }
         if (!item.description.isNullOrBlank()) {
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = item.description,
                 color = NetflixHomeTokens.TextSecondary,
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 3,
+                style = NetflixHomeTypography.Synopsis,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun NetflixContinueWatchingMetadata(
+    item: ContinueWatchingItem,
+    modifier: Modifier = Modifier
+) {
+    val card = item.toNetflixCard()
+    Column(modifier = modifier.fillMaxWidth(0.52f)) {
+        Text(
+            text = card.title,
+            color = NetflixHomeTokens.TextPrimary,
+            style = NetflixHomeTypography.ContinueTitle,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        if (!card.subtitle.isNullOrBlank()) {
+            Text(
+                text = card.subtitle,
+                color = NetflixHomeTokens.TextSecondary,
+                style = NetflixHomeTypography.ContinueSecondary,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
         }
@@ -370,6 +426,21 @@ private fun MetaPreview.netflixCatalogueArtwork(
         background ?: landscapePoster ?: poster
     } else {
         poster ?: background ?: landscapePoster
+    }
+}
+
+private fun MetaPreview.metadataFacts(): List<String> {
+    return buildList {
+        releaseInfo?.let { value ->
+            Regex("""\b(19|20)\d{2}\b""").find(value)?.value?.let(::add)
+        }
+        ageRating?.takeIf { it.isNotBlank() }?.let(::add)
+        genres.take(2)
+            .filter { it.isNotBlank() }
+            .takeIf { it.isNotEmpty() }
+            ?.joinToString(" · ")
+            ?.let(::add)
+        runtime?.takeIf { it.isNotBlank() && it != "0 min" }?.let(::add)
     }
 }
 

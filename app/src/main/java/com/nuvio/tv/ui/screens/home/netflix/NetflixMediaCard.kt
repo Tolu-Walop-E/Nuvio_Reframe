@@ -151,17 +151,20 @@ internal fun NetflixMediaCard(
                 )
             }
             if (progress != null) {
+                val progressShape = RoundedCornerShape(50)
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
                         .fillMaxWidth()
                         .height(4.dp)
+                        .clip(progressShape)
                         .background(Color.White.copy(alpha = 0.24f))
                 ) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth(progress.coerceIn(0f, 1f))
                             .height(4.dp)
+                            .clip(progressShape)
                             .background(NetflixHomeTokens.Accent)
                     )
                 }
