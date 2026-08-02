@@ -21,18 +21,24 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.nuvio.tv.domain.model.MetaPreview
+import com.nuvio.tv.ui.components.ContinueWatchingOptionsDialog
 import com.nuvio.tv.ui.screens.home.ContinueWatchingItem
 import com.nuvio.tv.ui.screens.home.HomeScreenFocusState
 import com.nuvio.tv.ui.screens.home.HomeUiState
+import com.nuvio.tv.ui.screens.home.contentId
+import com.nuvio.tv.ui.screens.home.contentType
+import com.nuvio.tv.ui.screens.home.episode
+import com.nuvio.tv.ui.screens.home.season
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -66,20 +72,25 @@ fun NetflixHomeContent(
     var focusedTopNavigationIndex by remember { mutableStateOf(1) }
     val topNavigationRequesters = remember { List(NETFLIX_TOP_NAV_ITEM_COUNT) { FocusRequester() } }
     val heroPrimaryRequester = remember { FocusRequester() }
-    val heroSecondaryRequester = remember { FocusRequester() }
     val firstCardRequestersByRail = remember { mutableStateMapOf<String, FocusRequester>() }
     val lastFocusedIndexByRail = remember { mutableStateMapOf<String, Int>() }
     val requestedTrailerKeys = remember { mutableStateMapOf<String, Boolean>() }
     val playedTrailerKeys = remember { mutableStateMapOf<String, Boolean>() }
     var pendingFocusRailKey by remember { mutableStateOf<String?>(null) }
+    var railFocusJob by remember { mutableStateOf<Job?>(null) }
+    var railAlignmentJob by remember { mutableStateOf<Job?>(null) }
+    var continueWatchingOptionsItem by remember { mutableStateOf<ContinueWatchingItem?>(null) }
     var restoredSavedFocus by remember { mutableStateOf(false) }
     var previewTrailerHeroKey by remember { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
-    val genreChips = remember(uiState.catalogRows) {
-        buildGenreChips(uiState.catalogRows)
+    val catalogEntries = remember(uiState.catalogRows) {
+        uiState.catalogRows.netflixCatalogEntries()
     }
-    val railKeys = remember(uiState.continueWatchingItems, uiState.catalogRows, genreChips) {
+    val genreChips = remember(catalogEntries) {
+        buildGenreChips(catalogEntries)
+    }
+    val railKeys = remember(uiState.continueWatchingItems, catalogEntries, genreChips) {
         buildList {
             if (genreChips.isNotEmpty()) {
                 add(NETFLIX_GENRE_RAIL_KEY)
@@ -87,9 +98,7 @@ fun NetflixHomeContent(
             if (uiState.continueWatchingItems.isNotEmpty()) {
                 add(NETFLIX_CONTINUE_WATCHING_RAIL_KEY)
             }
-            uiState.catalogRows
-                .filter { row -> row.items.isNotEmpty() }
-                .forEach { row -> add(row.netflixRailKey()) }
+            catalogEntries.forEach { entry -> add(entry.railKey) }
         }
     }
 
@@ -141,10 +150,12 @@ fun NetflixHomeContent(
         val focusedRowKey = focusState.focusedRowKey
         if (!restoredSavedFocus && focusState.hasSavedFocus && focusedRowKey != null && focusedRowKey in railKeys) {
             lastFocusedIndexByRail[focusedRowKey] = focusState.focusedItemIndex
-            runCatching {
-                listState.scrollToItem(railKeys.indexOf(focusedRowKey) + NETFLIX_HOME_STATIC_ROW_COUNT)
-            }
+            val lazyListIndex = railKeys.indexOf(focusedRowKey) + NETFLIX_HOME_STATIC_ROW_COUNT
+            runCatching { listState.scrollToItem(lazyListIndex) }
+            withFrameNanos { }
             pendingFocusRailKey = focusedRowKey
+            delay(NETFLIX_FOCUS_SETTLE_DELAY_MS)
+            listState.scrollToItem(lazyListIndex)
             restoredSavedFocus = true
         }
     }
@@ -153,15 +164,33 @@ fun NetflixHomeContent(
         if (railKey == null) {
             return true
         }
-        pendingFocusRailKey = railKey
-        val lazyListIndex = railKeys.indexOf(railKey) + NETFLIX_HOME_STATIC_ROW_COUNT
-        if (lazyListIndex >= NETFLIX_HOME_STATIC_ROW_COUNT) {
-            coroutineScope.launch {
-                runCatching { listState.animateScrollToItem(lazyListIndex) }
-            }
-            return true
+        val railIndex = railKeys.indexOf(railKey)
+        if (railIndex < 0) {
+            return false
         }
-        return false
+        railFocusJob?.cancel()
+        railFocusJob = coroutineScope.launch {
+            pendingFocusRailKey = null
+            listState.scrollToItem(railIndex + NETFLIX_HOME_STATIC_ROW_COUNT)
+            withFrameNanos { }
+            pendingFocusRailKey = railKey
+            delay(NETFLIX_FOCUS_SETTLE_DELAY_MS)
+            listState.scrollToItem(railIndex + NETFLIX_HOME_STATIC_ROW_COUNT)
+        }
+        return true
+    }
+
+    fun requestHeroFocus(): Boolean {
+        railFocusJob?.cancel()
+        railFocusJob = coroutineScope.launch {
+            pendingFocusRailKey = null
+            listState.scrollToItem(0)
+            withFrameNanos { }
+            runCatching { heroPrimaryRequester.requestFocus() }
+            delay(NETFLIX_FOCUS_SETTLE_DELAY_MS)
+            listState.scrollToItem(0)
+        }
+        return true
     }
 
     fun saveRailFocus(railKey: String, itemKey: String, railIndex: Int, itemIndex: Int) {
@@ -175,6 +204,11 @@ fun NetflixHomeContent(
             railIndex,
             itemIndex
         )
+        railAlignmentJob?.cancel()
+        railAlignmentJob = coroutineScope.launch {
+            delay(NETFLIX_HORIZONTAL_FOCUS_SETTLE_DELAY_MS)
+            listState.scrollToItem(railIndex + NETFLIX_HOME_STATIC_ROW_COUNT)
+        }
     }
 
     Box(
@@ -234,7 +268,6 @@ fun NetflixHomeContent(
                         modifier = Modifier,
                         topNavigationRequester = topNavigationRequesters.getOrElse(focusedTopNavigationIndex) { topNavigationRequesters[1] },
                         primaryActionRequester = heroPrimaryRequester,
-                        secondaryActionRequester = heroSecondaryRequester,
                         onMoveDownFromHero = {
                             requestRailFocus(railKeys.firstOrNull())
                         },
@@ -248,13 +281,7 @@ fun NetflixHomeContent(
                             heroItem?.key?.let { playedTrailerKeys[it] = true }
                             previewTrailerHeroKey = null
                         },
-                        onViewDetails = { target -> navigateToTargetDetails(target, onNavigateToDetail) },
-                        onPlay = { target ->
-                            when (target) {
-                                is NetflixHomeTarget.ContinueWatching -> onContinueWatchingClick(target.item)
-                                is NetflixHomeTarget.Catalog -> navigateToTargetDetails(target, onNavigateToDetail)
-                            }
-                        }
+                        onViewDetails = { target -> navigateToTargetDetails(target, onNavigateToDetail) }
                     )
                 }
             }
@@ -275,7 +302,7 @@ fun NetflixHomeContent(
                         onFirstCardRequesterReady = { requester ->
                             firstCardRequestersByRail[NETFLIX_GENRE_RAIL_KEY] = requester
                         },
-                        onMoveUp = { runCatching { heroPrimaryRequester.requestFocus() }.isSuccess },
+                        onMoveUp = { requestHeroFocus() },
                         onMoveDown = {
                             requestRailFocus(railKeys.getOrNull(railIndex + 1))
                         },
@@ -295,6 +322,7 @@ fun NetflixHomeContent(
                     pendingFocusRailKey = pendingFocusRailKey,
                     lastFocusedIndex = lastFocusedIndexByRail[NETFLIX_CONTINUE_WATCHING_RAIL_KEY] ?: 0,
                     onItemClick = onContinueWatchingClick,
+                    onItemLongClick = { item -> continueWatchingOptionsItem = item },
                     onItemFocused = { item -> pendingHeroItem = item.toNetflixHeroItem() },
                     onFocusedItemChanged = { itemIndex, itemKey ->
                         if (railIndex >= 0) {
@@ -305,7 +333,13 @@ fun NetflixHomeContent(
                     onFirstCardRequesterReady = { requester ->
                         firstCardRequestersByRail[NETFLIX_CONTINUE_WATCHING_RAIL_KEY] = requester
                     },
-                    onMoveUp = { runCatching { heroPrimaryRequester.requestFocus() }.isSuccess },
+                    onMoveUp = {
+                        if (railIndex <= 0) {
+                            requestHeroFocus()
+                        } else {
+                            requestRailFocus(railKeys.getOrNull(railIndex - 1))
+                        }
+                    },
                     onMoveDown = {
                         if (railIndex >= 0) {
                             requestRailFocus(railKeys.getOrNull(railIndex + 1))
@@ -317,10 +351,11 @@ fun NetflixHomeContent(
                 }
             }
             items(
-                items = uiState.catalogRows.filter { row -> row.items.isNotEmpty() },
-                key = { row -> row.netflixRailKey() }
-            ) { row ->
-                val railKey = row.netflixRailKey()
+                items = catalogEntries,
+                key = { entry -> entry.railKey }
+            ) { entry ->
+                val row = entry.row
+                val railKey = entry.railKey
                 val railIndex = railKeys.indexOf(railKey)
                 NetflixCatalogRail(
                     railKey = railKey,
@@ -348,7 +383,7 @@ fun NetflixHomeContent(
                     },
                     onMoveUp = {
                         if (railIndex <= 0) {
-                            runCatching { heroPrimaryRequester.requestFocus() }.isSuccess
+                            requestHeroFocus()
                         } else {
                             requestRailFocus(railKeys.getOrNull(railIndex - 1))
                         }
@@ -364,8 +399,53 @@ fun NetflixHomeContent(
                 )
             }
             item(key = "bottom_padding") {
-                Spacer(modifier = Modifier.height(42.dp))
+                Spacer(modifier = Modifier.height(NetflixHomeSpacing.BottomFocusClearance))
             }
+        }
+
+        val optionsItem = continueWatchingOptionsItem
+        if (optionsItem != null) {
+            ContinueWatchingOptionsDialog(
+                item = optionsItem,
+                onDismiss = {
+                    continueWatchingOptionsItem = null
+                    requestRailFocus(NETFLIX_CONTINUE_WATCHING_RAIL_KEY)
+                },
+                onRemove = {
+                    val currentIndex = lastFocusedIndexByRail[NETFLIX_CONTINUE_WATCHING_RAIL_KEY] ?: 0
+                    val targetIndex = if (uiState.continueWatchingItems.size <= 1) {
+                        null
+                    } else {
+                        currentIndex.coerceAtMost(uiState.continueWatchingItems.size - 2).coerceAtLeast(0)
+                    }
+                    targetIndex?.let {
+                        lastFocusedIndexByRail[NETFLIX_CONTINUE_WATCHING_RAIL_KEY] = it
+                    }
+                    onRemoveContinueWatching(
+                        optionsItem.contentId(),
+                        optionsItem.season(),
+                        optionsItem.episode(),
+                        optionsItem is ContinueWatchingItem.NextUp
+                    )
+                    continueWatchingOptionsItem = null
+                    if (targetIndex != null) {
+                        requestRailFocus(NETFLIX_CONTINUE_WATCHING_RAIL_KEY)
+                    }
+                },
+                onDetails = {
+                    onNavigateToDetail(optionsItem.contentId(), optionsItem.contentType(), "")
+                    continueWatchingOptionsItem = null
+                },
+                onStartFromBeginning = {
+                    onContinueWatchingStartFromBeginning(optionsItem)
+                    continueWatchingOptionsItem = null
+                },
+                showPlayManually = showContinueWatchingManualPlayOption,
+                onPlayManually = {
+                    onContinueWatchingPlayManually(optionsItem)
+                    continueWatchingOptionsItem = null
+                }
+            )
         }
     }
 }
@@ -376,6 +456,8 @@ private const val NETFLIX_HOME_STATIC_ROW_COUNT = 2
 private const val NETFLIX_TOP_NAV_ITEM_COUNT = 7
 private const val NETFLIX_METADATA_SETTLE_DELAY_MS = 240L
 private const val NETFLIX_TRAILER_SETTLE_DELAY_MS = 1_000L
+private const val NETFLIX_FOCUS_SETTLE_DELAY_MS = 48L
+private const val NETFLIX_HORIZONTAL_FOCUS_SETTLE_DELAY_MS = 96L
 
 private fun resolveInitialHero(uiState: HomeUiState): NetflixHeroItem? {
     val hero = uiState.heroItems.firstOrNull()
@@ -390,10 +472,26 @@ private fun resolveInitialHero(uiState: HomeUiState): NetflixHeroItem? {
     return uiState.continueWatchingItems.firstOrNull()?.toNetflixHeroItem()
 }
 
-private fun buildGenreChips(rows: List<com.nuvio.tv.domain.model.CatalogRow>): List<NetflixGenreChip> {
+private data class NetflixCatalogEntry(
+    val row: com.nuvio.tv.domain.model.CatalogRow,
+    val railKey: String
+)
+
+private fun List<com.nuvio.tv.domain.model.CatalogRow>.netflixCatalogEntries(): List<NetflixCatalogEntry> {
+    return filter { row -> row.items.isNotEmpty() }
+        .mapIndexed { index, row ->
+            NetflixCatalogEntry(
+                row = row,
+                railKey = "${row.netflixRailKey()}|position|$index"
+            )
+        }
+}
+
+private fun buildGenreChips(rows: List<NetflixCatalogEntry>): List<NetflixGenreChip> {
     val chips = linkedMapOf<String, NetflixGenreChip>()
-    rows.filter { it.items.isNotEmpty() }.forEach { row ->
-        val rowKey = row.netflixRailKey()
+    rows.forEach { entry ->
+        val row = entry.row
+        val rowKey = entry.railKey
         val rowLabel = row.catalogName.trim().replaceFirstChar { it.uppercase() }
         if (rowLabel.isNotBlank()) {
             chips.putIfAbsent(

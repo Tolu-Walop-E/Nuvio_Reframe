@@ -26,7 +26,7 @@ internal object NetflixHomeTokens {
 
     val PageHorizontalPadding = 40.dp
     val TopNavHeight = 48.dp
-    val HeroHeight = 318.dp
+    val HeroHeight = 420.dp
     val HeroCornerRadius = 26.dp
     val RailSpacing = 14.dp
     val CardCornerRadius = 10.dp
@@ -39,10 +39,10 @@ internal object NetflixHomeTokens {
     val LandscapeCardHeight = 122.dp
     val FocusedLandscapeCardWidth = 292.dp
     val FocusedLandscapeCardHeight = 164.dp
-    val ContinueCardWidth = 236.dp
-    val ContinueCardHeight = 132.dp
-    val FocusedContinueCardWidth = 292.dp
-    val FocusedContinueCardHeight = 164.dp
+    val ContinueCardWidth = 260.dp
+    val ContinueCardHeight = 146.dp
+    val FocusedContinueCardWidth = 440.dp
+    val FocusedContinueCardHeight = 248.dp
     val GenreCardWidth = 150.dp
     val GenreCardHeight = 54.dp
     const val ShowCataloguePosterLabels = false
@@ -84,14 +84,14 @@ internal object NetflixHomeTypography {
 internal object NetflixHomeDimensions {
     private const val PORTRAIT_ASPECT_WIDTH = 2f / 3f
     private const val LANDSCAPE_ASPECT_WIDTH = 16f / 9f
-    private const val RAIL_HEIGHT_VIEWPORT_FRACTION = 0.22f
+    private const val RAIL_HEIGHT_VIEWPORT_FRACTION = 0.285f
 
-    const val CatalogueRailMinHeightPx = 340f
-    const val CatalogueRailMaxHeightPx = 380f
-    const val CatalogueFocusedMinWidthPx = 600f
-    const val CatalogueFocusedMaxWidthPx = 680f
-    const val CataloguePortraitMinWidthPx = 225f
-    const val CataloguePortraitMaxWidthPx = 255f
+    const val CatalogueRailMinHeightPx = 480f
+    const val CatalogueRailMaxHeightPx = 520f
+    const val CatalogueFocusedMinWidthPx = 850f
+    const val CatalogueFocusedMaxWidthPx = 920f
+    const val CataloguePortraitMinWidthPx = 320f
+    const val CataloguePortraitMaxWidthPx = 348f
 
     fun catalogueRailGeometry(usableWidth: Dp, density: Density): NetflixRailGeometry {
         val railMinHeight = with(density) { CatalogueRailMinHeightPx.toDp() }
@@ -115,8 +115,10 @@ internal object NetflixHomeDimensions {
 internal object NetflixHomeSpacing {
     private const val RAIL_HORIZONTAL_GAP_PX = 16f
     val RailFocusPadding = 10.dp
+    val RailTopPadding = 24.dp
     val FocusedMetadataHeight = 104.dp
     val ContinueMetadataHeight = 58.dp
+    val BottomFocusClearance = 400.dp
 
     fun railHorizontalGap(density: Density): Dp {
         return with(density) { RAIL_HORIZONTAL_GAP_PX.toDp() }

@@ -20,8 +20,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.relocation.BringIntoViewRequester
-import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -50,6 +48,7 @@ internal fun NetflixContinueWatchingRail(
     pendingFocusRailKey: String?,
     lastFocusedIndex: Int,
     onItemClick: (ContinueWatchingItem) -> Unit,
+    onItemLongClick: (ContinueWatchingItem) -> Unit,
     onItemFocused: (ContinueWatchingItem) -> Unit,
     onFocusedItemChanged: (Int, String) -> Unit,
     onPendingFocusConsumed: () -> Unit,
@@ -100,12 +99,17 @@ internal fun NetflixContinueWatchingRail(
                     subtitle = card.subtitle,
                     imageUrl = card.imageUrl,
                     width = if (focused) NetflixHomeTokens.FocusedContinueCardWidth else NetflixHomeTokens.ContinueCardWidth,
-                    height = NetflixHomeTokens.FocusedContinueCardHeight,
+                    height = if (focused) {
+                        NetflixHomeTokens.FocusedContinueCardHeight
+                    } else {
+                        NetflixHomeTokens.ContinueCardHeight
+                    },
                     progress = card.progress,
                     showLabels = false,
                     showFallbackTitleWhenArtworkMissing = focused,
                     focusRequester = itemRequesters[index],
                     onClick = { onItemClick(item) },
+                    onLongClick = { onItemLongClick(item) },
                     onFocus = {
                         onCardFocused(index)
                         focusedItem = item
@@ -265,11 +269,9 @@ private fun NetflixRailScaffold(
     modifier: Modifier = Modifier,
     content: @Composable (LazyListState, Int, (Int) -> Unit) -> Unit
 ) {
-    val bringIntoViewRequester = remember { BringIntoViewRequester() }
     var focusedIndex by remember(railKey, itemRequesters.size) {
         mutableStateOf(lastFocusedIndex.coerceIn(0, itemRequesters.lastIndex))
     }
-    var lastBroughtIntoViewIndex by remember { mutableStateOf<Int?>(null) }
     val horizontalListState = rememberLazyListState(
         initialFirstVisibleItemIndex = lastFocusedIndex.coerceAtLeast(0)
     )
@@ -286,22 +288,12 @@ private fun NetflixRailScaffold(
         runCatching { horizontalListState.scrollToItem(targetIndex) }
         focusedIndex = targetIndex
         runCatching { itemRequesters[targetIndex].requestFocus() }
-        bringIntoViewRequester.bringIntoView()
         onPendingFocusConsumed()
-    }
-
-    LaunchedEffect(focusedIndex) {
-        val targetIndex = focusedIndex
-        if (lastBroughtIntoViewIndex == targetIndex) {
-            return@LaunchedEffect
-        }
-        bringIntoViewRequester.bringIntoView()
-        lastBroughtIntoViewIndex = targetIndex
     }
 
     Column(
         modifier = modifier
-            .bringIntoViewRequester(bringIntoViewRequester)
+            .padding(top = NetflixHomeSpacing.RailTopPadding)
     ) {
         Row(
             modifier = Modifier

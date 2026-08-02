@@ -32,7 +32,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
@@ -57,15 +56,13 @@ internal fun NetflixHero(
     modifier: Modifier = Modifier,
     topNavigationRequester: FocusRequester,
     primaryActionRequester: FocusRequester,
-    secondaryActionRequester: FocusRequester,
     onMoveDownFromHero: () -> Boolean,
     trailerPreviewUrl: String?,
     trailerPreviewAudioUrl: String?,
     playTrailerPreview: Boolean,
     trailerPreviewMuted: Boolean,
     onTrailerEnded: () -> Unit,
-    onViewDetails: (NetflixHomeTarget) -> Unit,
-    onPlay: (NetflixHomeTarget) -> Unit
+    onViewDetails: (NetflixHomeTarget) -> Unit
 ) {
     val shape = RoundedCornerShape(NetflixHomeTokens.HeroCornerRadius)
     val bringIntoViewRequester = remember { BringIntoViewRequester() }
@@ -78,7 +75,7 @@ internal fun NetflixHero(
     Box(
         modifier = modifier
             .height(NetflixHomeTokens.HeroHeight)
-            .fillMaxWidth(0.92f)
+            .fillMaxWidth(0.96f)
             .bringIntoViewRequester(bringIntoViewRequester)
             .clip(shape)
             .background(NetflixHomeTokens.SurfaceRaised)
@@ -183,34 +180,17 @@ internal fun NetflixHero(
                     )
                 }
                 Spacer(modifier = Modifier.height(22.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    NetflixHeroButton(
-                        label = "View Details",
-                        primary = true,
-                        focusRequester = primaryActionRequester,
-                        leftRequester = FocusRequester.Default,
-                        rightRequester = secondaryActionRequester,
-                        onFocus = { bringIntoViewRequester.bringIntoViewSafely() },
-                        onMoveUp = {
-                            runCatching { topNavigationRequester.requestFocus() }.isSuccess
-                        },
-                        onMoveDown = onMoveDownFromHero,
-                        onClick = { onViewDetails(item.target) }
-                    )
-                    NetflixHeroButton(
-                        label = "Play",
-                        primary = false,
-                        focusRequester = secondaryActionRequester,
-                        leftRequester = primaryActionRequester,
-                        rightRequester = FocusRequester.Default,
-                        onFocus = { bringIntoViewRequester.bringIntoViewSafely() },
-                        onMoveUp = {
-                            runCatching { topNavigationRequester.requestFocus() }.isSuccess
-                        },
-                        onMoveDown = onMoveDownFromHero,
-                        onClick = { onPlay(item.target) }
-                    )
-                }
+                NetflixHeroButton(
+                    label = "View Details",
+                    primary = true,
+                    focusRequester = primaryActionRequester,
+                    onFocus = { bringIntoViewRequester.bringIntoViewSafely() },
+                    onMoveUp = {
+                        runCatching { topNavigationRequester.requestFocus() }.isSuccess
+                    },
+                    onMoveDown = onMoveDownFromHero,
+                    onClick = { onViewDetails(item.target) }
+                )
             }
         }
     }
@@ -254,8 +234,6 @@ private fun NetflixHeroButton(
     label: String,
     primary: Boolean,
     focusRequester: FocusRequester,
-    leftRequester: FocusRequester,
-    rightRequester: FocusRequester,
     onFocus: suspend () -> Unit,
     onMoveUp: () -> Boolean,
     onMoveDown: () -> Boolean,
@@ -267,10 +245,6 @@ private fun NetflixHeroButton(
         text = label,
         modifier = Modifier
             .focusRequester(focusRequester)
-            .focusProperties {
-                left = leftRequester
-                right = rightRequester
-            }
             .onPreviewKeyEvent { keyEvent ->
                 if (keyEvent.type != KeyEventType.KeyDown) {
                     false

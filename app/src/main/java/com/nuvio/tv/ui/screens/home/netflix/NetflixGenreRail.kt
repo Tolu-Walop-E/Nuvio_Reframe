@@ -15,13 +15,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.relocation.BringIntoViewRequester
-import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -68,9 +65,6 @@ internal fun NetflixGenreRail(
 
     val itemRequesters = remember(railKey, genres.size) { List(genres.size) { FocusRequester() } }
     val rowState = rememberLazyListState(initialFirstVisibleItemIndex = lastFocusedIndex.coerceAtLeast(0))
-    val bringIntoViewRequester = remember { BringIntoViewRequester() }
-    var focusedIndex by remember { mutableIntStateOf(-1) }
-    var lastBroughtIndex by remember { mutableStateOf<Int?>(null) }
 
     LaunchedEffect(itemRequesters) {
         itemRequesters.firstOrNull()?.let(onFirstCardRequesterReady)
@@ -81,18 +75,11 @@ internal fun NetflixGenreRail(
         val targetIndex = lastFocusedIndex.coerceIn(0, itemRequesters.lastIndex)
         runCatching { rowState.scrollToItem(targetIndex) }
         runCatching { itemRequesters[targetIndex].requestFocus() }
-        bringIntoViewRequester.bringIntoView()
         onPendingFocusConsumed()
     }
 
-    LaunchedEffect(focusedIndex) {
-        if (focusedIndex < 0 || lastBroughtIndex == focusedIndex) return@LaunchedEffect
-        bringIntoViewRequester.bringIntoView()
-        lastBroughtIndex = focusedIndex
-    }
-
     LazyRow(
-        modifier = modifier.bringIntoViewRequester(bringIntoViewRequester),
+        modifier = modifier.padding(top = NetflixHomeSpacing.RailTopPadding),
         state = rowState,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         contentPadding = PaddingValues(horizontal = NetflixHomeTokens.PageHorizontalPadding, vertical = 8.dp)
@@ -102,7 +89,6 @@ internal fun NetflixGenreRail(
                 label = genre.label,
                 focusRequester = itemRequesters[index],
                 onFocus = {
-                    focusedIndex = index
                     onFocusedItemChanged(index, genre.key)
                 },
                 onMoveUp = onMoveUp,

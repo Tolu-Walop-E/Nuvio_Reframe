@@ -184,18 +184,41 @@ android {
     }
 
     signingConfigs {
+<<<<<<< Updated upstream
         create("release") {
-            keyAlias = releaseKeyAliasValue
-            keyPassword = releaseKeyPasswordValue
-            storeFile = releaseStoreFilePath?.let(::file) ?: file("../nuviotv.jks")
-            storePassword = releaseStorePasswordValue
+            val keystoreFile = releaseStoreFilePath?.takeIf { it.isNotBlank() }?.let(::file) ?: rootProject.file("nuviotv.jks")
+            if (keystoreFile.exists() && keystoreFile.isFile) {
+                keyAlias = releaseKeyAliasValue
+                keyPassword = releaseKeyPasswordValue
+                storeFile = keystoreFile
+                storePassword = releaseStorePasswordValue
+            } else {
+                val debugConfig = getByName("debug")
+                keyAlias = debugConfig.keyAlias
+                keyPassword = debugConfig.keyPassword
+                storeFile = debugConfig.storeFile
+                storePassword = debugConfig.storePassword
+=======
+        val releaseKeystore = releaseStoreFilePath?.let(::file) ?: file("../nuviotv.jks")
+        if (releaseKeystore.exists()) {
+            create("release") {
+                keyAlias = releaseKeyAliasValue
+                keyPassword = releaseKeyPasswordValue
+                storeFile = releaseKeystore
+                storePassword = releaseStorePasswordValue
+>>>>>>> Stashed changes
+            }
         }
     }
 
     buildTypes {
         debug {
-            signingConfig = signingConfigs.getByName("release")
-            isDebuggable = false
+<<<<<<< Updated upstream
+            signingConfig = signingConfigs.getByName("debug")
+=======
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
+>>>>>>> Stashed changes
+            isDebuggable = true
             isMinifyEnabled = false
 
             buildConfigField("boolean", "IS_DEBUG_BUILD", "true")
@@ -229,7 +252,7 @@ android {
             signingConfig = if (useDebugReleaseSigning) {
                 signingConfigs.getByName("debug")
             } else {
-                signingConfigs.getByName("release")
+                signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
             }
 
             buildConfigField("boolean", "IS_DEBUG_BUILD", "false")

@@ -70,7 +70,10 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import com.nuvio.tv.ui.util.recompositionHighlighter
 import com.nuvio.tv.ui.util.dpadRepeatThrottle
@@ -108,6 +111,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import androidx.compose.ui.res.stringResource
+import coil3.compose.AsyncImage
 import com.nuvio.tv.R
 
 /** Skeleton rows shown while a search is pending, matching the two mobile renders. */
@@ -501,9 +505,30 @@ fun SearchScreen(
 
     Box(
         modifier = Modifier
-            .fillMaxSize(),
+            .fillMaxSize()
+            .background(Color(0xFF031018)),
         contentAlignment = Alignment.TopCenter
     ) {
+        AsyncImage(
+            model = HeroBackdropState.lastDisplayedUrl,
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop,
+            alpha = 0.18f
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            Color(0xEE062638),
+                            Color(0xF4051018),
+                            Color(0xFA020407)
+                        )
+                    )
+                )
+        )
         val listState = rememberLazyListState()
         LazyColumn(
             modifier = Modifier
@@ -512,7 +537,7 @@ fun SearchScreen(
                 .dpadRepeatThrottle(),
             state = listState,
             contentPadding = PaddingValues(
-                top = if (isDiscoverMode) 10.dp else NuvioTheme.spacing.lg,
+                top = if (isDiscoverMode) 18.dp else 22.dp,
                 bottom = NuvioTheme.spacing.lg
             ),
             verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.lg)
@@ -859,7 +884,7 @@ private fun SearchInputField(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = NuvioTheme.spacing.xxxl),
+            .padding(horizontal = 52.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (showDiscoverButton) {
@@ -867,16 +892,16 @@ private fun SearchInputField(
                 onClick = onOpenDiscover,
                 modifier = Modifier
                     .onFocusChanged { isDiscoverButtonFocused = it.isFocused }
-                    .size(NuvioTheme.spacing.huge)
-                    .border(
-                        width = if (isDiscoverButtonFocused) NuvioTheme.spacing.xxs else NuvioTheme.spacing.hairline,
-                        color = if (isDiscoverButtonFocused) NuvioTheme.colors.FocusRing else NuvioTheme.colors.Border,
-                        shape = RoundedCornerShape(NuvioTheme.radii.md)
-                    )
-                    .background(
-                        color = NuvioTheme.colors.BackgroundCard,
-                        shape = RoundedCornerShape(NuvioTheme.radii.md)
-                    )
+                        .size(NuvioTheme.spacing.huge)
+                        .border(
+                            width = if (isDiscoverButtonFocused) NuvioTheme.spacing.xxs else NuvioTheme.spacing.hairline,
+                            color = if (isDiscoverButtonFocused) Color.White else Color.White.copy(alpha = 0.22f),
+                            shape = RoundedCornerShape(50)
+                        )
+                        .background(
+                            color = Color.White.copy(alpha = 0.14f),
+                            shape = RoundedCornerShape(50)
+                        )
             ) {
                 Icon(
                     imageVector = Icons.Default.Explore,
@@ -963,12 +988,12 @@ private fun SearchInputField(
                         .size(NuvioTheme.spacing.huge)
                         .border(
                             width = if (isVoiceButtonFocused || isVoiceListening) NuvioTheme.spacing.xxs else NuvioTheme.spacing.hairline,
-                            color = if (isVoiceListening) themeAccent else if (isVoiceButtonFocused) NuvioTheme.colors.FocusRing else NuvioTheme.colors.Border,
-                            shape = RoundedCornerShape(NuvioTheme.radii.md)
+                            color = if (isVoiceListening) themeAccent else if (isVoiceButtonFocused) Color.White else Color.White.copy(alpha = 0.22f),
+                            shape = RoundedCornerShape(50)
                         )
                         .background(
-                            color = if (isVoiceListening) themeAccent.copy(alpha = 0.15f) else NuvioTheme.colors.BackgroundCard,
-                            shape = RoundedCornerShape(NuvioTheme.radii.md)
+                            color = if (isVoiceListening) themeAccent.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.16f),
+                            shape = RoundedCornerShape(50)
                         )
                 ) {
                     Icon(
@@ -1039,21 +1064,21 @@ private fun SearchInputField(
                 }
             ),
             singleLine = true,
-            shape = RoundedCornerShape(NuvioTheme.radii.md),
+            shape = RoundedCornerShape(13.dp),
             placeholder = {
                 Text(
                     text = stringResource(R.string.search_placeholder),
-                    color = NuvioTheme.colors.TextTertiary
+                    color = Color.White.copy(alpha = 0.68f)
                 )
             },
             colors = TextFieldDefaults.colors(
-                focusedContainerColor = NuvioTheme.colors.BackgroundCard,
-                unfocusedContainerColor = NuvioTheme.colors.BackgroundCard,
-                focusedIndicatorColor = NuvioTheme.colors.FocusRing,
-                unfocusedIndicatorColor = NuvioTheme.colors.Border,
-                focusedTextColor = NuvioTheme.colors.TextPrimary,
-                unfocusedTextColor = NuvioTheme.colors.TextPrimary,
-                cursorColor = NuvioTheme.colors.FocusRing
+                focusedContainerColor = Color.White.copy(alpha = 0.08f),
+                unfocusedContainerColor = Color.White.copy(alpha = 0.06f),
+                focusedIndicatorColor = Color.White.copy(alpha = 0.86f),
+                unfocusedIndicatorColor = Color.White.copy(alpha = 0.30f),
+                focusedTextColor = Color.White,
+                unfocusedTextColor = Color.White,
+                cursorColor = Color.White
             )
         )
 
@@ -1069,12 +1094,12 @@ private fun SearchInputField(
                     .size(NuvioTheme.spacing.huge)
                     .border(
                         width = if (isClearButtonFocused) NuvioTheme.spacing.xxs else NuvioTheme.spacing.hairline,
-                        color = if (isClearButtonFocused) NuvioTheme.colors.FocusRing else NuvioTheme.colors.Border,
-                        shape = RoundedCornerShape(NuvioTheme.radii.md)
+                        color = if (isClearButtonFocused) Color.White else Color.White.copy(alpha = 0.22f),
+                        shape = RoundedCornerShape(50)
                     )
                     .background(
-                        color = NuvioTheme.colors.BackgroundCard,
-                        shape = RoundedCornerShape(NuvioTheme.radii.md)
+                        color = Color.White.copy(alpha = 0.14f),
+                        shape = RoundedCornerShape(50)
                     )
             ) {
                 Icon(

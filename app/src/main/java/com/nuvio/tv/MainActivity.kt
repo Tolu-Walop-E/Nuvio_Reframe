@@ -149,6 +149,8 @@ import com.nuvio.tv.ui.components.LocalCardDepthStyle
 import com.nuvio.tv.ui.components.ProfileAvatarCircle
 import com.nuvio.tv.ui.navigation.NuvioNavHost
 import com.nuvio.tv.ui.navigation.Screen
+import com.nuvio.tv.ui.screens.home.netflix.LocalNetflixRouteNavigator
+import com.nuvio.tv.ui.screens.home.netflix.NetflixHomeFeature
 import com.nuvio.tv.ui.screens.account.AuthQrSignInScreen
 import com.nuvio.tv.ui.screens.addon.EssentialAddonSetupScreen
 import com.nuvio.tv.ui.screens.profile.ProfileSelectionScreen
@@ -1021,7 +1023,17 @@ private fun LegacySidebarScaffold(
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val drawerItemFocusRequesters = rememberDrawerItemFocusRequesters(drawerItems)
     val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
-    val showSidebar = currentRoute in rootRoutes
+    val showSidebar = currentRoute in rootRoutes && !(NetflixHomeFeature.ENABLED && currentRoute == Screen.Home.route)
+    val netflixRouteNavigator = remember(navController, currentRoute, onNavigate) {
+        { targetRoute: String ->
+            onNavigate(targetRoute)
+            navigateToDrawerRoute(
+                navController = navController,
+                currentRoute = currentRoute,
+                targetRoute = targetRoute
+            )
+        }
+    }
 
     LaunchedEffect(currentRoute) {
         drawerState.setValue(DrawerValue.Closed)
@@ -1042,12 +1054,12 @@ private fun LegacySidebarScaffold(
     var legacyDrawerInteractionVersion by remember { mutableStateOf(0) }
 
 
-    BackHandler(enabled = currentRoute in rootRoutes && drawerState.currentValue == DrawerValue.Closed) {
+    BackHandler(enabled = showSidebar && drawerState.currentValue == DrawerValue.Closed) {
         pendingSidebarFocusRequest = true
         drawerState.setValue(DrawerValue.Open)
     }
 
-    BackHandler(enabled = currentRoute in rootRoutes && drawerState.currentValue == DrawerValue.Open) {
+    BackHandler(enabled = showSidebar && drawerState.currentValue == DrawerValue.Open) {
         onExitApp()
     }
 
@@ -1251,7 +1263,8 @@ private fun LegacySidebarScaffold(
         ) {
             CompositionLocalProvider(
                 LocalSidebarExpanded provides (drawerState.currentValue == DrawerValue.Open),
-                LocalContentFocusRequester provides contentFocusRequester
+                LocalContentFocusRequester provides contentFocusRequester,
+                LocalNetflixRouteNavigator provides netflixRouteNavigator
             ) {
                 NuvioNavHost(
                     navController = navController,
@@ -1376,7 +1389,17 @@ private fun ModernSidebarScaffold(
     onNavigate: (String) -> Unit,
     onExitApp: () -> Unit
 ) {
-    val showSidebar = currentRoute in rootRoutes
+    val showSidebar = currentRoute in rootRoutes && !(NetflixHomeFeature.ENABLED && currentRoute == Screen.Home.route)
+    val netflixRouteNavigator = remember(navController, currentRoute, onNavigate) {
+        { targetRoute: String ->
+            onNavigate(targetRoute)
+            navigateToDrawerRoute(
+                navController = navController,
+                currentRoute = currentRoute,
+                targetRoute = targetRoute
+            )
+        }
+    }
     val sidebarTokens = NuvioComponents.tokens.sidebar
     val collapsedSidebarWidth = if (sidebarCollapsed) NuvioTheme.spacing.none else sidebarTokens.collapsedWidth
     val openSidebarWidth = sidebarTokens.expandedWidth
@@ -1415,13 +1438,13 @@ private fun ModernSidebarScaffold(
         }
     }
 
-    BackHandler(enabled = currentRoute in rootRoutes && !isSidebarExpanded && !sidebarCollapsePending) {
+    BackHandler(enabled = showSidebar && !isSidebarExpanded && !sidebarCollapsePending) {
         isSidebarExpanded = true
         sidebarCollapsePending = false
         pendingSidebarFocusRequest = true
     }
 
-    BackHandler(enabled = currentRoute in rootRoutes && isSidebarExpanded && !sidebarCollapsePending) {
+    BackHandler(enabled = showSidebar && isSidebarExpanded && !sidebarCollapsePending) {
         onExitApp()
     }
 
@@ -1644,7 +1667,8 @@ private fun ModernSidebarScaffold(
         ) {
             CompositionLocalProvider(
                 LocalSidebarExpanded provides isSidebarExpanded,
-                LocalContentFocusRequester provides contentFocusRequester
+                LocalContentFocusRequester provides contentFocusRequester,
+                LocalNetflixRouteNavigator provides netflixRouteNavigator
             ) {
                 NuvioNavHost(
                     navController = navController,
@@ -1742,6 +1766,7 @@ private fun ModernSidebarScaffold(
             }
 
             if (
+                showSidebar &&
                 !sidebarCollapsed &&
                 sidebarShowCollapsedPill &&
                 selectedDrawerRoute != Screen.Search.route
