@@ -359,7 +359,8 @@ fun NetflixHomeContent(
                         } else {
                             false
                         }
-                    }
+                    },
+                    posterLabelsEnabled = uiState.posterLabelsEnabled
                 )
             }
             item(key = "bottom_padding") {

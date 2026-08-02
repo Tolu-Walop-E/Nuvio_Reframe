@@ -42,6 +42,7 @@ internal object NetflixHomeTokens {
     val FocusedContinueCardHeight = 164.dp
     val GenreCardWidth = 150.dp
     val GenreCardHeight = 54.dp
+    const val ShowCataloguePosterLabels = false
 }
 
 internal object NetflixHomeDimensions {
@@ -86,6 +87,7 @@ internal object NetflixHomeSpacing {
 
 internal object NetflixHomeMotion {
     const val FocusWidthDurationMs = 180
+    const val ArtworkCrossfadeDurationMs = 190
     val FocusWidthAnimation: TweenSpec<Dp> = tween(durationMillis = FocusWidthDurationMs)
 }
 

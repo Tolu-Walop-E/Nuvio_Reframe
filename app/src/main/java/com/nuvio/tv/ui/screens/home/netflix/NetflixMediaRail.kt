@@ -84,6 +84,7 @@ internal fun NetflixContinueWatchingRail(
                 val itemKey = item.netflixKey()
                 val focused = index == focusedIndex
                 NetflixMediaCard(
+                    mediaKey = itemKey,
                     title = card.title,
                     subtitle = card.subtitle,
                     imageUrl = card.imageUrl,
@@ -121,6 +122,7 @@ internal fun NetflixCatalogRail(
     onFirstCardRequesterReady: (FocusRequester) -> Unit,
     onMoveUp: () -> Boolean,
     onMoveDown: () -> Boolean,
+    posterLabelsEnabled: Boolean,
     modifier: Modifier = Modifier
 ) {
     if (row.items.isEmpty()) return
@@ -166,18 +168,16 @@ internal fun NetflixCatalogRail(
                     val landscape = useLandscapeCards || item.posterShape == PosterShape.LANDSCAPE
                     val focused = index == focusedIndex
                     val itemKey = item.netflixCatalogItemKey(row, index)
+                    val artwork = item.netflixCatalogueArtwork(focused = focused, preferLandscapeWhenUnfocused = landscape)
                     NetflixMediaCard(
+                        mediaKey = itemKey,
                         title = item.name,
                         subtitle = item.releaseInfo,
-                        imageUrl = if (focused) {
-                            item.backdropUrl ?: item.poster
-                        } else if (landscape) {
-                            item.backdropUrl ?: item.poster
-                        } else {
-                            item.poster ?: item.backdropUrl
-                        },
+                        imageUrl = artwork,
                         width = if (focused) geometry.focusedWidth else geometry.portraitWidth,
                         height = geometry.railHeight,
+                        showLabels = posterLabelsEnabled && NetflixHomeTokens.ShowCataloguePosterLabels,
+                        showFallbackTitleWhenArtworkMissing = focused,
                         focusRequester = itemRequesters[index],
                         onClick = { onItemClick(item, row.addonBaseUrl) },
                         onFocus = {
@@ -358,6 +358,19 @@ internal fun CatalogRow.netflixRailKey(): String {
 
 private fun MetaPreview.netflixCatalogItemKey(row: CatalogRow, index: Int): String {
     return "${row.addonId}|${row.catalogId}|$apiType|$id|$index"
+}
+
+private fun MetaPreview.netflixCatalogueArtwork(
+    focused: Boolean,
+    preferLandscapeWhenUnfocused: Boolean
+): String? {
+    return if (focused) {
+        background ?: landscapePoster ?: poster
+    } else if (preferLandscapeWhenUnfocused) {
+        background ?: landscapePoster ?: poster
+    } else {
+        poster ?: background ?: landscapePoster
+    }
 }
 
 private fun ContinueWatchingItem.toNetflixCard(): NetflixCardData {

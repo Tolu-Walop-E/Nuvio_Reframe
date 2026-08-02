@@ -4,6 +4,7 @@ package com.nuvio.tv.ui.screens.home.netflix
 
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
@@ -44,12 +45,15 @@ import coil3.compose.AsyncImage
 
 @Composable
 internal fun NetflixMediaCard(
+    mediaKey: String,
     title: String,
     subtitle: String?,
     imageUrl: String?,
     width: Dp,
     height: Dp,
     progress: Float? = null,
+    showLabels: Boolean = true,
+    showFallbackTitleWhenArtworkMissing: Boolean = true,
     focusRequester: FocusRequester? = null,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
@@ -65,6 +69,11 @@ internal fun NetflixMediaCard(
         label = "netflixCardWidth"
     )
     val shape = RoundedCornerShape(NetflixHomeTokens.CardCornerRadius)
+    val artwork = remember(mediaKey, imageUrl) {
+        NetflixCardArtwork(key = "$mediaKey|${imageUrl.orEmpty()}", imageUrl = imageUrl)
+    }
+    val showFallbackTitle = showFallbackTitleWhenArtworkMissing && imageUrl.isNullOrBlank()
+    val showText = showLabels || showFallbackTitle
 
     Box(
         modifier = modifier
@@ -107,23 +116,40 @@ internal fun NetflixMediaCard(
         contentAlignment = Alignment.BottomStart
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            AsyncImage(
-                model = imageUrl,
-                contentDescription = title,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
-            )
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            0f to Color.Transparent,
-                            0.64f to Color.Transparent,
-                            1f to Color.Black.copy(alpha = 0.86f)
-                        )
+            Crossfade(
+                targetState = artwork,
+                animationSpec = tween(durationMillis = NetflixHomeMotion.ArtworkCrossfadeDurationMs),
+                label = "netflixCardArtwork"
+            ) { targetArtwork ->
+                if (!targetArtwork.imageUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = targetArtwork.imageUrl,
+                        contentDescription = title,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
                     )
-            )
+                }
+            }
+            if (focused) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.White.copy(alpha = 0.06f))
+                )
+            }
+            if (showText || progress != null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                0f to Color.Transparent,
+                                0.64f to Color.Transparent,
+                                1f to Color.Black.copy(alpha = 0.78f)
+                            )
+                        )
+                )
+            }
             if (progress != null) {
                 Box(
                     modifier = Modifier
@@ -141,30 +167,37 @@ internal fun NetflixMediaCard(
                 }
             }
         }
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(10.dp)
-        ) {
-            androidx.compose.foundation.layout.Column {
-                Text(
-                    text = title,
-                    color = NetflixHomeTokens.TextPrimary,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                if (!subtitle.isNullOrBlank()) {
+        if (showText) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(10.dp)
+            ) {
+                androidx.compose.foundation.layout.Column {
                     Text(
-                        text = subtitle,
-                        color = NetflixHomeTokens.TextSecondary,
-                        style = MaterialTheme.typography.bodySmall,
-                        maxLines = 1,
+                        text = title,
+                        color = NetflixHomeTokens.TextPrimary,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = if (showFallbackTitle) 2 else 1,
                         overflow = TextOverflow.Ellipsis
                     )
+                    if (showLabels && !subtitle.isNullOrBlank()) {
+                        Text(
+                            text = subtitle,
+                            color = NetflixHomeTokens.TextSecondary,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
         }
     }
 }
+
+private data class NetflixCardArtwork(
+    val key: String,
+    val imageUrl: String?
+)
