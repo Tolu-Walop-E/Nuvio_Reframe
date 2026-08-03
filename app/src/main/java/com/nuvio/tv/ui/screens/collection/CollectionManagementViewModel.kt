@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.R
+import com.nuvio.tv.core.collections.CollectionsImportSupport
 import com.nuvio.tv.core.sync.CollectionSyncService
 import com.nuvio.tv.data.local.CollectionsDataStore
 import com.nuvio.tv.data.local.ValidationResult
@@ -41,6 +42,7 @@ data class CollectionManagementUiState(
 class CollectionManagementViewModel @Inject constructor(
     private val collectionsDataStore: CollectionsDataStore,
     private val collectionSyncService: CollectionSyncService,
+    private val collectionsImportSupport: CollectionsImportSupport,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -127,24 +129,11 @@ class CollectionManagementViewModel @Inject constructor(
             _uiState.update { it.copy(importError = context.getString(R.string.collections_import_paste_json_required)) }
             return
         }
-        val imported = collectionsDataStore.importFromJson(json)
-        if (imported.isEmpty()) {
-            _uiState.update { it.copy(importError = context.getString(R.string.collections_import_invalid_or_empty)) }
-            return
-        }
         viewModelScope.launch {
-            val current = _uiState.value.collections.toMutableList()
-            val existingIds = current.map { it.id }.toSet()
-            for (collection in imported) {
-                if (collection.id in existingIds) {
-                    val index = current.indexOfFirst { it.id == collection.id }
-                    if (index >= 0) current[index] = collection
-                } else {
-                    current.add(collection)
-                }
+            if (!collectionsImportSupport.mergeAndPersist(json)) {
+                _uiState.update { it.copy(importError = context.getString(R.string.collections_import_invalid_or_empty)) }
+                return@launch
             }
-            collectionsDataStore.setCollections(current)
-            collectionSyncService.triggerPush()
             _uiState.update { it.copy(showImportDialog = false, importText = "", importError = null) }
         }
     }
@@ -232,29 +221,35 @@ class CollectionManagementViewModel @Inject constructor(
             _uiState.update { it.copy(importError = context.getString(R.string.collections_import_no_data)) }
             return
         }
-        val imported = collectionsDataStore.importFromJson(json)
-        if (imported.isEmpty()) {
-            _uiState.update { it.copy(importError = context.getString(R.string.collections_import_invalid_or_empty)) }
-            return
-        }
         viewModelScope.launch {
-            val current = _uiState.value.collections.toMutableList()
-            val existingIds = current.map { it.id }.toSet()
-            for (collection in imported) {
-                if (collection.id in existingIds) {
-                    val index = current.indexOfFirst { it.id == collection.id }
-                    if (index >= 0) current[index] = collection
-                } else {
-                    current.add(collection)
-                }
+            if (!collectionsImportSupport.mergeAndPersist(json)) {
+                _uiState.update { it.copy(importError = context.getString(R.string.collections_import_invalid_or_empty)) }
+                return@launch
             }
-            collectionsDataStore.setCollections(current)
-            collectionSyncService.triggerPush()
             _uiState.update {
                 it.copy(
                     showImportDialog = false, importText = "", importError = null,
                     validationResult = null, validatedJson = null, importUrl = "",
                     importMode = ImportMode.FILE
+                )
+            }
+        }
+    }
+
+    fun importBundledXperienceAnime() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoadingImport = true, importError = null) }
+            val imported = collectionsImportSupport.importFromAsset(
+                CollectionsImportSupport.BUNDLED_XPERIENCE_ANIME_ASSET
+            )
+            _uiState.update {
+                it.copy(
+                    isLoadingImport = false,
+                    importError = if (imported) {
+                        null
+                    } else {
+                        context.getString(R.string.collections_import_invalid_or_empty)
+                    }
                 )
             }
         }
@@ -266,9 +261,9 @@ class CollectionManagementViewModel @Inject constructor(
             try {
                 val content = withContext(Dispatchers.IO) {
                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                        loadFromMediaStoreDownloads(context)
+                        collectionsImportSupport.readFromMediaStoreDownloads(context)
                     } else {
-                        loadFromDownloadsDirectory()
+                        collectionsImportSupport.readFromDownloadsDirectory()
                     }
                 }
                 if (content == null) {
@@ -298,29 +293,5 @@ class CollectionManagementViewModel @Inject constructor(
 
     fun getExportJson(): String {
         return collectionsDataStore.exportToJson(_uiState.value.collections)
-    }
-
-    @androidx.annotation.RequiresApi(android.os.Build.VERSION_CODES.Q)
-    private fun loadFromMediaStoreDownloads(context: android.content.Context): String? {
-        val resolver = context.contentResolver
-        val uri = android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI
-        val projection = arrayOf(android.provider.MediaStore.Downloads._ID)
-        val selection = "${android.provider.MediaStore.Downloads.DISPLAY_NAME} = ?"
-        val selectionArgs = arrayOf("nuvio-collections.json")
-        return resolver.query(uri, projection, selection, selectionArgs, null)?.use { cursor ->
-            if (cursor.moveToFirst()) {
-                val id = cursor.getLong(cursor.getColumnIndexOrThrow(android.provider.MediaStore.Downloads._ID))
-                val fileUri = android.content.ContentUris.withAppendedId(uri, id)
-                resolver.openInputStream(fileUri)?.bufferedReader()?.readText()
-            } else null
-        }
-    }
-
-    private fun loadFromDownloadsDirectory(): String? {
-        val downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(
-            android.os.Environment.DIRECTORY_DOWNLOADS
-        )
-        val file = java.io.File(downloadsDir, "nuvio-collections.json")
-        return if (file.exists()) file.readText() else null
     }
 }

@@ -1,5 +1,7 @@
 package com.nuvio.tv.ui.screens.home
 
+import com.nuvio.tv.core.sync.HOME_GENRES_ROW_KEY
+import com.nuvio.tv.core.sync.isFloatingHomeRowKey
 import com.nuvio.tv.domain.model.Addon
 import com.nuvio.tv.domain.model.CatalogDescriptor
 import com.nuvio.tv.domain.model.CatalogRow
@@ -205,7 +207,8 @@ internal fun HomeViewModel.removeTruncatedRowCacheEntry(key: String) {
 internal fun HomeViewModel.rebuildCatalogOrder(addons: List<Addon>) {
     val defaultOrder = buildDefaultCatalogOrder(addons)
     val collectionKeys = collectionsCache.map { "collection_${it.id}" }
-    val allAvailable = (defaultOrder + collectionKeys).toSet()
+    val floatingKeys = listOf(HOME_GENRES_ROW_KEY) + collectionKeys
+    val allAvailable = (defaultOrder + floatingKeys).toSet()
 
     if (followAddonsOrderEnabled) {
         // In follow addons order mode, addon catalogs always stay in manifest order.
@@ -216,14 +219,17 @@ internal fun HomeViewModel.rebuildCatalogOrder(addons: List<Addon>) {
             .distinct()
             .toList()
 
-        val collectionKeysSet = collectionKeys.toSet()
+        val floatingKeysSet = floatingKeys.toSet()
 
         if (savedValid.isNotEmpty()) {
             val result = mutableListOf<String>()
+            if (HOME_GENRES_ROW_KEY !in savedValid) {
+                result.add(HOME_GENRES_ROW_KEY)
+            }
             var addonPointer = 0
 
             for (savedKey in savedValid) {
-                if (savedKey in collectionKeysSet) {
+                if (savedKey in floatingKeysSet) {
                     result.add(savedKey)
                 } else {
                     // Addon catalog - advance manifest pointer to include all up to this one
@@ -247,10 +253,10 @@ internal fun HomeViewModel.rebuildCatalogOrder(addons: List<Addon>) {
                 }
                 addonPointer++
             }
-            // Append any collections not in saved order
-            for (ck in collectionKeys) {
-                if (ck !in result) {
-                    result.add(ck)
+            // Append any synthetic or collection rows not in saved order.
+            for (floatingKey in floatingKeys) {
+                if (floatingKey !in result) {
+                    result.add(floatingKey)
                 }
             }
 
@@ -266,7 +272,7 @@ internal fun HomeViewModel.rebuildCatalogOrder(addons: List<Addon>) {
             // No saved order - manifest order + collections at end
             synchronized(catalogStateLock) {
                 catalogOrder.clear()
-                catalogOrder.addAll(defaultOrder + collectionKeys)
+                catalogOrder.addAll(listOf(HOME_GENRES_ROW_KEY) + defaultOrder + collectionKeys)
             }
         }
     } else {
@@ -279,7 +285,11 @@ internal fun HomeViewModel.rebuildCatalogOrder(addons: List<Addon>) {
         val savedSet = savedValid.toSet()
         val unsavedCatalogs = defaultOrder.filterNot { it in savedSet }
         val unsavedCollections = collectionKeys.filterNot { it in savedSet }
-        val mergedOrder = savedValid + unsavedCatalogs + unsavedCollections
+        val mergedOrder = if (HOME_GENRES_ROW_KEY in savedSet) {
+            savedValid + unsavedCatalogs + unsavedCollections
+        } else {
+            listOf(HOME_GENRES_ROW_KEY) + savedValid + unsavedCatalogs + unsavedCollections
+        }
 
         synchronized(catalogStateLock) {
             catalogOrder.clear()
@@ -378,7 +388,7 @@ private fun normalizeCollectionBoundaries(
         var i = 0
         while (i < result.size) {
             val key = result[i]
-            if (!key.startsWith("collection_")) {
+            if (!isFloatingHomeRowKey(key)) {
                 i++
                 continue
             }
@@ -389,7 +399,7 @@ private fun normalizeCollectionBoundaries(
                 result.removeAt(i)
                 var insertPos = i
                 while (insertPos < result.size &&
-                    !result[insertPos].startsWith("collection_") &&
+                    !isFloatingHomeRowKey(result[insertPos]) &&
                     addonKeyToOwner[result[insertPos]] == prevOwner
                 ) {
                     insertPos++
@@ -407,14 +417,14 @@ private fun normalizeCollectionBoundaries(
 
 private fun findOwnerBefore(order: List<String>, index: Int, owners: Map<String, String>): String? {
     for (j in index - 1 downTo 0) {
-        if (!order[j].startsWith("collection_")) return owners[order[j]]
+        if (!isFloatingHomeRowKey(order[j])) return owners[order[j]]
     }
     return null
 }
 
 private fun findOwnerAfter(order: List<String>, index: Int, owners: Map<String, String>): String? {
     for (j in index + 1 until order.size) {
-        if (!order[j].startsWith("collection_")) return owners[order[j]]
+        if (!isFloatingHomeRowKey(order[j])) return owners[order[j]]
     }
     return null
 }

@@ -169,7 +169,10 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
             )
         }
             .distinctUntilChanged()
-            .debounce(300)
+            .debounce {
+                // First prefs emission must not delay catalog load / home paint.
+                if (!_uiState.value.layoutPreferencesReady) 0L else 300L
+            }
             .collectLatest { prefs ->
                 val effectivePosterLabelsEnabled = if (prefs.layout == HomeLayout.MODERN) {
                     false
@@ -268,10 +271,12 @@ internal fun HomeViewModel.observeModernHomePresentationPipeline() {
                     && old.catalogRows.size == new.catalogRows.size
             }
             .debounce {
-                // Use a longer debounce while catalogs are still loading to
-                // avoid repeated expensive presentation builds during the
-                // initial burst of catalog arrivals.
-                if (catalogsLoadInProgress) 300L else 80L
+                // First modern presentation build: paint ASAP. Later updates can batch.
+                when {
+                    uiState.value.modernHomePresentation.rows.list.isEmpty() -> 0L
+                    catalogsLoadInProgress -> 200L
+                    else -> 80L
+                }
             }
             .collectLatest { input ->
                 val shouldWarmStart = uiState.value.modernHomePresentation.rows.list.isEmpty()
@@ -352,19 +357,31 @@ internal fun HomeViewModel.requestTrailerPreviewPipeline(
     // Resolve fallbackYtId from catalog item if not provided
     val resolvedFallbackYtId = fallbackYtId ?: findCatalogItemById(itemId)?.trailerYtIds?.firstOrNull()
 
-    // Always bump version — only the latest request (highest version) will proceed after debounce
+    if (trailerPreviewNegativeCache.contains(itemId)) {
+        android.util.Log.i("NetflixTrailer", "skip negative-cache id=$itemId")
+        return
+    }
+    if (trailerPreviewUrlsState.containsKey(itemId)) {
+        activeTrailerPreviewItemId = itemId
+        android.util.Log.i("NetflixTrailer", "cache-hit id=$itemId")
+        return
+    }
+    if (!trailerPreviewLoadingIds.add(itemId)) {
+        activeTrailerPreviewItemId = itemId
+        android.util.Log.i("NetflixTrailer", "already-loading id=$itemId")
+        return
+    }
+
+    // Only bump version when we actually start a new network fetch.
     activeTrailerPreviewItemId = itemId
     trailerPreviewRequestVersion++
     val requestVersion = trailerPreviewRequestVersion
-
-    if (trailerPreviewNegativeCache.contains(itemId)) return
-    if (trailerPreviewUrlsState.containsKey(itemId)) return
-    if (!trailerPreviewLoadingIds.add(itemId)) return
+    android.util.Log.i("NetflixTrailer", "fetch-start id=$itemId title=$title version=$requestVersion")
 
     viewModelScope.launch(Dispatchers.IO) {
         try {
-            // Debounce: wait for focus to settle before hitting network
-            delay(180)
+            // Short settle so rapid D-pad moves don't spam TMDB/trailer lookups.
+            delay(40)
 
             // Only the LATEST request proceeds — all earlier ones are stale
             if (trailerPreviewRequestVersion != requestVersion) {
@@ -394,6 +411,7 @@ internal fun HomeViewModel.requestTrailerPreviewPipeline(
                         )
                     }
                     if (fallbackSource?.videoUrl != null) {
+                        android.util.Log.i("NetflixTrailer", "fetch-ok-fallback id=$itemId")
                         if (trailerPreviewUrlsState[itemId] != fallbackSource.videoUrl) {
                             trailerPreviewUrlsState[itemId] = fallbackSource.videoUrl
                         }
@@ -404,11 +422,13 @@ internal fun HomeViewModel.requestTrailerPreviewPipeline(
                             trailerPreviewAudioUrlsState[itemId] = fallbackAudio
                         }
                     } else {
+                        android.util.Log.w("NetflixTrailer", "fetch-miss id=$itemId")
                         trailerPreviewNegativeCache.add(itemId)
                         trailerPreviewUrlsState.remove(itemId)
                         trailerPreviewAudioUrlsState.remove(itemId)
                     }
                 } else {
+                    android.util.Log.i("NetflixTrailer", "fetch-ok id=$itemId")
                     val videoUrl = trailerSource.videoUrl
                     if (trailerPreviewUrlsState[itemId] != videoUrl) {
                         trailerPreviewUrlsState[itemId] = videoUrl

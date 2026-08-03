@@ -232,7 +232,8 @@ fun SettingsScreen(
     onNavigateToTracking: () -> Unit = {},
     onNavigateToAddons: () -> Unit = {},
     onNavigateToPlugins: () -> Unit = {},
-    onNavigateToAuthQrSignIn: () -> Unit = {},
+    onNavigateToAuthSignIn: () -> Unit = {},
+    onNavigateToCreateAccount: () -> Unit = {},
     onNavigateToManageProfiles: () -> Unit = {},
     onNavigateToSupportersContributors: () -> Unit = {},
     onNavigateToLicensesAttributions: () -> Unit = {},
@@ -358,7 +359,7 @@ fun SettingsScreen(
             val onSectionClick: (SettingsSectionSpec) -> Unit = { section ->
                 if (section.destination == SettingsSectionDestination.External) {
                     when (section.category) {
-                        SettingsCategory.ACCOUNT -> onNavigateToAuthQrSignIn()
+                        SettingsCategory.ACCOUNT -> onNavigateToAuthSignIn()
                         SettingsCategory.TRACKING -> onNavigateToTracking()
                         else -> Unit
                     }
@@ -536,7 +537,8 @@ fun SettingsScreen(
                                 onNavigateToManageProfiles = onNavigateToManageProfiles,
                                 onNavigateToAddons = onNavigateToAddons,
                                 onNavigateToPlugins = onNavigateToPlugins,
-                                onNavigateToAuthQrSignIn = onNavigateToAuthQrSignIn,
+                                onNavigateToAuthSignIn = onNavigateToAuthSignIn,
+                                onNavigateToCreateAccount = onNavigateToCreateAccount,
                                 onNavigateToSupportersContributors = onNavigateToSupportersContributors,
                                 onNavigateToLicensesAttributions = onNavigateToLicensesAttributions
                             )
@@ -687,7 +689,8 @@ fun SettingsScreen(
                         onNavigateToManageProfiles = onNavigateToManageProfiles,
                         onNavigateToAddons = onNavigateToAddons,
                         onNavigateToPlugins = onNavigateToPlugins,
-                        onNavigateToAuthQrSignIn = onNavigateToAuthQrSignIn,
+                        onNavigateToAuthSignIn = onNavigateToAuthSignIn,
+                        onNavigateToCreateAccount = onNavigateToCreateAccount,
                         onNavigateToSupportersContributors = onNavigateToSupportersContributors,
                         onNavigateToLicensesAttributions = onNavigateToLicensesAttributions
                     )
@@ -715,7 +718,8 @@ private fun SettingsDetailPane(
     onNavigateToManageProfiles: () -> Unit,
     onNavigateToAddons: () -> Unit,
     onNavigateToPlugins: () -> Unit,
-    onNavigateToAuthQrSignIn: () -> Unit,
+    onNavigateToAuthSignIn: () -> Unit,
+    onNavigateToCreateAccount: () -> Unit,
     onNavigateToSupportersContributors: () -> Unit,
     onNavigateToLicensesAttributions: () -> Unit
 ) {
@@ -822,7 +826,8 @@ private fun SettingsDetailPane(
             }
         )
         SettingsCategory.ACCOUNT -> AccountSettingsInline(
-            onNavigateToAuthQrSignIn = onNavigateToAuthQrSignIn,
+            onNavigateToAuthSignIn = onNavigateToAuthSignIn,
+            onNavigateToCreateAccount = onNavigateToCreateAccount,
             initialFocusRequester = if (allowDetailAutofocus) {
                 contentFocusRequesters[SettingsCategory.ACCOUNT]
             } else {
@@ -914,7 +919,8 @@ private fun EssentialAdvancedSettingsContent(
 
 @Composable
 private fun AccountSettingsInline(
-    onNavigateToAuthQrSignIn: () -> Unit,
+    onNavigateToAuthSignIn: () -> Unit,
+    onNavigateToCreateAccount: () -> Unit,
     initialFocusRequester: FocusRequester?
 ) {
     val accountViewModel: com.nuvio.tv.ui.screens.account.AccountViewModel = hiltViewModel()
@@ -936,7 +942,8 @@ private fun AccountSettingsInline(
             com.nuvio.tv.ui.screens.account.AccountSettingsContent(
                 uiState = accountUiState,
                 viewModel = accountViewModel,
-                onNavigateToAuthQrSignIn = onNavigateToAuthQrSignIn,
+                onNavigateToAuthSignIn = onNavigateToAuthSignIn,
+                onNavigateToCreateAccount = onNavigateToCreateAccount,
                 initialFocusRequester = initialFocusRequester
             )
         }

@@ -151,7 +151,7 @@ import com.nuvio.tv.ui.navigation.NuvioNavHost
 import com.nuvio.tv.ui.navigation.Screen
 import com.nuvio.tv.ui.screens.home.netflix.LocalNetflixRouteNavigator
 import com.nuvio.tv.ui.screens.home.netflix.NetflixHomeFeature
-import com.nuvio.tv.ui.screens.account.AuthQrSignInScreen
+import com.nuvio.tv.ui.screens.account.AuthSignInScreen
 import com.nuvio.tv.ui.screens.addon.EssentialAddonSetupScreen
 import com.nuvio.tv.ui.screens.profile.ProfileSelectionScreen
 import com.nuvio.tv.ui.theme.NuvioComponents
@@ -221,31 +221,32 @@ class MainActivity : ComponentActivity() {
     lateinit var experienceModeDataStore: ExperienceModeDataStore
 
     @Inject
-    lateinit var addonRepository: AddonRepository
+    lateinit var addonRepository: dagger.Lazy<AddonRepository>
+
+    // Heavy sync/auth side-graphs: resolve after setContent so first frame isn't blocked.
+    @Inject
+    lateinit var trackingProgressRefreshCoordinator: dagger.Lazy<TrackingProgressRefreshCoordinator>
 
     @Inject
-    lateinit var trackingProgressRefreshCoordinator: TrackingProgressRefreshCoordinator
+    lateinit var startupSyncService: dagger.Lazy<StartupSyncService>
 
     @Inject
-    lateinit var startupSyncService: StartupSyncService
+    lateinit var androidTvChannelSyncService: dagger.Lazy<com.nuvio.tv.core.sync.androidtv.AndroidTvChannelSyncService>
 
     @Inject
-    lateinit var androidTvChannelSyncService: com.nuvio.tv.core.sync.androidtv.AndroidTvChannelSyncService
+    lateinit var profileSettingsSyncService: dagger.Lazy<ProfileSettingsSyncService>
 
     @Inject
-    lateinit var profileSettingsSyncService: ProfileSettingsSyncService
+    lateinit var profileSyncService: dagger.Lazy<ProfileSyncService>
 
     @Inject
-    lateinit var profileSyncService: ProfileSyncService
+    lateinit var profileManager: dagger.Lazy<ProfileManager>
 
     @Inject
-    lateinit var profileManager: ProfileManager
+    lateinit var authManager: dagger.Lazy<AuthManager>
 
     @Inject
-    lateinit var authManager: AuthManager
-
-    @Inject
-    lateinit var deviceSessionRegistration: DeviceSessionRegistration
+    lateinit var deviceSessionRegistration: dagger.Lazy<DeviceSessionRegistration>
 
     @Inject
     lateinit var authSessionNoticeDataStore: AuthSessionNoticeDataStore
@@ -254,16 +255,16 @@ class MainActivity : ComponentActivity() {
     lateinit var appOnboardingDataStore: AppOnboardingDataStore
 
     @Inject
-    lateinit var avatarRepository: AvatarRepository
+    lateinit var avatarRepository: dagger.Lazy<AvatarRepository>
 
     @Inject
-    lateinit var trailerPlayerPool: com.nuvio.tv.core.player.TrailerPlayerPool
+    lateinit var trailerPlayerPool: dagger.Lazy<com.nuvio.tv.core.player.TrailerPlayerPool>
 
     @Inject
-    lateinit var externalPlaybackTracker: com.nuvio.tv.core.player.ExternalPlaybackTracker
+    lateinit var externalPlaybackTracker: dagger.Lazy<com.nuvio.tv.core.player.ExternalPlaybackTracker>
 
     @Inject
-    lateinit var deepLinkHandler: DeepLinkHandler
+    lateinit var deepLinkHandler: dagger.Lazy<DeepLinkHandler>
 
     private val pendingDeepLinkUrl = MutableStateFlow<String?>(null)
 
@@ -274,11 +275,14 @@ class MainActivity : ComponentActivity() {
         com.nuvio.tv.core.player.ExternalPlayerResultContract()
     ) { result ->
         Log.d("MainActivity", "External player ActivityResult: $result")
-        externalPlaybackTracker.onActivityResult(result)
+        externalPlaybackTracker.get().onActivityResult(result)
     }
 
     /** True until the first onResume after onCreate completes. */
     private var isFirstResumeAfterCreate = false
+    /** Set after first-frame auth/sync graphs are attached. */
+    @Volatile
+    private var heavyStartupAttached = false
 
     @OptIn(ExperimentalTvMaterial3Api::class, ExperimentalFoundationApi::class)
     override fun attachBaseContext(newBase: Context) {
@@ -300,13 +304,12 @@ class MainActivity : ComponentActivity() {
 
     @OptIn(ExperimentalFoundationApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
+        val startedAt = android.os.SystemClock.elapsedRealtime()
         installSplashScreen()
         super.onCreate(savedInstanceState)
+        Log.i("AppStartup", "MainActivity.super.onCreate done +${android.os.SystemClock.elapsedRealtime() - startedAt}ms")
         isFirstResumeAfterCreate = true
         window?.setBackgroundDrawable(null)
-
-        // Wire the Activity-level launcher to the tracker
-        externalPlaybackTracker.activityLauncher = externalPlayerLauncher
 
         PluginRuntimeHooks.onActivityCreate(this)
 
@@ -320,14 +323,69 @@ class MainActivity : ComponentActivity() {
         val launchContentType = intent?.getStringExtra("contentType")
         captureDeepLinkIntent(intent)
 
+        Log.i("AppStartup", "MainActivity.setContent start +${android.os.SystemClock.elapsedRealtime() - startedAt}ms")
         setContent {
-            var hasSelectedProfileThisSession by rememberSaveable { mutableStateOf(false) }
-            var onboardingCompletedThisSession by remember { mutableStateOf(false) }
-            var onboardingProfileSyncInProgress by remember { mutableStateOf(false) }
+            var authManagerOrNull by remember { mutableStateOf<AuthManager?>(null) }
+            var profileManagerOrNull by remember { mutableStateOf<ProfileManager?>(null) }
+            var addonRepositoryOrNull by remember { mutableStateOf<AddonRepository?>(null) }
+
+            LaunchedEffect(Unit) {
+                // Paint a blank frame immediately so splash can dismiss before
+                // Supabase/Auth/Profile graphs are constructed.
+                withFrameNanos { }
+                Log.i(
+                    "AppStartup",
+                    "MainActivity first frame +${android.os.SystemClock.elapsedRealtime() - startedAt}ms"
+                )
+                reportFullyDrawn()
+                val resolveAt = android.os.SystemClock.elapsedRealtime()
+                authManagerOrNull = authManager.get()
+                profileManagerOrNull = profileManager.get()
+                addonRepositoryOrNull = addonRepository.get()
+                // Wire after Auth exists so tracker construction isn't a pre-frame side path.
+                externalPlaybackTracker.get().activityLauncher = externalPlayerLauncher
+                heavyStartupAttached = true
+                startupSyncService.get().startPeriodicSurfacePulls()
+                profileSettingsSyncService.get().requestForegroundPull()
+                androidTvChannelSyncService.get().onForegroundChanged(true)
+                deviceSessionRegistration.get().requestForegroundRegistration()
+                startupSyncService.get().requestForegroundSync()
+                val refreshIntent = if (isFirstResumeAfterCreate) {
+                    isFirstResumeAfterCreate = false
+                    TrackingRefreshIntent.INVALIDATED
+                } else {
+                    TrackingRefreshIntent.AUTOMATIC
+                }
+                trackingProgressRefreshCoordinator.get().refreshConnected(refreshIntent)
+                Log.i(
+                    "AppStartup",
+                    "MainActivity core DI ready +${android.os.SystemClock.elapsedRealtime() - startedAt}ms " +
+                        "(resolve ${android.os.SystemClock.elapsedRealtime() - resolveAt}ms)"
+                )
+            }
+
+            // Read onboarding before auth DI so returning-user prefs can be optimistic
+            // as soon as the auth graph is ready.
             val hasSeenAuthQrFlow = remember(appOnboardingDataStore) {
                 appOnboardingDataStore.hasSeenAuthQrOnFirstLaunch.map<Boolean, Boolean?> { it }
             }
             val hasSeenAuthQrOnFirstLaunch by hasSeenAuthQrFlow.collectAsState(initial = null)
+
+            val authManager = authManagerOrNull
+            val profileManager = profileManagerOrNull
+            val addonRepository = addonRepositoryOrNull
+            if (authManager == null || profileManager == null || addonRepository == null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color(0xFF141414))
+                )
+                return@setContent
+            }
+
+            var hasSelectedProfileThisSession by rememberSaveable { mutableStateOf(false) }
+            var onboardingCompletedThisSession by remember { mutableStateOf(false) }
+            var onboardingProfileSyncInProgress by remember { mutableStateOf(false) }
             val authState by authManager.authState.collectAsState()
             val context = LocalContext.current
 
@@ -362,7 +420,7 @@ class MainActivity : ComponentActivity() {
 
             LaunchedEffect(authState, profiles) {
                 if (authState is AuthState.FullAccount) {
-                    profileSyncService.pullProfileLockStates()
+                    profileSyncService.get().pullProfileLockStates()
                         .onSuccess { profilePinStates = it }
                         .onFailure { profilePinStates = emptyMap() }
                 } else {
@@ -378,7 +436,7 @@ class MainActivity : ComponentActivity() {
                 if (rememberLastProfileEnabled && hasEverSelectedProfile && !activeProfileHasPin && !hasSelectedProfileThisSession) {
                     hasSelectedProfileThisSession = true
                     if (authManager.authState.value is AuthState.FullAccount) {
-                        startupSyncService.requestSyncNow()
+                        startupSyncService.get().requestSyncNow()
                     }
                 }
             }
@@ -386,13 +444,13 @@ class MainActivity : ComponentActivity() {
             var avatarCatalog by remember { mutableStateOf(emptyList<com.nuvio.tv.data.remote.supabase.AvatarCatalogItem>()) }
 
             LaunchedEffect(Unit) {
-                avatarCatalog = runCatching { avatarRepository.getAvatarCatalog() }
+                avatarCatalog = runCatching { avatarRepository.get().getAvatarCatalog() }
                     .getOrDefault(emptyList())
             }
 
             val activeProfileAvatarImageUrl = remember(activeProfile, avatarCatalog) {
                 activeProfile?.avatarUrl?.takeIf { it.isNotBlank() }
-                    ?: activeProfile?.avatarId?.let { avatarRepository.getAvatarImageUrl(it, avatarCatalog) }
+                    ?: activeProfile?.avatarId?.let { avatarRepository.get().getAvatarImageUrl(it, avatarCatalog) }
             }
 
             val mainUiPrefsFlow = remember(themeDataStore, layoutPreferenceDataStore, experienceModeDataStore) {
@@ -466,10 +524,17 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
-            val mainUiPrefs by mainUiPrefsFlow.collectAsState(initial = MainUiPrefs(hasChosenLayout = null))
+            val mainUiPrefs by mainUiPrefsFlow.collectAsState(
+                initial = MainUiPrefs(
+                    // Returning users almost always have a layout; avoid a blank gate
+                    // while DataStore emits its first value.
+                    hasChosenLayout = if (hasSeenAuthQrOnFirstLaunch == true) true else null,
+                    experienceModeLoaded = hasSeenAuthQrOnFirstLaunch == true
+                )
+            )
             val installedAddons by remember(addonRepository) {
                 addonRepository.getInstalledAddons()
-            }.collectAsState(initial = null)
+            }.collectAsState(initial = emptyList())
             val discoverLocation = mainUiPrefs.discoverLocation
 
             NuvioTheme(
@@ -490,7 +555,9 @@ class MainActivity : ComponentActivity() {
                     LocalFastHorizontalNavigationEnabled provides mainUiPrefs.fastHorizontalNavigationEnabled,
                     LocalRecompositionHighlighterEnabled provides (BuildConfig.IS_DEBUG_BUILD && mainUiPrefs.composeHighlighterEnabled),
                     LocalCardDepthStyle provides mainUiPrefs.cardDepthStyle,
-                    com.nuvio.tv.core.player.LocalTrailerPlayerPool provides trailerPlayerPool
+                    com.nuvio.tv.core.player.LocalTrailerPlayerPool provides remember {
+                        trailerPlayerPool.get()
+                    }
                 ) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
@@ -508,7 +575,9 @@ class MainActivity : ComponentActivity() {
                         return@Surface
                     }
 
-                    if (authState is AuthState.Loading) {
+                    // Returning users: don't blank the UI while Supabase session
+                    // status is still Loading — home can paint from local caches.
+                    if (authState is AuthState.Loading && hasSeenAuthQrOnFirstLaunch != true) {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -522,7 +591,7 @@ class MainActivity : ComponentActivity() {
                         authState !is AuthState.FullAccount &&
                         !onboardingCompletedThisSession
                     ) {
-                        AuthQrSignInScreen(
+                        AuthSignInScreen(
                             onBackPress = { finish() },
                             onContinue = {
                                 lifecycleScope.launch {
@@ -535,7 +604,7 @@ class MainActivity : ComponentActivity() {
                                         val maxAttempts = 3
                                         var synced = false
                                         for (attempt in 0 until maxAttempts) {
-                                            val result = profileSyncService.pullFromRemote()
+                                            val result = profileSyncService.get().pullFromRemote()
                                             if (result.isSuccess) {
                                                 synced = true
                                                 break
@@ -556,7 +625,7 @@ class MainActivity : ComponentActivity() {
                                     onboardingProfileSyncInProgress = false
                                 }
                                 if (authManager.authState.value is AuthState.FullAccount) {
-                                    startupSyncService.requestSyncNow()
+                                    startupSyncService.get().requestSyncNow()
                                 }
                             }
                         )
@@ -571,7 +640,7 @@ class MainActivity : ComponentActivity() {
                             onProfileSelected = {
                                 hasSelectedProfileThisSession = true
                                 if (authManager.authState.value is AuthState.FullAccount) {
-                                    startupSyncService.requestSyncNow()
+                                    startupSyncService.get().requestSyncNow()
                                 }
                             }
                         )
@@ -579,7 +648,7 @@ class MainActivity : ComponentActivity() {
                     }
 
                     val layoutChosen = mainUiPrefs.hasChosenLayout
-                    if (layoutChosen == null || !mainUiPrefs.experienceModeLoaded || installedAddons == null) {
+                    if (layoutChosen == null || !mainUiPrefs.experienceModeLoaded) {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -601,7 +670,7 @@ class MainActivity : ComponentActivity() {
                         val deepLink = DeepLinkParser.parse(url)
                         if (deepLink is AppDeepLink.AddonInstall && (needsEssentialAddonSetup || !layoutChosen)) {
                             Toast.makeText(context, context.getString(R.string.addon_installing), Toast.LENGTH_SHORT).show()
-                            val installResult = deepLinkHandler.installAddon(deepLink.manifestUrl)
+                            val installResult = deepLinkHandler.get().installAddon(deepLink.manifestUrl)
                             if (pendingDeepLinkUrl.value == url) {
                                 pendingDeepLinkUrl.value = null
                             }
@@ -646,8 +715,8 @@ class MainActivity : ComponentActivity() {
                     // so it survives StreamScreen's self-pop and a process kill (metadata is
                     // recovered from disk and the event replayed).
                     LaunchedEffect(navController) {
-                        externalPlaybackTracker.autoPlayNext.collect { next ->
-                            if (!externalPlaybackTracker.claimAutoPlayNextNavigation(next)) {
+                        externalPlaybackTracker.get().autoPlayNext.collect { next ->
+                            if (!externalPlaybackTracker.get().claimAutoPlayNextNavigation(next)) {
                                 return@collect
                             }
                             Log.d(
@@ -711,7 +780,7 @@ class MainActivity : ComponentActivity() {
                                     launchSingleTop = true
                                 }
                                 Toast.makeText(context, context.getString(R.string.addon_installing), Toast.LENGTH_SHORT).show()
-                                val installResult = deepLinkHandler.installAddon(deepLink.manifestUrl)
+                                val installResult = deepLinkHandler.get().installAddon(deepLink.manifestUrl)
                                 if (pendingDeepLinkUrl.value == url) {
                                     pendingDeepLinkUrl.value = null
                                 }
@@ -874,7 +943,10 @@ class MainActivity : ComponentActivity() {
 
                     // Loader shown while an external episode auto-advances. Drawn last (on top
                     // of the NavHost) to hide the app cold-starting while the next source resolves.
-                    val autoNextOverlay by externalPlaybackTracker.autoNextOverlay.collectAsState()
+                    val playbackTracker = remember {
+                        this@MainActivity.externalPlaybackTracker.get()
+                    }
+                    val autoNextOverlay by playbackTracker.autoNextOverlay.collectAsState()
                     autoNextOverlay?.let { ov ->
                         // Back is intercepted at the Activity level (dispatchKeyEvent) so it reliably
                         // beats the destination screen's BackHandler.
@@ -906,18 +978,21 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         if (::jankStats.isInitialized) jankStats.isTrackingEnabled = true
-        lifecycleScope.launch {
-            deviceSessionRegistration.requestForegroundRegistration()
-            startupSyncService.requestForegroundSync()
-        }
-        lifecycleScope.launch {
-            val refreshIntent = if (isFirstResumeAfterCreate) {
-                isFirstResumeAfterCreate = false
-                TrackingRefreshIntent.INVALIDATED
-            } else {
-                TrackingRefreshIntent.AUTOMATIC
+        if (!heavyStartupAttached) return
+        window.decorView.post {
+            lifecycleScope.launch {
+                deviceSessionRegistration.get().requestForegroundRegistration()
+                startupSyncService.get().requestForegroundSync()
             }
-            trackingProgressRefreshCoordinator.refreshConnected(refreshIntent)
+            lifecycleScope.launch {
+                val refreshIntent = if (isFirstResumeAfterCreate) {
+                    isFirstResumeAfterCreate = false
+                    TrackingRefreshIntent.INVALIDATED
+                } else {
+                    TrackingRefreshIntent.AUTOMATIC
+                }
+                trackingProgressRefreshCoordinator.get().refreshConnected(refreshIntent)
+            }
         }
     }
 
@@ -942,11 +1017,11 @@ class MainActivity : ComponentActivity() {
     // handler above the loader's, so Back never reached it.
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (event.keyCode == KeyEvent.KEYCODE_BACK &&
-            externalPlaybackTracker.autoNextOverlay.value != null
+            externalPlaybackTracker.get().autoNextOverlay.value != null
         ) {
             if (event.action == KeyEvent.ACTION_UP) {
                 Log.d("ExtAutoNext", "dispatchKeyEvent BACK -> dismissAutoNextOverlay (loader showing)")
-                externalPlaybackTracker.dismissAutoNextOverlay()
+                externalPlaybackTracker.get().dismissAutoNextOverlay()
             }
             return true
         }
@@ -954,24 +1029,28 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStart() {
-        // Returning from an external player: raise the auto-next loader before the player's
-        // result is dispatched and before the window repaints, so the transition shows the
-        // loader instantly with no episode-list flash. No-op unless a series episode is being
-        // tracked; onActivityResult keeps it for a completion or dismisses it otherwise.
-        externalPlaybackTracker.raiseAutoNextOverlayOnReturn()
         super.onStart()
-        startupSyncService.startPeriodicSurfacePulls()
-        profileSettingsSyncService.requestForegroundPull()
-        androidTvChannelSyncService.onForegroundChanged(true)
+        if (!heavyStartupAttached) return
+        // Warm path (return from background / external player).
+        window.decorView.post {
+            externalPlaybackTracker.get().raiseAutoNextOverlayOnReturn()
+            startupSyncService.get().startPeriodicSurfacePulls()
+            profileSettingsSyncService.get().requestForegroundPull()
+            androidTvChannelSyncService.get().onForegroundChanged(true)
+        }
     }
 
     override fun onStop() {
-        externalPlaybackTracker.onExternalPlayerCoveredApp()
+        if (heavyStartupAttached) {
+            runCatching { externalPlaybackTracker.get().onExternalPlayerCoveredApp() }
+        }
         super.onStop()
-        startupSyncService.stopPeriodicSurfacePulls()
-        // App going to background (e.g. user returning to the launcher): reconcile the
-        // Continue Watching channel once so Projectivy repaints it with fresh progress.
-        androidTvChannelSyncService.onForegroundChanged(false)
+        if (heavyStartupAttached) {
+            runCatching {
+                startupSyncService.get().stopPeriodicSurfacePulls()
+                androidTvChannelSyncService.get().onForegroundChanged(false)
+            }
+        }
     }
 
     override fun onDestroy() {

@@ -246,7 +246,15 @@ class FolderDetailViewModel @Inject constructor(
             val posterCardCornerRadiusDp = layoutPreferenceDataStore.posterCardCornerRadiusDp.first()
             val showAll = (collection?.showAllTab ?: true) && folder.sources.size >= 2
 
-            val viewMode = collection?.viewMode ?: FolderViewMode.TABBED_GRID
+            val storedViewMode = collection?.viewMode ?: FolderViewMode.TABBED_GRID
+            // On the Modern home layout every collection opens as a replica of the
+            // home screen itself (central hero + expanding cards), regardless of the
+            // view mode stored on the collection.
+            val viewMode = if (homeLayout == HomeLayout.MODERN) {
+                FolderViewMode.FOLLOW_LAYOUT
+            } else {
+                storedViewMode
+            }
             val useShimmerPlaceholders = viewMode == FolderViewMode.FOLLOW_LAYOUT &&
                 (homeLayout == HomeLayout.MODERN || homeLayout == HomeLayout.CLASSIC)
 

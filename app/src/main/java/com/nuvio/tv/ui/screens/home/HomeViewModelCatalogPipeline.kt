@@ -50,6 +50,7 @@ internal fun HomeViewModel.observeCollectionsPipeline() {
                 // Deduplicate by collection ID (keep last occurrence) to prevent
                 // duplicate LazyColumn keys when users import overlapping collections.
                 collectionsCache = collections.associateBy { it.id }.values.toList()
+                _uiState.update { state -> state.copy(collections = collectionsCache) }
                 rebuildCatalogOrder(addonsCache)
                 scheduleUpdateCatalogRows()
             }
@@ -60,6 +61,7 @@ internal fun HomeViewModel.loadHomeCatalogOrderPreferencePipeline() {
     viewModelScope.launch {
         layoutPreferenceDataStore.homeCatalogOrderKeys.collectLatest { keys ->
             homeCatalogOrderKeys = keys
+            _uiState.update { state -> state.copy(homeCatalogOrderKeys = keys) }
             rebuildCatalogOrder(addonsCache)
             scheduleUpdateCatalogRows()
         }
@@ -82,6 +84,7 @@ internal fun HomeViewModel.loadDisabledHomeCatalogPreferencePipeline() {
             val newKeys = keys.toSet()
             if (newKeys == disabledHomeCatalogKeys) return@collectLatest
             disabledHomeCatalogKeys = newKeys
+            _uiState.update { state -> state.copy(disabledHomeCatalogKeys = newKeys) }
             rebuildCatalogOrder(addonsCache)
             if (addonsCache.isNotEmpty()) {
                 loadAllCatalogsPipeline(addonsCache)
@@ -89,6 +92,16 @@ internal fun HomeViewModel.loadDisabledHomeCatalogPreferencePipeline() {
                 scheduleUpdateCatalogRows()
             }
         }
+    }
+}
+
+internal fun HomeViewModel.loadGenreRowTargetsPipeline() {
+    viewModelScope.launch {
+        layoutPreferenceDataStore.genreRowTargets
+            .distinctUntilChanged()
+            .collectLatest { targets ->
+                _uiState.update { state -> state.copy(genreRowTargets = targets) }
+            }
     }
 }
 
@@ -579,8 +592,28 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
         } else {
             rawRows
         }
-        val selectedHeroCatalogSet = heroCatalogKeys.toSet()
+        // Catalogs loaded on demand (genre chips, remaps) live in catalogsMap but
+        // may not be in home order — still expose them via fullCatalogRows so
+        // CatalogSeeAll can render after ensureCatalogLoaded.
         val orderedKeySet = orderedKeys.toSet()
+        val extraLoadedRows = catalogSnapshot.keys
+            .asSequence()
+            .filter { it !in orderedKeySet }
+            .mapNotNull { key ->
+                val row = catalogSnapshot[key] ?: return@mapNotNull null
+                if (row.items.isEmpty()) return@mapNotNull null
+                val custom = titlesSnapshot[key]
+                if (!custom.isNullOrBlank()) row.copy(catalogName = custom) else row
+            }
+            .toList()
+        val extraRowsFiltered = if (hideUnreleased) {
+            val today = LocalDate.now()
+            extraLoadedRows.map { it.filterReleasedItems(today) }
+        } else {
+            extraLoadedRows
+        }
+        val fullRowsForBrowse = orderedRows + extraRowsFiltered
+        val selectedHeroCatalogSet = heroCatalogKeys.toSet()
         val selectedHeroRows = if (selectedHeroCatalogSet.isNotEmpty()) {
             // Include hero catalogs from ordered rows
             val fromOrdered = orderedRows.filter { row ->
@@ -693,7 +726,7 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
             }
         }
 
-        CatalogUpdateResult(computedDisplayRows, computedHeroItems, emptyList(), orderedRows)
+        CatalogUpdateResult(computedDisplayRows, computedHeroItems, emptyList(), fullRowsForBrowse)
     }
 
     _fullCatalogRows.update { rows ->

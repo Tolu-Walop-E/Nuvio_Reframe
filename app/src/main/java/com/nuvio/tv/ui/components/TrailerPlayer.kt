@@ -17,6 +17,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
@@ -35,6 +36,7 @@ import com.nuvio.tv.data.trailer.YoutubeChunkedDataSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import android.view.LayoutInflater
+import android.view.ViewGroup
 import com.nuvio.tv.R
 import kotlinx.coroutines.delay
 
@@ -52,6 +54,12 @@ fun TrailerPlayer(
     seekDeltaMs: Long = 0L,
     onProgressChanged: (positionMs: Long, durationMs: Long) -> Unit = { _, _ -> },
     onRemoteKey: (keyCode: Int, action: Int, repeatCount: Int) -> Boolean = { _, _, _ -> false },
+    /**
+     * When false (default), the embedded PlayerView never takes focus so D-pad
+     * stays on the surrounding Compose surface (hero / card previews).
+     * Enable only for full-screen / detail trailers that handle remote keys.
+     */
+    playerFocusable: Boolean = false,
     cropToFill: Boolean = false,
     overscanZoom: Float = 1f,
     modifier: Modifier = Modifier,
@@ -80,12 +88,16 @@ fun TrailerPlayer(
     // Resolve pool: explicit parameter > CompositionLocal
     val resolvedPool = trailerPlayerPool ?: LocalTrailerPlayerPool.current
 
+    // Exclusive owner token so a previous TrailerPlayer cannot stop/clear the shared
+    // ExoPlayer after focus has already moved to another card/hero surface.
+    val poolOwner = remember { Any() }
+
     // Use the shared pool instance instead of creating a new ExoPlayer per focus.
     // The pool keeps one ExoPlayer alive across poster focus changes, eliminating
     // the expensive create/teardown cycle that was the app-launch bottleneck.
     val trailerPlayer = remember(trailerUrl, resolvedPool) {
         if (trailerUrl != null) {
-            resolvedPool?.acquire()
+            resolvedPool?.acquire(poolOwner)
         } else {
             null
         }
@@ -94,6 +106,7 @@ fun TrailerPlayer(
     // Configure player settings when acquired
     LaunchedEffect(trailerPlayer, muted, cropToFill) {
         val player = trailerPlayer ?: return@LaunchedEffect
+        if (resolvedPool?.isOwnedBy(poolOwner) == false) return@LaunchedEffect
         player.volume = if (muted) 0f else 1f
         player.videoScalingMode = if (cropToFill) {
             C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
@@ -104,9 +117,15 @@ fun TrailerPlayer(
 
     LaunchedEffect(isPlaying, trailerUrl, trailerAudioUrl, muted, trailerPlayer) {
         val player = trailerPlayer ?: return@LaunchedEffect
-        player.volume = if (muted) 0f else 1f
-        if (isPlaying && trailerUrl != null) {
+            if (isPlaying && trailerUrl != null) {
+            resolvedPool?.acquire(poolOwner)
+            if (resolvedPool?.isOwnedBy(poolOwner) == false) return@LaunchedEffect
+            android.util.Log.i(
+                "NetflixTrailer",
+                "player-start url=${trailerUrl.take(64)} muted=$muted owner=${poolOwner.hashCode()}"
+            )
             hasRenderedFirstFrame = false
+            player.volume = if (muted) 0f else 1f
             if (!trailerAudioUrl.isNullOrBlank()) {
                 val mediaSourceFactory = DefaultMediaSourceFactory(YoutubeChunkedDataSourceFactory())
                 val videoSource = mediaSourceFactory.createMediaSource(MediaItem.fromUri(trailerUrl))
@@ -119,12 +138,12 @@ fun TrailerPlayer(
             player.playWhenReady = true
         } else {
             hasRenderedFirstFrame = false
+            if (resolvedPool?.isOwnedBy(poolOwner) != true) return@LaunchedEffect
             player.playWhenReady = false
             // Defer heavy stop and clear until focus settling/collapse has finished
             delay(150)
-            if (!isPlaying) {
-                player.stop()
-                player.clearMediaItems()
+            if (!isPlaying && resolvedPool?.isOwnedBy(poolOwner) == true) {
+                resolvedPool.stop(poolOwner)
             }
         }
     }
@@ -175,6 +194,7 @@ fun TrailerPlayer(
 
             override fun onRenderedFirstFrame() {
                 hasRenderedFirstFrame = true
+                android.util.Log.i("NetflixTrailer", "first-frame owner=${poolOwner.hashCode()}")
                 currentOnFirstFrameRendered()
             }
         }
@@ -212,8 +232,8 @@ fun TrailerPlayer(
         onDispose {
             runCatching { activityLifecycleOwner.lifecycle.removeObserver(observer) }
             runCatching { player.removeListener(listener) }
-            // Only stop — never release. The pool manages the ExoPlayer lifecycle.
-            resolvedPool?.stop()
+            // Only stop if we still own the pool — never release.
+            resolvedPool?.stop(poolOwner)
         }
     }
 
@@ -227,10 +247,17 @@ fun TrailerPlayer(
                 factory = { ctx ->
                     (LayoutInflater.from(ctx).inflate(R.layout.trailer_player_view, null) as PlayerView).apply {
                         player = trailerPlayer
-                        isFocusable = true
-                        isFocusableInTouchMode = true
-                        setOnKeyListener { _, keyCode, event ->
-                            currentOnRemoteKey(keyCode, event.action, event.repeatCount)
+                        isFocusable = playerFocusable
+                        isFocusableInTouchMode = playerFocusable
+                        isClickable = playerFocusable
+                        descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
+                        if (playerFocusable) {
+                            setOnKeyListener { _, keyCode, event ->
+                                currentOnRemoteKey(keyCode, event.action, event.repeatCount)
+                            }
+                        } else {
+                            setOnKeyListener(null)
+                            if (isFocused) clearFocus()
                         }
                         keepScreenOn = true
                         resizeMode = if (cropToFill) {
@@ -245,6 +272,12 @@ fun TrailerPlayer(
                     if (view.player !== trailerPlayer) {
                         view.player = trailerPlayer
                     }
+                    view.isFocusable = playerFocusable
+                    view.isFocusableInTouchMode = playerFocusable
+                    view.isClickable = playerFocusable
+                    if (!playerFocusable && view.isFocused) {
+                        view.clearFocus()
+                    }
                     view.resizeMode = if (cropToFill) {
                         AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                     } else {
@@ -257,6 +290,13 @@ fun TrailerPlayer(
                 },
                 modifier = modifier
                     .clipToBounds()
+                    .then(
+                        if (playerFocusable) {
+                            Modifier
+                        } else {
+                            Modifier.focusProperties { canFocus = false }
+                        }
+                    )
                     .graphicsLayer {
                         alpha = playerAlphaState.value
                         scaleX = zoomScale

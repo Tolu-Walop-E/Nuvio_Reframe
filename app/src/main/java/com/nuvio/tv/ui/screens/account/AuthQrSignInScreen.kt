@@ -82,6 +82,15 @@ fun AuthQrSignInScreen(
     onContinue: (() -> Unit)? = null,
     viewModel: AccountViewModel = hiltViewModel()
 ) {
+    if (!BuildConfig.FEATURE_TV_LOGIN_ENABLED) {
+        AuthSignInScreen(
+            onBackPress = onBackPress,
+            onContinue = onContinue,
+            viewModel = viewModel
+        )
+        return
+    }
+
     val uiState by viewModel.uiState.collectAsState()
     val fullAccount = uiState.authState as? AuthState.FullAccount
     val isSignedIn = fullAccount != null

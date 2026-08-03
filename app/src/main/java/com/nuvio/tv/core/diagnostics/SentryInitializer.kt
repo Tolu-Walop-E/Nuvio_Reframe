@@ -13,7 +13,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 
 object SentryInitializer {
     private val droppedIssueText = listOf(
@@ -27,11 +26,11 @@ object SentryInitializer {
     fun start(application: Application, settings: SentrySettingsDataStore) {
         if (started) return
         started = true
-        val initialEnabled = runBlocking(Dispatchers.IO) {
-            settings.enabled.first()
-        }
-        applyEnabled(application, initialEnabled)
+        // Never block Application.onCreate on DataStore — cold start was paying
+        // for this on the main thread before the first frame.
         scope.launch {
+            val initialEnabled = runCatching { settings.enabled.first() }.getOrDefault(false)
+            applyEnabled(application, initialEnabled)
             settings.enabled.distinctUntilChanged().collect { enabled ->
                 applyEnabled(application, enabled)
             }

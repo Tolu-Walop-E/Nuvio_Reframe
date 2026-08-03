@@ -124,28 +124,60 @@ fun FolderDetailScreen(
     val scrollToTopTrigger by viewModel.scrollToTopTrigger.collectAsStateWithLifecycle()
 
     if (uiState.viewMode == FolderViewMode.FOLLOW_LAYOUT) {
-        FollowLayoutContent(
-            uiState = uiState,
-            focusState = followLayoutFocusState,
-            enrichingItemId = enrichingItemId,
-            enrichedPreviews = enrichedPreviews,
-            failedEnrichmentIds = failedEnrichmentIds,
-            onNavigateToDetail = onNavigateToDetail,
-            onLoadMoreCatalog = viewModel::loadMoreForCatalog,
-            onSaveFocusState = { vi, vo, rk, ikm, m, ri, ii ->
-                viewModel.saveFollowLayoutFocusState(vi, vo, rk, ikm, m, ri, ii)
-            },
-            onSaveGridFocusState = viewModel::saveFollowLayoutGridFocusState,
-            onItemFocus = viewModel::onItemFocused,
-            onPreloadAdjacentItem = viewModel::preloadAdjacentItem,
-            onCatalogItemLongPress = { item, addonBaseUrl ->
-                viewModel.posterOptions.show(item, addonBaseUrl)
-            },
-            trailerPreviewUrls = trailerPreviewUrls,
-            trailerPreviewAudioUrls = trailerPreviewAudioUrls,
-            onRequestTrailerPreview = viewModel::requestTrailerPreview,
-            scrollToTopTrigger = scrollToTopTrigger
-        )
+        if (com.nuvio.tv.ui.screens.home.netflix.NetflixHomeFeature.ENABLED) {
+            val homeState = uiState.followLayoutHomeState
+            val browseRows = homeState?.catalogRows.orEmpty().ifEmpty {
+                homeState?.homeRows.orEmpty().mapNotNull { row ->
+                    (row as? com.nuvio.tv.ui.screens.home.HomeRow.Catalog)?.row
+                }
+            }
+            val exitToGenres = {
+                // Prefer returning to genres when opened from a genre pill mapping.
+                onBack()
+            }
+            com.nuvio.tv.ui.screens.home.netflix.NetflixCatalogBrowseContent(
+                title = folder.title,
+                rows = browseRows,
+                isLoading = homeState == null || (browseRows.isEmpty() && (homeState.isLoading)),
+                useLandscapeCards = uiState.modernLandscapePostersEnabled,
+                posterLabelsEnabled = uiState.posterLabelsEnabled,
+                trailerMuted = uiState.focusedPosterBackdropTrailerMuted,
+                trailerEnabled = uiState.focusedPosterBackdropTrailerEnabled,
+                trailerPreviewUrls = trailerPreviewUrls,
+                trailerPreviewAudioUrls = trailerPreviewAudioUrls,
+                onNavigateToDetail = onNavigateToDetail,
+                onLoadMoreCatalog = viewModel::loadMoreForCatalog,
+                onItemFocus = viewModel::onItemFocused,
+                onCatalogItemLongPress = { item, addonBaseUrl ->
+                    viewModel.posterOptions.show(item, addonBaseUrl)
+                },
+                onRequestTrailerPreview = viewModel::requestTrailerPreview,
+                onExitUp = exitToGenres
+            )
+        } else {
+            FollowLayoutContent(
+                uiState = uiState,
+                focusState = followLayoutFocusState,
+                enrichingItemId = enrichingItemId,
+                enrichedPreviews = enrichedPreviews,
+                failedEnrichmentIds = failedEnrichmentIds,
+                onNavigateToDetail = onNavigateToDetail,
+                onLoadMoreCatalog = viewModel::loadMoreForCatalog,
+                onSaveFocusState = { vi, vo, rk, ikm, m, ri, ii ->
+                    viewModel.saveFollowLayoutFocusState(vi, vo, rk, ikm, m, ri, ii)
+                },
+                onSaveGridFocusState = viewModel::saveFollowLayoutGridFocusState,
+                onItemFocus = viewModel::onItemFocused,
+                onPreloadAdjacentItem = viewModel::preloadAdjacentItem,
+                onCatalogItemLongPress = { item, addonBaseUrl ->
+                    viewModel.posterOptions.show(item, addonBaseUrl)
+                },
+                trailerPreviewUrls = trailerPreviewUrls,
+                trailerPreviewAudioUrls = trailerPreviewAudioUrls,
+                onRequestTrailerPreview = viewModel::requestTrailerPreview,
+                scrollToTopTrigger = scrollToTopTrigger
+            )
+        }
     } else {
         Column(
             modifier = Modifier

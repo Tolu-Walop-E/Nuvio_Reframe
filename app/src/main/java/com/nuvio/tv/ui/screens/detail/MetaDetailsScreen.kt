@@ -2408,6 +2408,7 @@ private fun BackdropLayer(
             seekRequestToken = if (showTrailerControls) trailerSeekToken else 0,
             seekDeltaMs = if (showTrailerControls) trailerSeekDeltaMs else 0L,
             onRemoteKey = onTrailerControlKey,
+            playerFocusable = true,
             onProgressChanged = onTrailerProgressChanged,
             onEnded = onTrailerEnded,
             modifier = Modifier.fillMaxSize()

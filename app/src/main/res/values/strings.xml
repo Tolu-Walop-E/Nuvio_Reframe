@@ -481,6 +481,8 @@
     <string name="account_error_service_unavailable">Service unavailable. Please try again later.</string>
     <string name="account_error_invalid_request">Invalid request. Please check your input.</string>
     <string name="account_error_unexpected">An unexpected error occurred.</string>
+    <string name="account_error_malformed_auth_response">The authentication service returned an invalid response. Please try again.</string>
+    <string name="account_error_missing_supabase_config">Account sign-in is not configured in this build.</string>
     <string name="experience_mode_switch_to_essential">Switch to Essential</string>
     <string name="experience_mode_switch_to_essential_subtitle">Hide advanced setup surfaces without changing your saved values.</string>
     <string name="experience_mode_switch_to_advanced">Switch to Advanced</string>
@@ -1864,6 +1866,23 @@
     <string name="auth_password_placeholder">Password</string>
     <string name="auth_email_sign_in">Sign In</string>
     <string name="auth_email_signing_in">Signing in\u2026</string>
+    <string name="auth_choice_title">Connect your Nuvio account</string>
+    <string name="auth_choice_description">Use email and password to sync profiles, addons, and plugins on this TV.</string>
+    <string name="auth_choice_sign_in_email">Sign in with email</string>
+    <string name="auth_choice_create_account">Create account</string>
+    <string name="auth_choice_link_sync_code">Link with sync code \u2014 Coming later</string>
+    <string name="auth_choice_link_unavailable">Device linking is not available in this build yet.</string>
+    <string name="auth_create_account_title">Create account</string>
+    <string name="auth_create_account_description">Create an account using your email and a password of at least %1$d characters.</string>
+    <string name="auth_confirm_password_placeholder">Confirm password</string>
+    <string name="auth_create_account_action">Create account</string>
+    <string name="auth_creating_account">Creating account\u2026</string>
+    <string name="auth_back_to_choices">Back to sign-in options</string>
+    <string name="auth_email_invalid">Enter a valid email address.</string>
+    <string name="auth_password_required">Enter your password.</string>
+    <string name="auth_password_minimum">Password must be at least %1$d characters.</string>
+    <string name="auth_passwords_do_not_match">Passwords do not match.</string>
+    <string name="auth_restoring_session">Restoring your account session\u2026</string>
 
     <string name="auth_qr_title">Sign In With QR</string>
     <string name="auth_qr_tagline">Watch your library, anywhere</string>
@@ -2199,7 +2218,8 @@
     <string name="collections_paste_clipboard">Paste from Clipboard</string>
     <string name="collections_validate">Validate</string>
     <string name="collections_paste_hint">Paste collections JSON here…</string>
-    <string name="collections_file_description">Reads nuvio-collections.json from the Downloads folder.</string>
+    <string name="collections_file_description">Reads nuvio-collections.json, xperience-anime-collections.json, or xperience-collections.json from Downloads.</string>
+    <string name="collections_import_bundled_xperience">Import Xperience Anime</string>
     <string name="collections_load_file">Load File</string>
     <string name="collections_file_loaded">File loaded (%1$d characters)</string>
     <string name="collections_fetch_url">Fetch URL</string>
@@ -2941,4 +2961,11 @@
     <string name="stream_test_video_bitrate">Average Video Bitrate: %1$s</string>
     <string name="stream_test_error_connection">Connection failed. The last played stream link may have expired or is unreachable. Please play the video again and retry.</string>
 
+    <string name="genre_target_dialog_title">Point %1$s to</string>
+    <string name="genre_target_dialog_subtitle">Choose what opens when this Genres button is selected.</string>
+    <string name="genre_target_automatic">Automatic</string>
+    <string name="genre_target_automatic_subtitle">Use the catalog and genre detected from its content.</string>
+    <string name="genre_target_selected">Selected</string>
+    <string name="genre_target_catalog_subtitle">Catalog from %1$s</string>
+    <string name="genre_target_collection_subtitle">Folder in %1$s</string>
 </resources>

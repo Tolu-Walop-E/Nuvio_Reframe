@@ -25,12 +25,19 @@ internal object NetflixHomeTokens {
     val Scrim = Color.Black.copy(alpha = 0.68f)
 
     val PageHorizontalPadding = 40.dp
-    val TopNavHeight = 48.dp
-    val HeroHeight = 420.dp
+    /** Absolute / measured top nav row height. */
+    val TopNavHeight = 72.dp
+    /** Extra gap between the in-flow nav and the hero so the focus ring is fully clear. */
+    val HeroTopGap = 36.dp
+    val HeroHeight = 360.dp
     val HeroCornerRadius = 26.dp
     val RailSpacing = 14.dp
     val CardCornerRadius = 10.dp
     val FocusBorder = 3.dp
+    val ProgressBarHeight = 6.dp
+    val ProgressBarBottomInset = 10.dp
+    val ProgressBarHorizontalInset = 12.dp
+    const val TrailerStartDelayMs = 1750L
     val PortraitCardWidth = 122.dp
     val PortraitCardHeight = 184.dp
     val FocusedPortraitCardWidth = 258.dp
@@ -116,8 +123,9 @@ internal object NetflixHomeSpacing {
     private const val RAIL_HORIZONTAL_GAP_PX = 16f
     val RailFocusPadding = 10.dp
     val RailTopPadding = 24.dp
-    val FocusedMetadataHeight = 104.dp
-    val ContinueMetadataHeight = 58.dp
+    /** Room for rating/facts + as many synopsis lines as fit under landscape rails. */
+    val FocusedMetadataHeight = 172.dp
+    val ContinueMetadataHeight = 72.dp
     val BottomFocusClearance = 400.dp
 
     fun railHorizontalGap(density: Density): Dp {
@@ -126,8 +134,8 @@ internal object NetflixHomeSpacing {
 }
 
 internal object NetflixHomeMotion {
-    const val FocusWidthDurationMs = 180
-    const val ArtworkCrossfadeDurationMs = 190
+    const val FocusWidthDurationMs = 120
+    const val ArtworkCrossfadeDurationMs = 140
     val FocusWidthAnimation: TweenSpec<Dp> = tween(durationMillis = FocusWidthDurationMs)
 }
 

@@ -10,6 +10,7 @@ import com.nuvio.tv.domain.model.HomeLayout
 import com.nuvio.tv.domain.model.LibraryListTab
 import com.nuvio.tv.domain.model.LibrarySourceMode
 import com.nuvio.tv.domain.model.MetaPreview
+import com.nuvio.tv.core.sync.SyncGenreRowTarget
 import com.nuvio.tv.domain.model.WatchProgress
 
 @Immutable
@@ -35,10 +36,10 @@ data class HomeUiState(
     val classicFocusGradientEnabled: Boolean = false,
     val focusedPosterBackdropExpandEnabled: Boolean = false,
     val focusedPosterBackdropExpandDelaySeconds: Int = 3,
-    val focusedPosterBackdropTrailerEnabled: Boolean = false,
+    val focusedPosterBackdropTrailerEnabled: Boolean = true,
     val focusedPosterBackdropTrailerMuted: Boolean = true,
     val focusedPosterBackdropTrailerPlaybackTarget: FocusedPosterTrailerPlaybackTarget =
-        FocusedPosterTrailerPlaybackTarget.HERO_MEDIA,
+        FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD,
     val posterCardWidthDp: Int = 126,
     val posterCardHeightDp: Int = 189,
     val posterCardCornerRadiusDp: Int = 12,
@@ -62,7 +63,12 @@ data class HomeUiState(
     val useEpisodeThumbnailsInCw: Boolean = true,
     val heroEnrichmentEnabled: Boolean = false,
     val startupAuthNotice: StartupAuthNotice? = null,
-    val homeRows: List<HomeRow> = emptyList()
+    val homeRows: List<HomeRow> = emptyList(),
+    val homeCatalogOrderKeys: List<String> = emptyList(),
+    val disabledHomeCatalogKeys: Set<String> = emptySet(),
+    val genreRowTargets: Map<String, SyncGenreRowTarget> = emptyMap(),
+    /** All imported collections (not only those visible on the home rail). */
+    val collections: List<Collection> = emptyList()
 )
 
 @Immutable

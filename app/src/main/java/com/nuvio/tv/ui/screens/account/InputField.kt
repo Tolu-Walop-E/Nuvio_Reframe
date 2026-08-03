@@ -40,9 +40,11 @@ internal fun InputField(
     value: String,
     onValueChange: (String) -> Unit,
     placeholder: String,
+    modifier: Modifier = Modifier,
     keyboardType: KeyboardType = KeyboardType.Text,
     isPassword: Boolean = false,
     imeAction: ImeAction = ImeAction.Done,
+    editRequestId: Int = 0,
     onImeAction: () -> Unit = {}
 ) {
     val textFieldFocusRequester = remember { FocusRequester() }
@@ -56,8 +58,15 @@ internal fun InputField(
         }
     }
 
+    LaunchedEffect(editRequestId) {
+        if (editRequestId > 0) {
+            isEditing = true
+        }
+    }
+
     Surface(
         onClick = { isEditing = true },
+        modifier = modifier,
         colors = ClickableSurfaceDefaults.colors(
             containerColor = NuvioTheme.colors.BackgroundCard,
             focusedContainerColor = NuvioTheme.colors.BackgroundCard

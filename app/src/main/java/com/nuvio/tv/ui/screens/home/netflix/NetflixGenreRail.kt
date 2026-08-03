@@ -40,11 +40,19 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import android.view.KeyEvent as AndroidKeyEvent
+import com.nuvio.tv.ui.util.rememberLongPressKeyTracker
 
 internal data class NetflixGenreChip(
     val key: String,
     val label: String,
-    val targetRailKey: String?
+    val catalogId: String,
+    val addonId: String,
+    val type: String,
+    val genreFilter: String?,
+    /** When set, Home can open the full collection folder (movie + series tabs). */
+    val collectionId: String? = null,
+    val folderId: String? = null
 )
 
 @Composable
@@ -59,6 +67,7 @@ internal fun NetflixGenreRail(
     onMoveUp: () -> Boolean,
     onMoveDown: () -> Boolean,
     onGenreSelected: (NetflixGenreChip) -> Unit,
+    onGenreLongPressed: (NetflixGenreChip) -> Unit,
     modifier: Modifier = Modifier
 ) {
     if (genres.isEmpty()) return
@@ -93,7 +102,10 @@ internal fun NetflixGenreRail(
                 },
                 onMoveUp = onMoveUp,
                 onMoveDown = onMoveDown,
-                onClick = { onGenreSelected(genre) }
+                trapLeft = index == 0,
+                trapRight = index == genres.lastIndex,
+                onClick = { onGenreSelected(genre) },
+                onLongClick = { onGenreLongPressed(genre) }
             )
         }
     }
@@ -106,7 +118,10 @@ private fun NetflixGenreCard(
     onFocus: () -> Unit,
     onMoveUp: () -> Boolean,
     onMoveDown: () -> Boolean,
-    onClick: () -> Unit
+    trapLeft: Boolean = false,
+    trapRight: Boolean = false,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
@@ -115,19 +130,47 @@ private fun NetflixGenreCard(
         label = "netflixGenreScale"
     )
     val shape = RoundedCornerShape(13.dp)
+    val longPressKeyTracker = rememberLongPressKeyTracker()
 
     Box(
         modifier = Modifier
             .focusRequester(focusRequester)
             .onPreviewKeyEvent { keyEvent ->
-                if (keyEvent.type != KeyEventType.KeyDown) {
-                    false
-                } else {
-                    when (keyEvent.key) {
-                        Key.DirectionUp -> onMoveUp()
-                        Key.DirectionDown -> onMoveDown()
-                        else -> false
+                val native = keyEvent.nativeKeyEvent
+                if (native.action == AndroidKeyEvent.ACTION_DOWN && native.keyCode == AndroidKeyEvent.KEYCODE_MENU) {
+                    onLongClick()
+                    return@onPreviewKeyEvent true
+                }
+                if (longPressKeyTracker.handle(native, ::isGenreSelectKey, onLongClick)) {
+                    return@onPreviewKeyEvent true
+                }
+                when (keyEvent.key) {
+                    Key.DirectionCenter,
+                    Key.Enter,
+                    Key.NumPadEnter -> {
+                        if (keyEvent.type == KeyEventType.KeyUp) onClick()
+                        true
                     }
+
+                    Key.DirectionUp -> {
+                        if (keyEvent.type == KeyEventType.KeyDown) {
+                            onMoveUp()
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    Key.DirectionDown -> {
+                        if (keyEvent.type == KeyEventType.KeyDown) {
+                            onMoveDown()
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    Key.DirectionLeft -> keyEvent.type == KeyEventType.KeyDown && trapLeft
+                    Key.DirectionRight -> keyEvent.type == KeyEventType.KeyDown && trapRight
+                    else -> false
                 }
             }
             .onFocusChanged {
@@ -168,4 +211,10 @@ private fun NetflixGenreCard(
             overflow = TextOverflow.Ellipsis
         )
     }
+}
+
+private fun isGenreSelectKey(keyCode: Int): Boolean {
+    return keyCode == AndroidKeyEvent.KEYCODE_DPAD_CENTER ||
+        keyCode == AndroidKeyEvent.KEYCODE_ENTER ||
+        keyCode == AndroidKeyEvent.KEYCODE_NUMPAD_ENTER
 }

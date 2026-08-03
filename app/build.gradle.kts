@@ -128,6 +128,9 @@ android {
         buildConfigField("boolean", "DOVI_NATIVE_ENABLED", enableDoviNative.toString())
         buildConfigField("boolean", "DOVI_EXTRACTOR_HOOK_READY", doviExtractorHookReady.toString())
         buildConfigField("boolean", "SELF_HOSTED", selfHosted.toString())
+        buildConfigField("boolean", "FEATURE_EMAIL_PASSWORD_AUTH_ENABLED", "true")
+        buildConfigField("boolean", "FEATURE_DEVICE_LINKING_ENABLED", "false")
+        buildConfigField("boolean", "FEATURE_TV_LOGIN_ENABLED", "false")
         if (enableDoviNative) {
             externalNativeBuild {
                 cmake {
@@ -184,7 +187,6 @@ android {
     }
 
     signingConfigs {
-<<<<<<< Updated upstream
         create("release") {
             val keystoreFile = releaseStoreFilePath?.takeIf { it.isNotBlank() }?.let(::file) ?: rootProject.file("nuviotv.jks")
             if (keystoreFile.exists() && keystoreFile.isFile) {
@@ -198,26 +200,13 @@ android {
                 keyPassword = debugConfig.keyPassword
                 storeFile = debugConfig.storeFile
                 storePassword = debugConfig.storePassword
-=======
-        val releaseKeystore = releaseStoreFilePath?.let(::file) ?: file("../nuviotv.jks")
-        if (releaseKeystore.exists()) {
-            create("release") {
-                keyAlias = releaseKeyAliasValue
-                keyPassword = releaseKeyPasswordValue
-                storeFile = releaseKeystore
-                storePassword = releaseStorePasswordValue
->>>>>>> Stashed changes
             }
         }
     }
 
     buildTypes {
         debug {
-<<<<<<< Updated upstream
-            signingConfig = signingConfigs.getByName("debug")
-=======
             signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
->>>>>>> Stashed changes
             isDebuggable = true
             isMinifyEnabled = false
 

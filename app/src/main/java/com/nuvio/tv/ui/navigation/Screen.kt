@@ -149,15 +149,23 @@ sealed class Screen(val route: String) {
     data object Account : Screen("account")
     data object ManageProfiles : Screen("manage_profiles")
     data object AuthSignIn : Screen("auth_sign_in")
+    data object AuthCreateAccount : Screen("auth_create_account")
     data object AuthQrSignIn : Screen("auth_qr_sign_in")
     data object SyncCodeGenerate : Screen("sync_code_generate")
     data object SyncCodeClaim : Screen("sync_code_claim")
-    data object CatalogSeeAll : Screen("catalog_see_all/{catalogId}/{addonId}/{type}?fromSearch={fromSearch}") {
+    data object CatalogSeeAll : Screen("catalog_see_all/{catalogId}/{addonId}/{type}?fromSearch={fromSearch}&genre={genre}") {
         private fun encode(value: String): String =
             URLEncoder.encode(value, "UTF-8").replace("+", "%20")
 
-        fun createRoute(catalogId: String, addonId: String, type: String, fromSearch: Boolean = false): String {
-            return "catalog_see_all/${encode(catalogId)}/${encode(addonId)}/${encode(type)}?fromSearch=$fromSearch"
+        fun createRoute(
+            catalogId: String,
+            addonId: String,
+            type: String,
+            fromSearch: Boolean = false,
+            genre: String? = null
+        ): String {
+            return "catalog_see_all/${encode(catalogId)}/${encode(addonId)}/${encode(type)}" +
+                "?fromSearch=$fromSearch&genre=${genre?.let(::encode).orEmpty()}"
         }
     }
 

@@ -43,9 +43,9 @@ class HomeCatalogSyncSupportTest {
             )
         )
 
-        assertEquals(1, payload.items.size)
-        assertEquals("com.test.addon", payload.items.single().addonId)
-        assertFalse(payload.items.single().enabled)
+        assertEquals(2, payload.items.size)
+        val addonItem = payload.items.single { it.addonId == "com.test.addon" }
+        assertFalse(addonItem.enabled)
     }
 
     @Test
@@ -85,6 +85,7 @@ class HomeCatalogSyncSupportTest {
 
         assertEquals(
             listOf(
+                HOME_GENRES_ROW_KEY,
                 homeCatalogKey("com.test.first", "movie", "top"),
                 homeCatalogKey("com.test.second", "series", "latest")
             ),
@@ -102,7 +103,7 @@ class HomeCatalogSyncSupportTest {
         )
 
         assertTrue(payload.hideUnreleasedContent)
-        assertEquals(emptyList<SyncCatalogItem>(), payload.items)
+        assertEquals(HOME_GENRES_ROW_KEY, payload.items.single().syncKey())
     }
 
     @Test
@@ -127,7 +128,7 @@ class HomeCatalogSyncSupportTest {
             localState = LocalHomeCatalogSettingsState()
         )
 
-        assertEquals(emptyList<SyncCatalogItem>(), payload.items)
+        assertEquals(HOME_GENRES_ROW_KEY, payload.items.single().syncKey())
     }
 
     @Test
@@ -155,10 +156,99 @@ class HomeCatalogSyncSupportTest {
             )
         )
 
-        assertEquals(2, payload.items.size)
+        assertEquals(3, payload.items.size)
         assertTrue(payload.items.last().isCollection)
         assertEquals("col-1", payload.items.last().collectionId)
         assertFalse(payload.items.last().enabled)
+    }
+
+    @Test
+    fun `build payload preserves explicit genre row order and disabled state`() {
+        val addon = testAddon(
+            id = "com.test.addon",
+            baseUrl = "https://example.com/manifest.json",
+            catalogs = listOf(
+                CatalogDescriptor(
+                    type = ContentType.MOVIE,
+                    id = "top",
+                    name = "Top"
+                )
+            )
+        )
+        val catalogKey = homeCatalogKey("com.test.addon", "movie", "top")
+
+        val payload = buildHomeCatalogSyncPayload(
+            addons = listOf(addon),
+            collections = emptyList(),
+            localState = LocalHomeCatalogSettingsState(
+                orderKeys = listOf(catalogKey, HOME_GENRES_ROW_KEY),
+                disabledKeys = setOf(HOME_GENRES_ROW_KEY)
+            )
+        )
+
+        assertEquals(listOf(catalogKey, HOME_GENRES_ROW_KEY), payload.items.map { it.syncKey() })
+        assertFalse(payload.items.last().enabled)
+    }
+
+    @Test
+    fun `build payload preserves valid genre chip destinations`() {
+        val catalogTarget = SyncGenreRowTarget(
+            kind = GENRE_ROW_TARGET_CATALOG,
+            addonId = "com.xperience.addon",
+            type = "movie",
+            catalogId = "popular"
+        )
+        val collectionTarget = SyncGenreRowTarget(
+            kind = GENRE_ROW_TARGET_COLLECTION_FOLDER,
+            collectionId = "collection-1",
+            folderId = "folder-1"
+        )
+
+        val payload = buildHomeCatalogSyncPayload(
+            addons = emptyList(),
+            collections = emptyList(),
+            localState = LocalHomeCatalogSettingsState(
+                genreTargets = mapOf(
+                    "genre|action" to catalogTarget,
+                    "genre|drama" to collectionTarget
+                )
+            )
+        )
+
+        assertEquals(catalogTarget, payload.genreTargets["genre|action"])
+        assertEquals(collectionTarget, payload.genreTargets["genre|drama"])
+    }
+
+    @Test
+    fun `build payload drops incomplete genre chip destinations`() {
+        val payload = buildHomeCatalogSyncPayload(
+            addons = emptyList(),
+            collections = emptyList(),
+            localState = LocalHomeCatalogSettingsState(
+                genreTargets = mapOf(
+                    "genre|action" to SyncGenreRowTarget(
+                        kind = GENRE_ROW_TARGET_CATALOG,
+                        addonId = "com.xperience.addon",
+                        type = "movie"
+                    ),
+                    "genre|drama" to SyncGenreRowTarget(
+                        kind = GENRE_ROW_TARGET_COLLECTION_FOLDER,
+                        collectionId = "collection-1"
+                    ),
+                    "genre|horror" to SyncGenreRowTarget(kind = "unknown")
+                )
+            )
+        )
+
+        assertTrue(payload.genreTargets.isEmpty())
+    }
+
+    private fun SyncCatalogItem.syncKey(): String {
+        return if (isCollection) {
+            homeCollectionKey(collectionId)
+        } else {
+            homeCatalogKey(addonId, type, catalogId)
+        }
     }
 
     private fun testAddon(

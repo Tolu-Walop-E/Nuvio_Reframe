@@ -8,6 +8,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.R
 import com.nuvio.tv.BuildConfig
+import com.nuvio.tv.core.auth.AuthFailureException
+import com.nuvio.tv.core.auth.AuthFailureReason
 import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.auth.diagnostics.AuthDiagnosticsSession
 import com.nuvio.tv.core.logging.bodySnippetForLog
@@ -23,6 +25,7 @@ import com.nuvio.tv.core.sync.PluginSyncService
 import com.nuvio.tv.core.sync.WatchProgressSyncService
 import com.nuvio.tv.core.sync.WatchedItemsSyncService
 import com.nuvio.tv.core.sync.ProfileSettingsSyncService
+import com.nuvio.tv.core.sync.ProfileSyncService
 import com.nuvio.tv.data.local.LibraryPreferences
 import com.nuvio.tv.data.local.WatchedItemsPreferences
 import com.nuvio.tv.data.local.TraktAuthDataStore
@@ -43,6 +46,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -68,6 +72,7 @@ class AccountViewModel @Inject constructor(
     private val librarySyncService: LibrarySyncService,
     private val watchedItemsSyncService: WatchedItemsSyncService,
     private val profileSettingsSyncService: ProfileSettingsSyncService,
+    private val profileSyncService: ProfileSyncService,
     private val pluginManager: PluginManager,
     private val addonRepository: AddonRepositoryImpl,
     private val watchProgressRepository: WatchProgressRepositoryImpl,
@@ -133,11 +138,13 @@ class AccountViewModel @Inject constructor(
     }
 
     fun signUp(email: String, password: String) {
+        if (!beginAuthSubmission()) return
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
             authManager.signUpWithEmail(email, password).fold(
                 onSuccess = {
-                    pushLocalDataToRemote()
+                    initializePhase1AfterSignup().onFailure { error ->
+                        Log.w(TAG, "Phase 1 account initialization will be retried by startup sync: ${error.javaClass.simpleName}")
+                    }
                     _uiState.update { it.copy(isLoading = false) }
                 },
                 onFailure = { e ->
@@ -148,12 +155,12 @@ class AccountViewModel @Inject constructor(
     }
 
     fun signIn(email: String, password: String) {
+        if (!beginAuthSubmission()) return
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
             authManager.signInWithEmail(email, password).fold(
                 onSuccess = {
-                    pullRemoteData().onFailure { e ->
-                        Log.e("AccountViewModel", "signIn: pullRemoteData failed, continuing signed-in flow", e)
+                    synchronizePhase1AfterSignIn().onFailure { error ->
+                        Log.w(TAG, "Phase 1 sign-in sync will be retried by startup sync: ${error.javaClass.simpleName}")
                     }
                     loadConnectedStats()
                     _uiState.update { it.copy(isLoading = false) }
@@ -163,6 +170,19 @@ class AccountViewModel @Inject constructor(
                 }
             )
         }
+    }
+
+    private fun beginAuthSubmission(): Boolean {
+        var started = false
+        _uiState.update { current ->
+            if (current.isLoading) {
+                current
+            } else {
+                started = true
+                current.copy(isLoading = true, error = null)
+            }
+        }
+        return started
     }
 
     fun generateSyncCode(pin: String) {
@@ -552,6 +572,28 @@ class AccountViewModel @Inject constructor(
     }
 
     private fun userFriendlyError(e: Throwable): String {
+        val authFailure = e as? AuthFailureException
+        if (authFailure != null) {
+            Log.w(TAG, "Authentication failed reason=${authFailure.reason}")
+            val resId = when (authFailure.reason) {
+                AuthFailureReason.InvalidCredentials -> R.string.account_error_invalid_credentials
+                AuthFailureReason.EmailNotConfirmed -> R.string.account_error_email_not_confirmed
+                AuthFailureReason.EmailAlreadyRegistered -> R.string.account_error_email_already_registered
+                AuthFailureReason.InvalidEmail -> R.string.account_error_invalid_email
+                AuthFailureReason.PasswordTooShort -> R.string.account_error_password_too_short
+                AuthFailureReason.PasswordTooWeak -> R.string.account_error_password_too_weak
+                AuthFailureReason.SignupDisabled -> R.string.account_error_signup_disabled
+                AuthFailureReason.RateLimited -> R.string.account_error_rate_limited
+                AuthFailureReason.NetworkUnavailable -> R.string.account_error_no_internet
+                AuthFailureReason.ConnectionTimeout -> R.string.account_error_connection_timeout
+                AuthFailureReason.ConnectionRefused -> R.string.account_error_connection_refused
+                AuthFailureReason.MalformedResponse -> R.string.account_error_malformed_auth_response
+                AuthFailureReason.MissingConfiguration -> R.string.account_error_missing_supabase_config
+                AuthFailureReason.Unknown -> R.string.account_error_unexpected
+            }
+            return context.getString(resId)
+        }
+
         val raw = e.message ?: ""
         val message = raw.lowercase()
         val compactRaw = raw.bodySnippetForLog()
@@ -698,6 +740,50 @@ class AccountViewModel @Inject constructor(
         watchProgressSyncService.pushToRemote(profileId)
         librarySyncService.pushToRemote(profileId)
         watchedItemsSyncService.pushToRemote(profileId)
+    }
+
+    private suspend fun initializePhase1AfterSignup(): Result<Unit> {
+        profileSyncService.pushToRemote().getOrElse { return Result.failure(it) }
+        pluginSyncService.pushToRemote().getOrElse { return Result.failure(it) }
+        addonSyncService.pushToRemote().getOrElse { return Result.failure(it) }
+        return Result.success(Unit)
+    }
+
+    private suspend fun synchronizePhase1AfterSignIn(): Result<Unit> {
+        return try {
+            val remoteProfiles = profileSyncService.pullFromRemote().getOrElse { throw it }
+            if (remoteProfiles.isEmpty()) {
+                profileSyncService.pushToRemote().getOrElse { throw it }
+            }
+
+            pluginManager.isSyncingFromRemote = true
+            try {
+                val remotePlugins = pluginSyncService.getRemoteRepoUrls().getOrElse { throw it }
+                pluginManager.reconcileWithRemoteRepoUrls(
+                    remotePlugins = remotePlugins,
+                    removeMissingLocal = true
+                )
+            } finally {
+                pluginManager.isSyncingFromRemote = false
+            }
+            pluginManager.flushPendingSync()
+
+            addonRepository.isSyncingFromRemote = true
+            try {
+                val remoteAddonUrls = addonSyncService.getRemoteAddonUrls().getOrElse { throw it }
+                addonRepository.reconcileWithRemoteAddonUrls(
+                    remoteUrls = remoteAddonUrls,
+                    removeMissingLocal = true
+                )
+            } finally {
+                addonRepository.isSyncingFromRemote = false
+            }
+            Result.success(Unit)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
     }
 
     private suspend fun pullRemoteData(): Result<Unit> {

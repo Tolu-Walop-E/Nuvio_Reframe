@@ -60,9 +60,12 @@ import com.nuvio.tv.ui.screens.home.HomeEvent
 import com.nuvio.tv.ui.screens.home.HomeViewModel
 import com.nuvio.tv.ui.screens.search.SearchEvent
 import com.nuvio.tv.ui.screens.search.SearchViewModel
+import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.legacyKey
 import com.nuvio.tv.domain.model.stableItemKey
+import com.nuvio.tv.ui.screens.home.netflix.NetflixCatalogBrowseContent
+import com.nuvio.tv.ui.screens.home.netflix.NetflixHomeFeature
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlin.math.roundToInt
 
@@ -74,6 +77,7 @@ fun CatalogSeeAllScreen(
     catalogId: String,
     addonId: String,
     type: String,
+    genre: String? = null,
     searchViewModel: SearchViewModel? = null,
     viewModel: HomeViewModel = hiltViewModel(),
     posterOptionsViewModel: com.nuvio.tv.ui.components.posteroptions.PosterOptionsViewModel = hiltViewModel(),
@@ -92,10 +96,9 @@ fun CatalogSeeAllScreen(
         focusedScale = PosterCardDefaults.Style.focusedScale
     )
 
-    BackHandler { onBackPress() }
-
     val isSearchMode = searchViewModel != null
     val catalogKey = "${addonId}_${type}_${catalogId}"
+    val normalizedGenre = genre?.trim()?.takeIf { it.isNotBlank() }
 
     // In search mode, get the catalog row from SearchViewModel's existing results.
     // Otherwise fall back to HomeViewModel's fullCatalogRows (home screen catalogs).
@@ -112,8 +115,74 @@ fun CatalogSeeAllScreen(
 
     LaunchedEffect(catalogKey, isSearchMode, catalogRow != null) {
         if (!isSearchMode && catalogRow == null) {
-            viewModel.requestLazyCatalogLoad(catalogKey)
+            viewModel.ensureCatalogLoaded(addonId = addonId, type = type, catalogId = catalogId)
         }
+    }
+
+    // Netflix home clone for genre / catalog browse (not search).
+    if (NetflixHomeFeature.ENABLED && !isSearchMode) {
+        val browseRows = remember(fullCatalogRows, catalogKey, normalizedGenre) {
+            buildNetflixBrowseRows(
+                allRows = fullCatalogRows,
+                catalogKey = catalogKey,
+                genre = normalizedGenre
+            )
+        }
+        val browseTitle = normalizedGenre?.replaceFirstChar { it.uppercase() }
+            ?: catalogRow?.catalogName
+            ?: stringResource(R.string.catalog_see_all_title_fallback)
+        val exitToGenres = remember(viewModel, onBackPress) {
+            {
+                viewModel.requestNetflixGenreRailFocus()
+                onBackPress()
+            }
+        }
+        NetflixCatalogBrowseContent(
+            title = browseTitle,
+            rows = browseRows,
+        isLoading = browseRows.isEmpty() && (catalogRow == null || catalogRow.isLoading || uiState.isLoading),
+            useLandscapeCards = uiState.modernLandscapePostersEnabled,
+            posterLabelsEnabled = uiState.posterLabelsEnabled,
+            trailerMuted = uiState.focusedPosterBackdropTrailerMuted,
+            trailerEnabled = uiState.focusedPosterBackdropTrailerEnabled,
+            trailerPreviewUrls = viewModel.trailerPreviewUrls,
+            trailerPreviewAudioUrls = viewModel.trailerPreviewAudioUrls,
+            onNavigateToDetail = onNavigateToDetail,
+            onLoadMoreCatalog = { id, addon, apiType ->
+                viewModel.onEvent(HomeEvent.OnLoadMoreCatalog(id, addon, apiType))
+            },
+            onItemFocus = { item -> viewModel.onItemFocus(item) },
+            onCatalogItemLongPress = { item, addonBaseUrl ->
+                posterOptionsController.show(item, addonBaseUrl)
+            },
+            onRequestTrailerPreview = { itemId, title, releaseInfo, apiType ->
+                viewModel.requestTrailerPreview(itemId, title, releaseInfo, apiType)
+            },
+            onExitUp = exitToGenres
+        )
+        val posterOptionsState by posterOptionsController.state.collectAsState()
+        com.nuvio.tv.ui.components.posteroptions.PosterOptionsHost(
+            state = posterOptionsState,
+            controller = posterOptionsController,
+            onNavigateToDetail = { id, itemType, addonBaseUrl ->
+                onNavigateToDetail(id, itemType, addonBaseUrl)
+            }
+        )
+        return
+    }
+
+    BackHandler { onBackPress() }
+
+    val displayCatalogRow = remember(catalogRow, genre) {
+        val source = catalogRow ?: return@remember null
+        val genreFilter = genre?.trim()?.takeIf { it.isNotBlank() }
+            ?: return@remember source
+        source.copy(
+            catalogName = genreFilter.replaceFirstChar { it.uppercase() },
+            items = source.items.filter { item ->
+                item.genres.any { itemGenre -> itemGenre.equals(genreFilter, ignoreCase = true) }
+            }
+        )
     }
 
     val gridState = rememberLazyGridState()
@@ -124,8 +193,8 @@ fun CatalogSeeAllScreen(
     var shouldRestoreFocus by rememberSaveable(catalogKey) { mutableStateOf(true) }
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    val focusedItemIndex = remember(catalogRow?.items, focusedItemKey) {
-        val items = catalogRow?.items.orEmpty()
+    val focusedItemIndex = remember(displayCatalogRow?.items, focusedItemKey) {
+        val items = displayCatalogRow?.items.orEmpty()
         if (items.isEmpty()) return@remember 0
         val key = focusedItemKey
         if (key.isNullOrBlank()) return@remember 0
@@ -170,9 +239,9 @@ fun CatalogSeeAllScreen(
         }
     }
 
-    LaunchedEffect(shouldRestoreFocus, catalogRow?.items?.size, focusedItemKey) {
+    LaunchedEffect(shouldRestoreFocus, displayCatalogRow?.items?.size, focusedItemKey) {
         if (!shouldRestoreFocus) return@LaunchedEffect
-        val items = catalogRow?.items.orEmpty()
+        val items = displayCatalogRow?.items.orEmpty()
         if (items.isEmpty()) return@LaunchedEffect
 
         val targetIndex = focusedItemIndex.coerceIn(0, items.lastIndex)
@@ -198,14 +267,14 @@ fun CatalogSeeAllScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = catalogRow?.catalogName ?: stringResource(R.string.catalog_see_all_title_fallback),
+                text = displayCatalogRow?.catalogName ?: stringResource(R.string.catalog_see_all_title_fallback),
                 style = MaterialTheme.typography.headlineLarge,
                 color = NuvioTheme.colors.TextPrimary
             )
         }
 
         if (uiState.catalogAddonNameEnabled) {
-            catalogRow?.addonName?.let { addonName ->
+            displayCatalogRow?.addonName?.let { addonName ->
                 Text(
                     modifier = Modifier.padding(horizontal = NuvioTheme.spacing.xxxl),
                     text = stringResource(R.string.catalog_see_all_from, addonName),
@@ -217,7 +286,7 @@ fun CatalogSeeAllScreen(
 
         Spacer(modifier = Modifier.height(NuvioTheme.spacing.xl))
 
-        val hasItems = catalogRow?.items?.isNotEmpty() == true
+        val hasItems = displayCatalogRow?.items?.isNotEmpty() == true
         val isCatalogLoading = catalogRow == null || catalogRow.isLoading
 
         if (hasItems) {
@@ -236,8 +305,8 @@ fun CatalogSeeAllScreen(
                     verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.lg)
                 ) {
                     itemsIndexed(
-                        items = catalogRow.items,
-                        key = { index, item -> catalogRow.stableItemKey(index) }
+                        items = displayCatalogRow.items,
+                        key = { index, item -> displayCatalogRow.stableItemKey(index) }
                     ) { index, item ->
                         val isWatched = if (isSearchMode) {
                             val isSeries = item.apiType.equals("series", ignoreCase = true) || item.apiType.equals("tv", ignoreCase = true)
@@ -271,17 +340,17 @@ fun CatalogSeeAllScreen(
                                 onNavigateToDetail(
                                     item.id,
                                     item.apiType,
-                                    catalogRow.addonBaseUrl
+                                    displayCatalogRow.addonBaseUrl
                                 )
                             },
                             onLongPress = {
                                 focusedItemKey = itemFocusKey
-                                posterOptionsController.show(item, catalogRow.addonBaseUrl)
+                                posterOptionsController.show(item, displayCatalogRow.addonBaseUrl)
                             }
                         )
                     }
 
-                    if (catalogRow.isLoading) {
+                    if (displayCatalogRow.isLoading) {
                         item(key = "loading_more") {
                             val cardShape = remember(posterCardStyle.cornerRadius) {
                                 androidx.compose.foundation.shape.RoundedCornerShape(posterCardStyle.cornerRadius)
@@ -353,5 +422,33 @@ fun CatalogSeeAllScreen(
                 onNavigateToDetail(id, type2, addonBaseUrl)
             }
         )
+    }
+}
+
+/**
+ * Build Netflix browse rails for a genre pill or catalog chip.
+ * Prefer the targeted catalog rail when present; optionally use [genre] as a
+ * title hint / fallback filter across other loaded rails.
+ */
+private fun buildNetflixBrowseRows(
+    allRows: List<CatalogRow>,
+    catalogKey: String,
+    genre: String?
+): List<CatalogRow> {
+    val primary = allRows.filter { it.legacyKey() == catalogKey && it.items.isNotEmpty() }
+    if (primary.isNotEmpty()) {
+        return if (genre.isNullOrBlank()) {
+            primary
+        } else {
+            primary.map { row -> row.copy(catalogName = genre) }
+        }
+    }
+    if (genre.isNullOrBlank()) return emptyList()
+    return allRows.mapNotNull { row ->
+        val filtered = row.items.filter { item ->
+            item.genres.any { itemGenre -> itemGenre.equals(genre, ignoreCase = true) }
+        }
+        if (filtered.isEmpty()) null
+        else row.copy(items = filtered, catalogName = genre)
     }
 }

@@ -3,7 +3,6 @@ package com.nuvio.tv
 import android.app.Application
 import android.content.Context
 import android.os.Build
-import android.os.StrictMode
 import coil3.ImageLoader
 import coil3.SingletonImageLoader
 import coil3.disk.DiskCache
@@ -17,13 +16,16 @@ import coil3.request.allowRgb565
 import coil3.bitmapFactoryMaxParallelism
 
 import okio.Path.Companion.toOkioPath
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
+import android.util.Log
 import com.nuvio.tv.core.diagnostics.SentryInitializer
 import com.nuvio.tv.core.runtime.PluginRuntimeHooks
-import com.nuvio.tv.core.sync.StartupSyncService
 import com.nuvio.tv.core.sync.androidtv.AndroidTvChannelSyncService
 import com.nuvio.tv.core.network.IPv4FirstDns
 import com.nuvio.tv.data.local.SentrySettingsDataStore
-import com.nuvio.tv.data.simkl.SimklAnimeIdPreferenceHolder
+import dagger.Lazy
 import dagger.hilt.android.HiltAndroidApp
 import okhttp3.Cookie
 import okhttp3.CookieJar
@@ -35,12 +37,13 @@ import javax.inject.Inject
 @HiltAndroidApp
 class NuvioApplication : Application(), SingletonImageLoader.Factory {
 
-    @Inject lateinit var startupSyncService: StartupSyncService
-    @Inject lateinit var androidTvChannelSyncService: AndroidTvChannelSyncService
+    // Lazy: do not build the TV-channel sync graph during Application.onCreate.
+    @Inject lateinit var androidTvChannelSyncService: Lazy<AndroidTvChannelSyncService>
     @Inject lateinit var sentrySettingsDataStore: SentrySettingsDataStore
-    @Inject lateinit var simklAnimeIdPreferenceHolder: SimklAnimeIdPreferenceHolder
 
     companion object {
+        private const val STARTUP_TAG = "AppStartup"
+
         /**
          * Shared cookie jar for CloudStream extension HTTP requests.
          * Accessible so the player's OkHttpClient can share cookies
@@ -71,15 +74,21 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
     }
 
     override fun onCreate() {
+        val startedAt = SystemClock.elapsedRealtime()
         super.onCreate()
+        Log.i(STARTUP_TAG, "Application.super.onCreate done +${SystemClock.elapsedRealtime() - startedAt}ms")
         SentryInitializer.start(this, sentrySettingsDataStore)
         PluginRuntimeHooks.onApplicationCreate(this)
-        androidTvChannelSyncService.start()
         // Load locale synchronously so it's available before Activity.attachBaseContext.
         // SharedPreferences reads are fast (cached in memory after first access).
         val tag = getSharedPreferences("app_locale", Context.MODE_PRIVATE)
             .getString("locale_tag", null)
         LocaleCache.localeTag = tag ?: ""
+        // Defer leanback channel work until after the first activity frame.
+        Handler(Looper.getMainLooper()).post {
+            androidTvChannelSyncService.get().start()
+        }
+        Log.i(STARTUP_TAG, "Application.onCreate done +${SystemClock.elapsedRealtime() - startedAt}ms")
     }
 
     override fun newImageLoader(context: android.content.Context): ImageLoader {

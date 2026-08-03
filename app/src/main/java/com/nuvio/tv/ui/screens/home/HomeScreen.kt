@@ -65,7 +65,7 @@ private data class HomePosterOptionsTarget(
     val addonBaseUrl: String
 )
 
-private const val HOME_STABLE_GATE_TIMEOUT_MS = 5_000L
+private const val HOME_STABLE_GATE_TIMEOUT_MS = 2_000L
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -88,6 +88,7 @@ fun HomeScreen(
     onContinueWatchingStartFromBeginning: (ContinueWatchingItem) -> Unit = onContinueWatchingClick,
     onContinueWatchingPlayManually: (ContinueWatchingItem) -> Unit = onContinueWatchingClick,
     onNavigateToCatalogSeeAll: (String, String, String) -> Unit = { _, _, _ -> },
+    onNavigateToGenre: (String, String, String, String?) -> Unit = { _, _, _, _ -> },
     onNavigateToFolderDetail: (String, String) -> Unit = { _, _ -> }
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -99,8 +100,11 @@ fun HomeScreen(
     val hasCatalogContent = uiState.catalogRows.any { it.items.isNotEmpty() }
     val hasCollectionContent = uiState.homeRows.any { it is HomeRow.CollectionRow }
     val hasHeroContent = uiState.heroItems.isNotEmpty()
+    // Netflix home renders from homeRows/catalogs directly — don't block first
+    // paint on the classic modern presentation builder.
     val modernPresentationReady =
         uiState.homeLayout != HomeLayout.MODERN ||
+            com.nuvio.tv.ui.screens.home.netflix.NetflixHomeFeature.ENABLED ||
             uiState.modernHomePresentation.rows.list.isNotEmpty() ||
             (uiState.heroSectionEnabled && hasHeroContent && !hasCatalogContent && !hasCollectionContent)
     var showHomeContentWithAnimation by rememberSaveable { mutableStateOf(false) }
@@ -142,6 +146,7 @@ fun HomeScreen(
     val onContinueWatchingStartFromBeginningStable = remember(onContinueWatchingStartFromBeginning) { onContinueWatchingStartFromBeginning }
     val onContinueWatchingPlayManuallyStable = remember(onContinueWatchingPlayManually) { onContinueWatchingPlayManually }
     val onNavigateToCatalogSeeAllStable = remember(onNavigateToCatalogSeeAll) { onNavigateToCatalogSeeAll }
+    val onNavigateToGenreStable = remember(onNavigateToGenre) { onNavigateToGenre }
     val onNavigateToFolderDetailStable = remember(onNavigateToFolderDetail) { onNavigateToFolderDetail }
     val onRemoveContinueWatchingStable = remember(viewModel) {
         { contentId: String, season: Int?, episode: Int?, isNextUp: Boolean ->
@@ -155,23 +160,33 @@ fun HomeScreen(
         hasCollectionContent,
         hasHeroContent,
         initialCwResolved,
-        modernPresentationReady
+        modernPresentationReady,
+        uiState.continueWatchingItems.size,
+        uiState.installedAddonsCount
     ) {
-        // Track that addons are known (even if isLoading flipped too fast to catch).
-        if (uiState.installedAddonsCount > 0) {
+        // Track that addons/content are known (even if isLoading flipped too fast to catch).
+        if (uiState.installedAddonsCount > 0 || hasCatalogContent || hasCollectionContent || hasHeroContent) {
             catalogLoadingStarted = true
         }
-        // Wait until catalog loading has completed with content AND the CW
-        // pipeline has completed its first emission.
+        // Reveal as soon as there is something useful — catalogs, collections,
+        // hero, or CW. Continue-watching can arrive progressively afterward.
+        val hasPaintWorthyContent =
+            hasCatalogContent ||
+                hasCollectionContent ||
+                hasHeroContent ||
+                (initialCwResolved && uiState.continueWatchingItems.isNotEmpty()) ||
+                (uiState.installedAddonsCount == 0 && initialCwResolved)
         if (!homeStableGateReleased &&
             catalogLoadingStarted &&
-            !uiState.isLoading &&
-            initialCwResolved &&
-            modernPresentationReady &&
-            // When addons are installed, require at least one catalog row.
-            (hasCatalogContent || uiState.installedAddonsCount == 0)
+            hasPaintWorthyContent &&
+            modernPresentationReady
         ) {
-            Log.d("HomeGate", "RELEASE: catalogs=$hasCatalogContent cwResolved=$initialCwResolved cwItems=${uiState.continueWatchingItems.size} addons=${uiState.installedAddonsCount}")
+            Log.d(
+                "HomeGate",
+                "RELEASE: catalogs=$hasCatalogContent collections=$hasCollectionContent " +
+                    "hero=$hasHeroContent cwResolved=$initialCwResolved " +
+                    "cwItems=${uiState.continueWatchingItems.size} addons=${uiState.installedAddonsCount}"
+            )
             homeStableGateReleased = true
         }
     }
@@ -320,10 +335,10 @@ fun HomeScreen(
                         enter = if (hasShownInitialHomeContent) {
                             EnterTransition.None
                         } else {
-                            fadeIn(animationSpec = tween(320)) +
+                            fadeIn(animationSpec = tween(180)) +
                                 slideInVertically(
                                     initialOffsetY = { it / 24 },
-                                    animationSpec = tween(320)
+                                    animationSpec = tween(180)
                                 )
                         }
                     ) {
@@ -367,6 +382,7 @@ fun HomeScreen(
                                 onContinueWatchingPlayManually = onContinueWatchingPlayManuallyStable,
                                 showContinueWatchingManualPlayOption = effectiveAutoplayEnabled,
                                 onNavigateToFolderDetail = onNavigateToFolderDetailStable,
+                                onNavigateToGenre = onNavigateToGenreStable,
                                 isCatalogItemWatched = isCatalogItemWatched,
                                 onCatalogItemLongPress = onCatalogItemLongPress
                             )
@@ -593,11 +609,14 @@ private fun ModernHomeRoute(
     onContinueWatchingPlayManually: (ContinueWatchingItem) -> Unit,
     showContinueWatchingManualPlayOption: Boolean,
     onNavigateToFolderDetail: (String, String) -> Unit = { _, _ -> },
+    onNavigateToGenre: (String, String, String, String?) -> Unit = { _, _, _, _ -> },
     isCatalogItemWatched: (MetaPreview) -> Boolean,
     onCatalogItemLongPress: (MetaPreview, String) -> Unit
 ) {
     val focusState by viewModel.focusState.collectAsStateWithLifecycle()
     val scrollToTopTrigger by viewModel.scrollToTopTrigger.collectAsStateWithLifecycle()
+    val pendingNetflixFocusRailKey by viewModel.pendingNetflixFocusRailKey.collectAsStateWithLifecycle()
+    val netflixFolderRails by viewModel.netflixFolderRails.collectAsStateWithLifecycle()
     val enrichingItemId by viewModel.enrichingItemId.collectAsStateWithLifecycle()
     val lastEnrichedPreview by viewModel.lastEnrichedPreview.collectAsStateWithLifecycle()
     val enrichedPreviews by viewModel.enrichedPreviews.collectAsStateWithLifecycle()
@@ -641,6 +660,10 @@ private fun ModernHomeRoute(
             isCatalogItemWatched = isCatalogItemWatched,
             onCatalogItemLongPress = onCatalogItemLongPress,
             onNavigateToFolderDetail = onNavigateToFolderDetail,
+            onNavigateToGenre = onNavigateToGenre,
+            onGenreTargetChanged = remember(viewModel) {
+                { chipKey, target -> viewModel.setGenreRowTarget(chipKey, target) }
+            },
             onItemFocus = remember(viewModel) {
                 { item -> viewModel.onItemFocus(item) }
             },
@@ -650,8 +673,16 @@ private fun ModernHomeRoute(
             onRequestTrailerPreview = requestTrailerPreview,
             onSaveFocusState = saveModernFocusState,
             scrollToTopTrigger = scrollToTopTrigger,
+            pendingFocusRailKeyFromHost = pendingNetflixFocusRailKey,
+            onPendingFocusRailKeyConsumed = remember(viewModel) {
+                { viewModel.consumePendingNetflixFocusRailKey() }
+            },
             onRequestLazyCatalogLoad = remember(viewModel) {
                 { catalogKey: String -> viewModel.requestLazyCatalogLoad(catalogKey) }
+            },
+            netflixFolderRails = netflixFolderRails,
+            onEnsureFolderRails = remember(viewModel) {
+                { requests -> viewModel.ensureNetflixFolderRails(requests) }
             }
         )
         return

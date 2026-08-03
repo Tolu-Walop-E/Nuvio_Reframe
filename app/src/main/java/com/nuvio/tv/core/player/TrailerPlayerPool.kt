@@ -14,8 +14,11 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.launch
 
 /**
  * Application-scoped singleton that holds a single ExoPlayer instance dedicated to
@@ -38,18 +41,35 @@ class TrailerPlayerPool @Inject constructor(
 ) {
     companion object {
         private const val TAG = "TrailerPlayerPool"
+        private val DEFAULT_OWNER = Any()
     }
 
     private var _player: ExoPlayer? = null
+    private var activeOwner: Any? = null
     private val yielded = AtomicBoolean(false)
     private val released = AtomicBoolean(false)
+    // Trailer previews default to the safer allocator; avoid blocking cold/focus
+    // paths on DataStore. Full-screen playback reads the setting separately.
+    private val forceNativeAllocation = AtomicBoolean(false)
+
+    init {
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            runCatching {
+                forceNativeAllocation.set(playerSettingsDataStore.nuvioPerformanceModeEnabled.first())
+            }
+        }
+    }
 
     /**
      * Returns the shared trailer ExoPlayer, creating it lazily if needed.
      * Returns null only if [release] was called (process shutdown).
+     *
+     * [owner] claims exclusive use so a previously focused TrailerPlayer cannot
+     * stop/clear media after focus has already moved to another surface.
      */
-    fun acquire(): ExoPlayer? {
+    fun acquire(owner: Any = DEFAULT_OWNER): ExoPlayer? {
         if (released.get()) return null
+        activeOwner = owner
         if (yielded.get()) {
             // Reclaim was not called yet but someone wants the player — rebuild.
             reclaim()
@@ -57,11 +77,18 @@ class TrailerPlayerPool @Inject constructor(
         return _player ?: createPlayer().also { _player = it }
     }
 
+    fun isOwnedBy(owner: Any): Boolean = activeOwner === owner
+
     /**
      * Stops playback and clears media but keeps the instance alive for reuse.
      * Call this when the trailer is no longer visible (poster lost focus, screen change).
+     * No-ops if [owner] no longer owns the pool (another surface took over).
      */
-    fun stop() {
+    fun stop(owner: Any = DEFAULT_OWNER) {
+        if (activeOwner !== owner && activeOwner != null) return
+        if (activeOwner === owner) {
+            activeOwner = null
+        }
         _player?.let { player ->
             runCatching {
                 player.playWhenReady = false
@@ -78,6 +105,7 @@ class TrailerPlayerPool @Inject constructor(
     fun yield() {
         if (yielded.compareAndSet(false, true)) {
             Log.d(TAG, "Yielding trailer player for detail playback")
+            activeOwner = null
             _player?.let { player ->
                 runCatching { player.stop() }
                 runCatching { player.clearMediaItems() }
@@ -103,6 +131,7 @@ class TrailerPlayerPool @Inject constructor(
      */
     fun release() {
         if (released.compareAndSet(false, true)) {
+            activeOwner = null
             _player?.let { player ->
                 runCatching { player.stop() }
                 runCatching { player.clearMediaItems() }
@@ -113,9 +142,7 @@ class TrailerPlayerPool @Inject constructor(
     }
 
     private fun createPlayer(): ExoPlayer {
-        val forceNative = runBlocking {
-            playerSettingsDataStore.nuvioPerformanceModeEnabled.first()
-        }
+        val forceNative = forceNativeAllocation.get()
         Log.d(TAG, "Creating shared trailer ExoPlayer instance with forceNativeAllocation = $forceNative")
         val loadControlBuilder = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
