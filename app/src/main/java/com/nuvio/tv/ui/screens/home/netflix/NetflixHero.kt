@@ -98,28 +98,27 @@ internal fun NetflixHero(
             .background(NetflixHomeTokens.SurfaceRaised)
             .border(
                 width = if (focused) NetflixHomeTokens.FocusBorder else 1.dp,
-                color = if (focused) NetflixHomeTokens.Focus else Color.White.copy(alpha = 0.10f),
+                color = if (focused) NetflixThemeChrome.focus else Color.White.copy(alpha = 0.10f),
                 shape = shape
             )
     ) {
         // Media layer — never focusable. Keys are owned by the overlay below so
         // Down/Up keep working while a trailer is playing.
         Box(modifier = Modifier.fillMaxSize()) {
-            if (!hasTrailerFrame) {
-                Crossfade(
-                    targetState = item?.backdrop ?: item?.poster,
-                    animationSpec = tween(520),
-                    label = "netflixHeroBackdrop"
-                ) { imageUrl ->
-                    AsyncImage(
-                        model = imageUrl,
-                        contentDescription = item?.title,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer { alpha = if (focused) 1f else 0.88f },
-                        contentScale = ContentScale.Crop
-                    )
-                }
+            // Keep backdrop under the player; TrailerPlayer fades in on first frame.
+            Crossfade(
+                targetState = item?.backdrop ?: item?.poster,
+                animationSpec = tween(520),
+                label = "netflixHeroBackdrop"
+            ) { imageUrl ->
+                AsyncImage(
+                    model = imageUrl,
+                    contentDescription = item?.title,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { alpha = if (focused) 1f else 0.88f },
+                    contentScale = ContentScale.Crop
+                )
             }
             if (shouldPlayTrailer) {
                 TrailerPlayer(
@@ -343,7 +342,7 @@ private fun NetflixHeroButton(
             .background(if (primary) NetflixHomeTokens.TextPrimary else Color.White.copy(alpha = 0.16f))
             .border(
                 width = if (focused) NetflixHomeTokens.FocusBorder else 1.dp,
-                color = if (focused && primary) Color.Black else if (focused) NetflixHomeTokens.Focus else Color.Transparent,
+                color = if (focused && primary) Color.Black else if (focused) NetflixThemeChrome.focus else Color.Transparent,
                 shape = shape
             )
             .padding(horizontal = 22.dp, vertical = 11.dp),

@@ -49,6 +49,7 @@ import com.nuvio.tv.ui.components.LoadingIndicator
 import com.nuvio.tv.ui.components.NuvioDialog
 import com.nuvio.tv.ui.components.PosterCardDefaults
 import com.nuvio.tv.ui.components.PosterCardStyle
+import com.nuvio.tv.ui.screens.home.netflix.NetflixContentTab
 import com.nuvio.tv.ui.screens.home.netflix.NetflixHomeContent
 import com.nuvio.tv.ui.screens.home.netflix.NetflixHomeFeature
 import androidx.compose.ui.res.stringResource
@@ -104,7 +105,7 @@ fun HomeScreen(
     // paint on the classic modern presentation builder.
     val modernPresentationReady =
         uiState.homeLayout != HomeLayout.MODERN ||
-            com.nuvio.tv.ui.screens.home.netflix.NetflixHomeFeature.ENABLED ||
+            uiState.homeLayout == HomeLayout.NETFLIX ||
             uiState.modernHomePresentation.rows.list.isNotEmpty() ||
             (uiState.heroSectionEnabled && hasHeroContent && !hasCatalogContent && !hasCollectionContent)
     var showHomeContentWithAnimation by rememberSaveable { mutableStateOf(false) }
@@ -373,6 +374,7 @@ fun HomeScreen(
                                 onCatalogItemLongPress = onCatalogItemLongPress
                             )
 
+                            HomeLayout.NETFLIX,
                             HomeLayout.MODERN -> ModernHomeRoute(
                                 viewModel = viewModel,
                                 uiState = uiState,
@@ -616,6 +618,7 @@ private fun ModernHomeRoute(
     val focusState by viewModel.focusState.collectAsStateWithLifecycle()
     val scrollToTopTrigger by viewModel.scrollToTopTrigger.collectAsStateWithLifecycle()
     val pendingNetflixFocusRailKey by viewModel.pendingNetflixFocusRailKey.collectAsStateWithLifecycle()
+    val netflixContentTab by viewModel.netflixContentTab.collectAsStateWithLifecycle()
     val netflixFolderRails by viewModel.netflixFolderRails.collectAsStateWithLifecycle()
     val enrichingItemId by viewModel.enrichingItemId.collectAsStateWithLifecycle()
     val lastEnrichedPreview by viewModel.lastEnrichedPreview.collectAsStateWithLifecycle()
@@ -646,7 +649,7 @@ private fun ModernHomeRoute(
             viewModel.preloadAdjacentItem(item)
         }
     }
-    if (NetflixHomeFeature.ENABLED) {
+    if (uiState.homeLayout == HomeLayout.NETFLIX && NetflixHomeFeature.AVAILABLE) {
         NetflixHomeContent(
             uiState = uiState,
             focusState = focusState,
@@ -683,6 +686,13 @@ private fun ModernHomeRoute(
             netflixFolderRails = netflixFolderRails,
             onEnsureFolderRails = remember(viewModel) {
                 { requests -> viewModel.ensureNetflixFolderRails(requests) }
+            },
+            selectedContentTab = remember(netflixContentTab) {
+                runCatching { NetflixContentTab.valueOf(netflixContentTab) }
+                    .getOrDefault(NetflixContentTab.HOME)
+            },
+            onContentTabChanged = remember(viewModel) {
+                { tab: NetflixContentTab -> viewModel.setNetflixContentTab(tab.name) }
             }
         )
         return

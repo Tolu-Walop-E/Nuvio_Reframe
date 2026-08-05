@@ -2,8 +2,6 @@
 
 package com.nuvio.tv.ui.screens.home.netflix
 
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -29,7 +27,6 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -41,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import android.view.KeyEvent as AndroidKeyEvent
+import com.nuvio.tv.ui.screens.detail.requestFocusAfterFrames
 import com.nuvio.tv.ui.util.rememberLongPressKeyTracker
 
 internal data class NetflixGenreChip(
@@ -82,16 +80,21 @@ internal fun NetflixGenreRail(
     LaunchedEffect(pendingFocusRailKey, lastFocusedIndex, itemRequesters.size) {
         if (pendingFocusRailKey != railKey || itemRequesters.isEmpty()) return@LaunchedEffect
         val targetIndex = lastFocusedIndex.coerceIn(0, itemRequesters.lastIndex)
-        runCatching { rowState.scrollToItem(targetIndex) }
-        runCatching { itemRequesters[targetIndex].requestFocus() }
-        onPendingFocusConsumed()
+        if (rowState.firstVisibleItemIndex != targetIndex) {
+            runCatching { rowState.scrollToItem(targetIndex) }
+        }
+        if (itemRequesters[targetIndex].requestFocusAfterFrames(2)) {
+            onPendingFocusConsumed()
+        }
     }
 
     LazyRow(
         modifier = modifier.padding(top = NetflixHomeSpacing.RailTopPadding),
         state = rowState,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
-        contentPadding = PaddingValues(horizontal = NetflixHomeTokens.PageHorizontalPadding, vertical = 8.dp)
+        // No vertical padding: chips are fixed-size with an in-box focus ring (no scale),
+        // so padding here only added empty space that neighbors scrolled against.
+        contentPadding = PaddingValues(horizontal = NetflixHomeTokens.PageHorizontalPadding)
     ) {
         itemsIndexed(genres, key = { _, item -> item.key }) { index, genre ->
             NetflixGenreCard(
@@ -124,16 +127,15 @@ private fun NetflixGenreCard(
     onLongClick: () -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(
-        targetValue = if (focused) 1.08f else 1f,
-        animationSpec = tween(durationMillis = 170),
-        label = "netflixGenreScale"
-    )
     val shape = RoundedCornerShape(13.dp)
     val longPressKeyTracker = rememberLongPressKeyTracker()
+    // Keep border width constant so focus never changes measured size / nudges
+    // rails above or below while scrolling Left/Right.
+    val ringWidth = NetflixHomeTokens.FocusBorder
 
     Box(
         modifier = Modifier
+            .size(NetflixHomeTokens.GenreCardWidth, NetflixHomeTokens.GenreCardHeight)
             .focusRequester(focusRequester)
             .onPreviewKeyEvent { keyEvent ->
                 val native = keyEvent.nativeKeyEvent
@@ -177,13 +179,6 @@ private fun NetflixGenreCard(
                 focused = it.isFocused
                 if (it.isFocused) onFocus()
             }
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-                alpha = if (focused) 1f else 0.86f
-                shadowElevation = if (focused) 14f else 2f
-            }
-            .size(NetflixHomeTokens.GenreCardWidth, NetflixHomeTokens.GenreCardHeight)
             .background(
                 brush = Brush.linearGradient(
                     listOf(
@@ -194,8 +189,8 @@ private fun NetflixGenreCard(
                 shape = shape
             )
             .border(
-                width = if (focused) NetflixHomeTokens.FocusBorder else 1.dp,
-                color = if (focused) NetflixHomeTokens.Focus else Color.White.copy(alpha = 0.10f),
+                width = ringWidth,
+                color = if (focused) NetflixThemeChrome.focus else Color.White.copy(alpha = 0.10f),
                 shape = shape
             )
             .clickable(onClick = onClick)
@@ -204,7 +199,7 @@ private fun NetflixGenreCard(
     ) {
         Text(
             text = label,
-            color = NetflixHomeTokens.TextPrimary,
+            color = NetflixThemeChrome.textPrimary,
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Bold,
             maxLines = 1,

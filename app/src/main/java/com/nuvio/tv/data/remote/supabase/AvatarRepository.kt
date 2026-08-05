@@ -49,8 +49,12 @@ class AvatarRepository @Inject constructor(
 
     companion object {
         fun avatarImageUrl(storagePath: String): String {
+            val trimmed = storagePath.trim()
+            if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+                return trimmed
+            }
             val baseUrl = BuildConfig.AVATAR_PUBLIC_BASE_URL.trimEnd('/')
-            return if (baseUrl.isNotEmpty()) "$baseUrl/$storagePath" else storagePath
+            return if (baseUrl.isNotEmpty()) "$baseUrl/$trimmed" else trimmed
         }
     }
 }

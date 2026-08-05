@@ -897,6 +897,7 @@ private fun FollowLayoutContent(
             posterCardStyle = posterCardStyle,
             onSaveGridFocusState = onSaveGridFocusState
         )
+        HomeLayout.NETFLIX,
         HomeLayout.MODERN -> ModernHomeContent(
             uiState = homeState,
             focusState = focusState,

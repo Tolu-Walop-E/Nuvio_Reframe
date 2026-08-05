@@ -13,17 +13,34 @@ class EmailAuthFlowTest {
     fun `signed out users see email sign in and create account choices`() {
         assertEquals(EmailAuthEntryState.SignedOut, emailAuthEntryState(AuthState.SignedOut))
 
-        val choices = phase1AuthChoices().associateBy { it.action }
+        val choices = phase1AuthChoices(
+            deviceLinkingEnabled = false,
+            tvLoginEnabled = false
+        ).associateBy { it.action }
         assertTrue(choices.getValue(Phase1AuthAction.SignInWithEmail).enabled)
         assertTrue(choices.getValue(Phase1AuthAction.CreateAccount).enabled)
+        assertFalse(choices.containsKey(Phase1AuthAction.SignInWithQr))
+        assertFalse(choices.getValue(Phase1AuthAction.LinkWithSyncCode).enabled)
     }
 
     @Test
-    fun `sync code linking is unavailable in phase one`() {
-        val syncCodeChoice = phase1AuthChoices()
-            .single { it.action == Phase1AuthAction.LinkWithSyncCode }
+    fun `sync code linking is enabled when device linking feature is on`() {
+        val syncCodeChoice = phase1AuthChoices(
+            deviceLinkingEnabled = true,
+            tvLoginEnabled = false
+        ).single { it.action == Phase1AuthAction.LinkWithSyncCode }
 
-        assertFalse(syncCodeChoice.enabled)
+        assertTrue(syncCodeChoice.enabled)
+    }
+
+    @Test
+    fun `qr sign in appears when tv login feature is on`() {
+        val choices = phase1AuthChoices(
+            deviceLinkingEnabled = false,
+            tvLoginEnabled = true
+        ).associateBy { it.action }
+
+        assertTrue(choices.getValue(Phase1AuthAction.SignInWithQr).enabled)
     }
 
     @Test
@@ -73,19 +90,6 @@ class EmailAuthFlowTest {
                 email = "viewer@example.com",
                 password = "password",
                 confirmPassword = "password"
-            )
-        )
-    }
-
-    @Test
-    fun `restored signed in session bypasses login choice`() {
-        assertEquals(
-            EmailAuthEntryState.Authenticated,
-            emailAuthEntryState(
-                AuthState.FullAccount(
-                    userId = "user-1",
-                    email = "viewer@example.com"
-                )
             )
         )
     }

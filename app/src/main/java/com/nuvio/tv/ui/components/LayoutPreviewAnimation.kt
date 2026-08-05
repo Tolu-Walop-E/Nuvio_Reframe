@@ -222,3 +222,87 @@ fun ModernLayoutPreview(
         }
     }
 }
+
+/** Animated preview of Netflix-style home: top nav, large hero, then scrolling poster rails. */
+@Composable
+fun NetflixLayoutPreview(
+    modifier: Modifier = Modifier,
+    accentColor: Color = NuvioTheme.colors.Primary
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "netflixPreview")
+    val scrollOffset by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(5200, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "netflixScroll"
+    )
+
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(NuvioTheme.radii.sm))
+            .background(NuvioTheme.colors.Background)
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val w = size.width
+            val h = size.height
+            val pad = w * 0.04f
+            val navH = h * 0.10f
+            val heroH = h * 0.48f
+            val gap = w * 0.02f
+            val corner = CornerRadius(h * 0.025f)
+
+            drawRoundRect(
+                color = accentColor.copy(alpha = 0.18f),
+                topLeft = Offset(pad, h * 0.03f),
+                size = Size(w - pad * 2f, navH),
+                cornerRadius = CornerRadius(h * 0.04f)
+            )
+            val pillW = w * 0.10f
+            val pillH = navH * 0.42f
+            val pillY = h * 0.03f + (navH - pillH) / 2f
+            for (i in 0 until 4) {
+                drawRoundRect(
+                    color = accentColor.copy(alpha = if (i == 0) 0.55f else 0.28f),
+                    topLeft = Offset(w * 0.28f + i * (pillW + gap), pillY),
+                    size = Size(pillW, pillH),
+                    cornerRadius = CornerRadius(pillH / 2f)
+                )
+            }
+
+            val heroTop = h * 0.03f + navH + h * 0.04f
+            drawRoundRect(
+                color = accentColor.copy(alpha = 0.42f),
+                topLeft = Offset(pad, heroTop),
+                size = Size(w - pad * 2f, heroH),
+                cornerRadius = CornerRadius(h * 0.04f)
+            )
+            drawRoundRect(
+                color = Color.White.copy(alpha = 0.55f),
+                topLeft = Offset(pad + w * 0.05f, heroTop + heroH * 0.72f),
+                size = Size(w * 0.16f, heroH * 0.14f),
+                cornerRadius = CornerRadius(heroH * 0.05f)
+            )
+
+            val rowTop = heroTop + heroH + h * 0.05f
+            val cardH = h - rowTop - h * 0.04f
+            val cardW = cardH * 0.68f
+            val step = cardW + gap
+            val shift = scrollOffset * step * 3f
+            val cardsToFill = (w / step).toInt() + 5
+            for (i in 0..cardsToFill) {
+                val x = pad + i * step - shift
+                if (x + cardW > 0f && x < w) {
+                    drawRoundRect(
+                        color = accentColor.copy(alpha = if (i % 3 == 0) 0.50f else 0.30f),
+                        topLeft = Offset(x, rowTop),
+                        size = Size(cardW, cardH),
+                        cornerRadius = corner
+                    )
+                }
+            }
+        }
+    }
+}

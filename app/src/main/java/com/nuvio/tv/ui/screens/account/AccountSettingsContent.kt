@@ -27,7 +27,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.runtime.Composable
@@ -64,12 +63,16 @@ fun AccountSettingsContent(
     viewModel: AccountViewModel,
     onNavigateToAuthSignIn: () -> Unit = {},
     onNavigateToCreateAccount: () -> Unit = {},
+    onNavigateToSyncGenerate: () -> Unit = {},
+    onNavigateToSyncClaim: () -> Unit = {},
+    onNavigateToQrSignIn: () -> Unit = {},
     initialFocusRequester: FocusRequester? = null
 ) {
     if (uiState.authState is AuthState.FullAccount) {
         SignedInAccountSettingsContent(
             uiState = uiState,
             viewModel = viewModel,
+            onNavigateToSyncGenerate = onNavigateToSyncGenerate,
             initialFocusRequester = initialFocusRequester
         )
         return
@@ -126,14 +129,25 @@ fun AccountSettingsContent(
                         onClick = onNavigateToCreateAccount
                     )
                 }
-                item(key = "account_link_sync_code_unavailable") {
-                    SettingsActionButton(
-                        icon = Icons.Default.LinkOff,
-                        title = stringResource(R.string.auth_choice_link_sync_code),
-                        subtitle = stringResource(R.string.auth_choice_link_unavailable),
-                        enabled = false,
-                        onClick = {}
-                    )
+                if (com.nuvio.tv.BuildConfig.FEATURE_TV_LOGIN_ENABLED) {
+                    item(key = "account_sign_in_qr") {
+                        SettingsActionButton(
+                            icon = Icons.Default.VpnKey,
+                            title = stringResource(R.string.auth_choice_sign_in_qr),
+                            subtitle = stringResource(R.string.auth_choice_sign_in_qr_subtitle),
+                            onClick = onNavigateToQrSignIn
+                        )
+                    }
+                }
+                if (com.nuvio.tv.BuildConfig.FEATURE_DEVICE_LINKING_ENABLED) {
+                    item(key = "account_link_sync_code") {
+                        SettingsActionButton(
+                            icon = Icons.Default.VpnKey,
+                            title = stringResource(R.string.auth_choice_link_sync_code),
+                            subtitle = stringResource(R.string.auth_choice_link_sync_code_subtitle),
+                            onClick = onNavigateToSyncClaim
+                        )
+                    }
                 }
             }
 
@@ -147,6 +161,7 @@ fun AccountSettingsContent(
 private fun SignedInAccountSettingsContent(
     uiState: AccountUiState,
     viewModel: AccountViewModel,
+    onNavigateToSyncGenerate: () -> Unit,
     initialFocusRequester: FocusRequester?
 ) {
     val listState = rememberLazyListState()
@@ -178,11 +193,30 @@ private fun SignedInAccountSettingsContent(
             } else if (uiState.isSyncOverviewLoading) {
                 item(key = "account_sync_overview_loading") { SyncOverviewLoadingCard() }
             }
+
+            if (com.nuvio.tv.BuildConfig.FEATURE_DEVICE_LINKING_ENABLED) {
+                item(key = "account_generate_sync_code") {
+                    SettingsActionButton(
+                        icon = Icons.Default.VpnKey,
+                        title = stringResource(R.string.sync_generate_title),
+                        subtitle = stringResource(R.string.account_generate_sync_signed_in_desc),
+                        onClick = onNavigateToSyncGenerate,
+                        modifier = if (initialFocusRequester != null) {
+                            Modifier.focusRequester(initialFocusRequester)
+                        } else {
+                            Modifier
+                        }
+                    )
+                }
+            }
         }
 
         SignOutSettingsButton(
             onClick = { showSignOutConfirmation = true },
-            modifier = if (initialFocusRequester != null) {
+            modifier = if (
+                initialFocusRequester != null &&
+                !com.nuvio.tv.BuildConfig.FEATURE_DEVICE_LINKING_ENABLED
+            ) {
                 Modifier.focusRequester(initialFocusRequester)
             } else {
                 Modifier

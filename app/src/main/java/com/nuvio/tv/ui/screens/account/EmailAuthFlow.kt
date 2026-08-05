@@ -1,5 +1,6 @@
 package com.nuvio.tv.ui.screens.account
 
+import com.nuvio.tv.BuildConfig
 import com.nuvio.tv.domain.model.AuthState
 
 const val MIN_EMAIL_AUTH_PASSWORD_LENGTH = 6
@@ -13,6 +14,7 @@ enum class EmailAuthMode {
 enum class Phase1AuthAction {
     SignInWithEmail,
     CreateAccount,
+    SignInWithQr,
     LinkWithSyncCode
 }
 
@@ -34,11 +36,17 @@ enum class EmailAuthValidationError {
     PasswordsDoNotMatch
 }
 
-fun phase1AuthChoices(): List<Phase1AuthChoice> = listOf(
-    Phase1AuthChoice(Phase1AuthAction.SignInWithEmail, enabled = true),
-    Phase1AuthChoice(Phase1AuthAction.CreateAccount, enabled = true),
-    Phase1AuthChoice(Phase1AuthAction.LinkWithSyncCode, enabled = false)
-)
+fun phase1AuthChoices(
+    deviceLinkingEnabled: Boolean = BuildConfig.FEATURE_DEVICE_LINKING_ENABLED,
+    tvLoginEnabled: Boolean = BuildConfig.FEATURE_TV_LOGIN_ENABLED
+): List<Phase1AuthChoice> = buildList {
+    add(Phase1AuthChoice(Phase1AuthAction.SignInWithEmail, enabled = true))
+    add(Phase1AuthChoice(Phase1AuthAction.CreateAccount, enabled = true))
+    if (tvLoginEnabled) {
+        add(Phase1AuthChoice(Phase1AuthAction.SignInWithQr, enabled = true))
+    }
+    add(Phase1AuthChoice(Phase1AuthAction.LinkWithSyncCode, enabled = deviceLinkingEnabled))
+}
 
 fun emailAuthEntryState(authState: AuthState): EmailAuthEntryState = when (authState) {
     AuthState.Loading -> EmailAuthEntryState.Loading

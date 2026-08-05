@@ -40,6 +40,7 @@ import androidx.tv.material3.Text
 import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.PosterShape
+import com.nuvio.tv.ui.screens.detail.requestFocusAfterFrames
 import com.nuvio.tv.ui.screens.home.ContinueWatchingItem
 import kotlin.math.floor
 
@@ -48,6 +49,7 @@ internal fun NetflixContinueWatchingRail(
     railKey: String,
     title: String,
     items: List<ContinueWatchingItem>,
+    useEpisodeThumbnails: Boolean,
     pendingFocusRailKey: String?,
     lastFocusedIndex: Int,
     onItemClick: (ContinueWatchingItem) -> Unit,
@@ -93,20 +95,15 @@ internal fun NetflixContinueWatchingRail(
             )
         ) {
             itemsIndexed(items, key = { _, item -> item.netflixKey() }) { index, item ->
-                val card = item.toNetflixCard()
+                val card = item.toNetflixCard(useEpisodeThumbnails = useEpisodeThumbnails)
                 val itemKey = item.netflixKey()
-                val focused = index == focusedIndex
                 NetflixMediaCard(
                     mediaKey = itemKey,
                     title = card.title,
                     subtitle = card.subtitle,
                     imageUrl = card.imageUrl,
-                    width = if (focused) NetflixHomeTokens.FocusedContinueCardWidth else NetflixHomeTokens.ContinueCardWidth,
-                    height = if (focused) {
-                        NetflixHomeTokens.FocusedContinueCardHeight
-                    } else {
-                        NetflixHomeTokens.ContinueCardHeight
-                    },
+                    width = NetflixHomeTokens.ContinueCardWidth,
+                    height = NetflixHomeTokens.ContinueCardHeight,
                     progress = card.progress,
                     showLabels = false,
                     showFallbackTitleWhenArtworkMissing = false,
@@ -140,7 +137,12 @@ internal fun NetflixContinueWatchingRail(
                 animationSpec = tween(durationMillis = 200),
                 label = "netflixContinueWatchingMetadata"
             ) { item ->
-                item?.let { NetflixContinueWatchingMetadata(item = it) }
+                item?.let {
+                    NetflixContinueWatchingMetadata(
+                        item = it,
+                        useEpisodeThumbnails = useEpisodeThumbnails
+                    )
+                }
             }
         }
     }
@@ -307,11 +309,16 @@ internal fun NetflixRailScaffold(
     modifier: Modifier = Modifier,
     content: @Composable (LazyListState, Int, (Int) -> Unit) -> Unit
 ) {
+    val safeLastFocusedIndex = if (itemRequesters.isEmpty()) {
+        0
+    } else {
+        lastFocusedIndex.coerceIn(0, itemRequesters.lastIndex)
+    }
     var focusedIndex by remember(railKey, itemRequesters.size) {
-        mutableStateOf(lastFocusedIndex.coerceIn(0, itemRequesters.lastIndex))
+        mutableStateOf(safeLastFocusedIndex)
     }
     val horizontalListState = rememberLazyListState(
-        initialFirstVisibleItemIndex = lastFocusedIndex.coerceAtLeast(0)
+        initialFirstVisibleItemIndex = safeLastFocusedIndex
     )
 
     LaunchedEffect(itemRequesters) {
@@ -323,10 +330,14 @@ internal fun NetflixRailScaffold(
             return@LaunchedEffect
         }
         val targetIndex = lastFocusedIndex.coerceIn(0, itemRequesters.lastIndex)
-        runCatching { horizontalListState.scrollToItem(targetIndex) }
         focusedIndex = targetIndex
-        runCatching { itemRequesters[targetIndex].requestFocus() }
-        onPendingFocusConsumed()
+        if (horizontalListState.firstVisibleItemIndex != targetIndex) {
+            runCatching { horizontalListState.scrollToItem(targetIndex) }
+        }
+        val focused = itemRequesters[targetIndex].requestFocusAfterFrames(2)
+        if (focused) {
+            onPendingFocusConsumed()
+        }
     }
 
     Column(
@@ -342,14 +353,14 @@ internal fun NetflixRailScaffold(
             Column {
                 Text(
                     text = title,
-                    color = NetflixHomeTokens.TextPrimary,
+                    color = NetflixThemeChrome.textPrimary,
                     style = NetflixHomeTypography.RowTitle,
                     maxLines = 1
                 )
                 if (!subtitle.isNullOrBlank()) {
                     Text(
                         text = subtitle,
-                        color = NetflixHomeTokens.TextSecondary,
+                        color = NetflixThemeChrome.textSecondary,
                         style = NetflixHomeTypography.RowSubtitle,
                         maxLines = 1
                     )
@@ -394,7 +405,7 @@ private fun NetflixFocusedCatalogMetadata(
                 item.metadataFacts().forEach { fact ->
                     Text(
                         text = fact,
-                        color = NetflixHomeTokens.TextPrimary,
+                        color = NetflixThemeChrome.textPrimary,
                         style = NetflixHomeTypography.Metadata,
                         maxLines = 1
                     )
@@ -404,7 +415,7 @@ private fun NetflixFocusedCatalogMetadata(
                 Spacer(modifier = Modifier.height(synopsisGap))
                 Text(
                     text = item.description,
-                    color = NetflixHomeTokens.TextSecondary,
+                    color = NetflixThemeChrome.textSecondary,
                     style = NetflixHomeTypography.Synopsis,
                     maxLines = maxSynopsisLines,
                     overflow = TextOverflow.Ellipsis
@@ -417,23 +428,36 @@ private fun NetflixFocusedCatalogMetadata(
 @Composable
 private fun NetflixContinueWatchingMetadata(
     item: ContinueWatchingItem,
+    useEpisodeThumbnails: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val card = item.toNetflixCard()
-    Column(modifier = modifier.fillMaxWidth(0.52f)) {
+    val card = item.toNetflixCard(useEpisodeThumbnails = useEpisodeThumbnails)
+    Column(
+        modifier = modifier.fillMaxWidth(0.62f),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
         Text(
             text = card.title,
-            color = NetflixHomeTokens.TextPrimary,
+            color = NetflixThemeChrome.textPrimary,
             style = NetflixHomeTypography.ContinueTitle,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
-        if (!card.subtitle.isNullOrBlank()) {
+        if (!card.episodeLine.isNullOrBlank()) {
             Text(
-                text = card.subtitle,
-                color = NetflixHomeTokens.TextSecondary,
+                text = card.episodeLine,
+                color = NetflixThemeChrome.textSecondary,
                 style = NetflixHomeTypography.ContinueSecondary,
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        if (!card.description.isNullOrBlank()) {
+            Text(
+                text = card.description,
+                color = NetflixThemeChrome.textMuted,
+                style = NetflixHomeTypography.ContinueSecondary,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
         }
@@ -443,6 +467,8 @@ private fun NetflixContinueWatchingMetadata(
 private data class NetflixCardData(
     val title: String,
     val subtitle: String?,
+    val episodeLine: String? = null,
+    val description: String? = null,
     val imageUrl: String?,
     val progress: Float?
 )
@@ -490,23 +516,54 @@ private fun MetaPreview.metadataFacts(): List<String> {
     }
 }
 
-private fun ContinueWatchingItem.toNetflixCard(): NetflixCardData {
+private fun ContinueWatchingItem.toNetflixCard(
+    useEpisodeThumbnails: Boolean
+): NetflixCardData {
     return when (this) {
-        is ContinueWatchingItem.InProgress -> NetflixCardData(
-            title = progress.name,
-            subtitle = listOfNotNull(
-                progress.season?.let { season -> progress.episode?.let { episode -> "S${season}:E${episode}" } },
-                progress.episodeTitle
-            ).firstOrNull(),
-            imageUrl = episodeThumbnail ?: progress.backdrop ?: progress.poster,
-            progress = progress.progressPercentage
-        )
+        is ContinueWatchingItem.InProgress -> {
+            val episodeCode = progress.season?.let { season ->
+                progress.episode?.let { episode -> "S${season}:E${episode}" }
+            }
+            val episodeLine = listOfNotNull(
+                episodeCode,
+                progress.episodeTitle?.takeIf { it.isNotBlank() }
+            ).joinToString(" · ").ifBlank { null }
+            val showArt = if (useEpisodeThumbnails) {
+                episodeThumbnail ?: progress.backdrop ?: progress.poster
+            } else {
+                progress.backdrop ?: progress.poster
+            }
+            NetflixCardData(
+                title = progress.name,
+                subtitle = episodeLine,
+                episodeLine = episodeLine,
+                description = episodeDescription?.takeIf { it.isNotBlank() },
+                imageUrl = showArt,
+                progress = progress.progressPercentage
+            )
+        }
 
-        is ContinueWatchingItem.NextUp -> NetflixCardData(
-            title = info.name,
-            subtitle = "S${info.season}:E${info.episode}" + (info.episodeTitle?.let { "  $it" } ?: ""),
-            imageUrl = info.thumbnail ?: info.backdrop ?: info.poster,
-            progress = null
-        )
+        is ContinueWatchingItem.NextUp -> {
+            val episodeLine = buildString {
+                append("S${info.season}:E${info.episode}")
+                info.episodeTitle?.takeIf { it.isNotBlank() }?.let { title ->
+                    append(" · ")
+                    append(title)
+                }
+            }
+            val showArt = if (useEpisodeThumbnails) {
+                info.thumbnail ?: info.backdrop ?: info.poster
+            } else {
+                info.backdrop ?: info.poster
+            }
+            NetflixCardData(
+                title = info.name,
+                subtitle = episodeLine,
+                episodeLine = episodeLine,
+                description = info.episodeDescription?.takeIf { it.isNotBlank() },
+                imageUrl = showArt,
+                progress = null
+            )
+        }
     }
 }

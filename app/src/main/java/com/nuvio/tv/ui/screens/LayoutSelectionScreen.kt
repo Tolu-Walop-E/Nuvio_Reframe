@@ -5,7 +5,6 @@ package com.nuvio.tv.ui.screens
 import com.nuvio.tv.ui.theme.NuvioTheme
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,6 +32,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.tv.material3.Border
@@ -44,14 +44,13 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import com.nuvio.tv.R
 import com.nuvio.tv.domain.model.HomeLayout
-import com.nuvio.tv.ui.components.ClassicLayoutPreview
 import com.nuvio.tv.ui.components.GridLayoutPreview
 import com.nuvio.tv.ui.components.ModernLayoutPreview
+import com.nuvio.tv.ui.components.NetflixLayoutPreview
 import com.nuvio.tv.ui.screens.settings.LayoutSettingsEvent
 import com.nuvio.tv.ui.screens.settings.LayoutSettingsViewModel
-import androidx.compose.ui.res.stringResource
-import com.nuvio.tv.R
 
 @Composable
 fun LayoutSelectionScreen(
@@ -59,28 +58,27 @@ fun LayoutSelectionScreen(
     onContinue: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    var selectedLayout by remember { mutableStateOf(HomeLayout.MODERN) }
+    var selectedLayout by remember { mutableStateOf(HomeLayout.NETFLIX) }
     val continueFocusRequester = remember { FocusRequester() }
 
     LaunchedEffect(uiState.selectedLayout) {
-        selectedLayout = uiState.selectedLayout
+        selectedLayout = when (uiState.selectedLayout) {
+            HomeLayout.NETFLIX, HomeLayout.MODERN, HomeLayout.GRID -> uiState.selectedLayout
+            HomeLayout.CLASSIC -> HomeLayout.NETFLIX
+        }
     }
 
     LaunchedEffect(Unit) {
         continueFocusRequester.requestFocus()
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-    ) {
+    Box(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 80.dp, vertical = NuvioTheme.spacing.xxxl),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Header
             Text(
                 text = stringResource(R.string.layout_selection_welcome),
                 style = MaterialTheme.typography.headlineLarge,
@@ -97,7 +95,6 @@ fun LayoutSelectionScreen(
 
             Spacer(modifier = Modifier.height(40.dp))
 
-            // Layout cards
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -105,30 +102,27 @@ fun LayoutSelectionScreen(
                 horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.xxl, Alignment.CenterHorizontally)
             ) {
                 LayoutOptionCard(
+                    layout = HomeLayout.NETFLIX,
+                    isSelected = selectedLayout == HomeLayout.NETFLIX,
+                    onSelect = { selectedLayout = HomeLayout.NETFLIX },
+                    modifier = Modifier.weight(1f)
+                )
+                LayoutOptionCard(
                     layout = HomeLayout.MODERN,
                     isSelected = selectedLayout == HomeLayout.MODERN,
                     onSelect = { selectedLayout = HomeLayout.MODERN },
                     modifier = Modifier.weight(1f)
                 )
-
                 LayoutOptionCard(
                     layout = HomeLayout.GRID,
                     isSelected = selectedLayout == HomeLayout.GRID,
                     onSelect = { selectedLayout = HomeLayout.GRID },
                     modifier = Modifier.weight(1f)
                 )
-
-                LayoutOptionCard(
-                    layout = HomeLayout.CLASSIC,
-                    isSelected = selectedLayout == HomeLayout.CLASSIC,
-                    onSelect = { selectedLayout = HomeLayout.CLASSIC },
-                    modifier = Modifier.weight(1f)
-                )
             }
 
             Spacer(modifier = Modifier.height(NuvioTheme.spacing.xl))
 
-            // Continue button
             Button(
                 onClick = {
                     viewModel.onEvent(LayoutSettingsEvent.SelectLayout(selectedLayout))
@@ -178,8 +172,7 @@ private fun LayoutOptionCard(
 
     Card(
         onClick = onSelect,
-        modifier = modifier
-            .onFocusChanged { isFocused = it.isFocused },
+        modifier = modifier.onFocusChanged { isFocused = it.isFocused },
         colors = CardDefaults.colors(
             containerColor = NuvioTheme.colors.BackgroundCard,
             focusedContainerColor = NuvioTheme.colors.BackgroundCard
@@ -201,22 +194,16 @@ private fun LayoutOptionCard(
                     .padding(NuvioTheme.spacing.lg),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Animated preview
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(200.dp)
                 ) {
                     when (layout) {
-                        HomeLayout.CLASSIC -> ClassicLayoutPreview(
-                            modifier = Modifier.fillMaxSize()
-                        )
-                        HomeLayout.GRID -> GridLayoutPreview(
-                            modifier = Modifier.fillMaxSize()
-                        )
-                        HomeLayout.MODERN -> ModernLayoutPreview(
-                            modifier = Modifier.fillMaxSize()
-                        )
+                        HomeLayout.NETFLIX -> NetflixLayoutPreview(modifier = Modifier.fillMaxSize())
+                        HomeLayout.GRID -> GridLayoutPreview(modifier = Modifier.fillMaxSize())
+                        HomeLayout.MODERN -> ModernLayoutPreview(modifier = Modifier.fillMaxSize())
+                        HomeLayout.CLASSIC -> ModernLayoutPreview(modifier = Modifier.fillMaxSize())
                     }
                 }
 
@@ -224,25 +211,27 @@ private fun LayoutOptionCard(
 
                 Text(
                     text = when (layout) {
-                        HomeLayout.CLASSIC -> stringResource(R.string.layout_classic)
+                        HomeLayout.NETFLIX -> stringResource(R.string.layout_netflix)
                         HomeLayout.GRID -> stringResource(R.string.layout_grid)
                         HomeLayout.MODERN -> stringResource(R.string.layout_modern)
+                        HomeLayout.CLASSIC -> stringResource(R.string.layout_classic)
                     },
                     style = MaterialTheme.typography.titleLarge,
                     color = if (isSelected || isFocused) NuvioTheme.colors.TextPrimary else NuvioTheme.colors.TextSecondary
                 )
 
-            Spacer(modifier = Modifier.height(NuvioTheme.spacing.xs))
+                Spacer(modifier = Modifier.height(NuvioTheme.spacing.xs))
 
-            Text(
-                text = when (layout) {
-                    HomeLayout.CLASSIC -> stringResource(R.string.layout_classic_desc)
-                    HomeLayout.GRID -> stringResource(R.string.layout_grid_desc)
-                    HomeLayout.MODERN -> stringResource(R.string.layout_modern_desc)
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = NuvioTheme.colors.TextTertiary
-            )
+                Text(
+                    text = when (layout) {
+                        HomeLayout.NETFLIX -> stringResource(R.string.layout_netflix_desc)
+                        HomeLayout.GRID -> stringResource(R.string.layout_grid_desc)
+                        HomeLayout.MODERN -> stringResource(R.string.layout_modern_desc)
+                        HomeLayout.CLASSIC -> stringResource(R.string.layout_classic_desc)
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = NuvioTheme.colors.TextTertiary
+                )
             }
 
             if (isSelected) {

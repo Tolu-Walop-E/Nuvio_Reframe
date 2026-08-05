@@ -46,10 +46,11 @@ internal object NetflixHomeTokens {
     val LandscapeCardHeight = 122.dp
     val FocusedLandscapeCardWidth = 292.dp
     val FocusedLandscapeCardHeight = 164.dp
+    /** Uniform landscape CW cards (no focus grow). */
     val ContinueCardWidth = 260.dp
     val ContinueCardHeight = 146.dp
-    val FocusedContinueCardWidth = 440.dp
-    val FocusedContinueCardHeight = 248.dp
+    val FocusedContinueCardWidth = ContinueCardWidth
+    val FocusedContinueCardHeight = ContinueCardHeight
     val GenreCardWidth = 150.dp
     val GenreCardHeight = 54.dp
     const val ShowCataloguePosterLabels = false
@@ -125,7 +126,8 @@ internal object NetflixHomeSpacing {
     val RailTopPadding = 24.dp
     /** Room for rating/facts + as many synopsis lines as fit under landscape rails. */
     val FocusedMetadataHeight = 172.dp
-    val ContinueMetadataHeight = 72.dp
+    /** Title + episode line + short description under CW rail. */
+    val ContinueMetadataHeight = 118.dp
     val BottomFocusClearance = 400.dp
 
     fun railHorizontalGap(density: Density): Dp {
@@ -171,6 +173,16 @@ internal data class NetflixHeroItem(
     val runtime: String?,
     val target: NetflixHomeTarget
 )
+
+internal fun MetaPreview.netflixAmbientArtUrl(): String? =
+    background ?: landscapePoster ?: poster
+
+internal fun ContinueWatchingItem.netflixAmbientArtUrl(): String? = when (this) {
+    is ContinueWatchingItem.InProgress ->
+        progress.backdrop ?: progress.poster
+    is ContinueWatchingItem.NextUp ->
+        info.backdrop ?: info.thumbnail ?: info.poster
+}
 
 internal fun MetaPreview.toNetflixHeroItem(addonBaseUrl: String): NetflixHeroItem {
     return NetflixHeroItem(

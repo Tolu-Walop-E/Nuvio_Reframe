@@ -59,3 +59,7 @@ logs
 AGENTS.md
 docs/
 status-page/
+
+# Baked TV login page (regen locally; contains public anon key)
+supabase/web/hosted/
+

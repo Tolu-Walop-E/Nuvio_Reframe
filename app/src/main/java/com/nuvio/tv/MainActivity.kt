@@ -140,6 +140,7 @@ import com.nuvio.tv.domain.model.AppTheme
 import com.nuvio.tv.domain.model.AuthState
 import com.nuvio.tv.domain.model.CardDepthStyle
 import com.nuvio.tv.domain.model.DiscoverLocation
+import com.nuvio.tv.domain.model.HomeLayout
 import com.nuvio.tv.domain.model.ExperienceMode
 import com.nuvio.tv.domain.model.SettingsUiStyle
 import com.nuvio.tv.domain.deeplink.AppDeepLink
@@ -194,6 +195,7 @@ private data class MainUiPrefs(
     val amoledMode: Boolean = false,
     val amoledSurfacesMode: Boolean = false,
     val hasChosenLayout: Boolean? = null,
+    val homeLayout: HomeLayout = HomeLayout.NETFLIX,
     val experienceMode: ExperienceMode? = null,
     val experienceModeLoaded: Boolean = false,
     val addonSetupSkipped: Boolean = false,
@@ -386,6 +388,7 @@ class MainActivity : ComponentActivity() {
             var hasSelectedProfileThisSession by rememberSaveable { mutableStateOf(false) }
             var onboardingCompletedThisSession by remember { mutableStateOf(false) }
             var onboardingProfileSyncInProgress by remember { mutableStateOf(false) }
+            var onboardingOverlay by remember { mutableStateOf<String?>(null) }
             val authState by authManager.authState.collectAsState()
             val context = LocalContext.current
 
@@ -474,19 +477,24 @@ class MainActivity : ComponentActivity() {
                     )
                 }
                 val layoutAndFeaturesFlow = combine(
-                    layoutPreferenceDataStore.hasChosenLayout,
-                    layoutPreferenceDataStore.sidebarCollapsedByDefault,
-                    layoutPreferenceDataStore.modernSidebarEnabled,
-                    layoutPreferenceDataStore.modernSidebarBlurEnabled,
+                    combine(
+                        layoutPreferenceDataStore.hasChosenLayout,
+                        layoutPreferenceDataStore.selectedLayout,
+                        layoutPreferenceDataStore.sidebarCollapsedByDefault,
+                        layoutPreferenceDataStore.modernSidebarEnabled,
+                        layoutPreferenceDataStore.modernSidebarBlurEnabled,
+                    ) { hasChosenLayout, homeLayout, sidebarCollapsed, modernSidebarEnabled, modernSidebarBlurPref ->
+                        MainUiPrefs(
+                            hasChosenLayout = hasChosenLayout,
+                            homeLayout = homeLayout,
+                            sidebarCollapsed = sidebarCollapsed,
+                            modernSidebarEnabled = modernSidebarEnabled,
+                            modernSidebarBlurPref = modernSidebarBlurPref,
+                        )
+                    },
                     layoutPreferenceDataStore.discoverLocation,
-                ) { hasChosenLayout, sidebarCollapsed, modernSidebarEnabled, modernSidebarBlurPref, discoverLocation ->
-                    MainUiPrefs(
-                        hasChosenLayout = hasChosenLayout,
-                        sidebarCollapsed = sidebarCollapsed,
-                        modernSidebarEnabled = modernSidebarEnabled,
-                        modernSidebarBlurPref = modernSidebarBlurPref,
-                        discoverLocation = discoverLocation,
-                    )
+                ) { prefs, discoverLocation ->
+                    prefs.copy(discoverLocation = discoverLocation)
                 }
                 val extraFeaturesFlow = combine(
                     experienceModeDataStore.addonSetupSkipped,
@@ -511,6 +519,7 @@ class MainActivity : ComponentActivity() {
                 ) { themePrefs, layoutPrefs, extraPrefs, cardDepthStyle ->
                     themePrefs.copy(
                         hasChosenLayout = layoutPrefs.hasChosenLayout,
+                        homeLayout = layoutPrefs.homeLayout,
                         sidebarCollapsed = layoutPrefs.sidebarCollapsed,
                         modernSidebarEnabled = layoutPrefs.modernSidebarEnabled,
                         modernSidebarBlurPref = layoutPrefs.modernSidebarBlurPref,
@@ -536,6 +545,13 @@ class MainActivity : ComponentActivity() {
                 addonRepository.getInstalledAddons()
             }.collectAsState(initial = emptyList())
             val discoverLocation = mainUiPrefs.discoverLocation
+
+            LaunchedEffect(Unit) {
+                layoutPreferenceDataStore.migrateForcedNetflixLayoutIfNeeded()
+            }
+            LaunchedEffect(mainUiPrefs.homeLayout) {
+                NetflixHomeFeature.setActiveFromLayout(mainUiPrefs.homeLayout)
+            }
 
             NuvioTheme(
                 appTheme = mainUiPrefs.theme,
@@ -591,44 +607,71 @@ class MainActivity : ComponentActivity() {
                         authState !is AuthState.FullAccount &&
                         !onboardingCompletedThisSession
                     ) {
-                        AuthSignInScreen(
-                            onBackPress = { finish() },
-                            onContinue = {
-                                lifecycleScope.launch {
-                                    val shouldRunRemoteOnboardingSync =
-                                        authManager.authState.value is AuthState.FullAccount
-
-                                    if (shouldRunRemoteOnboardingSync) {
-                                        if (onboardingProfileSyncInProgress) return@launch
-                                        onboardingProfileSyncInProgress = true
-                                        val maxAttempts = 3
-                                        var synced = false
-                                        for (attempt in 0 until maxAttempts) {
-                                            val result = profileSyncService.get().pullFromRemote()
-                                            if (result.isSuccess) {
-                                                synced = true
-                                                break
-                                            }
-                                            if (attempt < maxAttempts - 1) {
-                                                delay(1_000)
-                                            }
-                                        }
-                                        if (!synced) {
-                                            android.util.Log.w(
-                                                "MainActivity",
-                                                "Onboarding profile sync failed after retries; continuing"
-                                            )
-                                        }
+                        when (onboardingOverlay) {
+                            "qr" -> com.nuvio.tv.ui.screens.account.AuthQrSignInScreen(
+                                onBackPress = { onboardingOverlay = null },
+                                onContinue = {
+                                    lifecycleScope.launch {
+                                        appOnboardingDataStore.setHasSeenAuthQrOnFirstLaunch(true)
+                                        onboardingCompletedThisSession = true
+                                        onboardingOverlay = null
                                     }
-                                    appOnboardingDataStore.setHasSeenAuthQrOnFirstLaunch(true)
-                                    onboardingCompletedThisSession = true
-                                    onboardingProfileSyncInProgress = false
                                 }
-                                if (authManager.authState.value is AuthState.FullAccount) {
-                                    startupSyncService.get().requestSyncNow()
+                            )
+                            "sync_claim" -> com.nuvio.tv.ui.screens.account.SyncCodeClaimScreen(
+                                onBackPress = {
+                                    if (authManager.authState.value is AuthState.FullAccount) {
+                                        lifecycleScope.launch {
+                                            appOnboardingDataStore.setHasSeenAuthQrOnFirstLaunch(true)
+                                            onboardingCompletedThisSession = true
+                                            onboardingOverlay = null
+                                        }
+                                    } else {
+                                        onboardingOverlay = null
+                                    }
                                 }
-                            }
-                        )
+                            )
+                            else -> AuthSignInScreen(
+                                onBackPress = { finish() },
+                                onNavigateToQrSignIn = { onboardingOverlay = "qr" },
+                                onNavigateToSyncClaim = { onboardingOverlay = "sync_claim" },
+                                onContinue = {
+                                    lifecycleScope.launch {
+                                        val shouldRunRemoteOnboardingSync =
+                                            authManager.authState.value is AuthState.FullAccount
+
+                                        if (shouldRunRemoteOnboardingSync) {
+                                            if (onboardingProfileSyncInProgress) return@launch
+                                            onboardingProfileSyncInProgress = true
+                                            val maxAttempts = 3
+                                            var synced = false
+                                            for (attempt in 0 until maxAttempts) {
+                                                val result = profileSyncService.get().pullFromRemote()
+                                                if (result.isSuccess) {
+                                                    synced = true
+                                                    break
+                                                }
+                                                if (attempt < maxAttempts - 1) {
+                                                    delay(1_000)
+                                                }
+                                            }
+                                            if (!synced) {
+                                                android.util.Log.w(
+                                                    "MainActivity",
+                                                    "Onboarding profile sync failed after retries; continuing"
+                                                )
+                                            }
+                                        }
+                                        appOnboardingDataStore.setHasSeenAuthQrOnFirstLaunch(true)
+                                        onboardingCompletedThisSession = true
+                                        onboardingProfileSyncInProgress = false
+                                    }
+                                    if (authManager.authState.value is AuthState.FullAccount) {
+                                        startupSyncService.get().requestSyncNow()
+                                    }
+                                }
+                            )
+                        }
                         return@Surface
                     }
 
@@ -1102,7 +1145,7 @@ private fun LegacySidebarScaffold(
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val drawerItemFocusRequesters = rememberDrawerItemFocusRequesters(drawerItems)
     val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
-    val showSidebar = currentRoute in rootRoutes && !(NetflixHomeFeature.ENABLED && currentRoute == Screen.Home.route)
+    val showSidebar = currentRoute in rootRoutes && !NetflixHomeFeature.hidesClassicSidebar(currentRoute)
     val netflixRouteNavigator = remember(navController, currentRoute, onNavigate) {
         { targetRoute: String ->
             onNavigate(targetRoute)
@@ -1112,6 +1155,15 @@ private fun LegacySidebarScaffold(
                 targetRoute = targetRoute
             )
         }
+    }
+    val netflixShellController = remember(netflixRouteNavigator) {
+        com.nuvio.tv.ui.screens.home.netflix.NetflixShellController(
+            navigate = netflixRouteNavigator,
+            openHomeTab = { tab ->
+                com.nuvio.tv.ui.screens.home.netflix.NetflixHomeTabBridge.request(tab)
+                netflixRouteNavigator(com.nuvio.tv.ui.navigation.Screen.Home.route)
+            }
+        )
     }
 
     LaunchedEffect(currentRoute) {
@@ -1343,7 +1395,8 @@ private fun LegacySidebarScaffold(
             CompositionLocalProvider(
                 LocalSidebarExpanded provides (drawerState.currentValue == DrawerValue.Open),
                 LocalContentFocusRequester provides contentFocusRequester,
-                LocalNetflixRouteNavigator provides netflixRouteNavigator
+                LocalNetflixRouteNavigator provides netflixRouteNavigator,
+                com.nuvio.tv.ui.screens.home.netflix.LocalNetflixShellController provides netflixShellController
             ) {
                 NuvioNavHost(
                     navController = navController,
@@ -1468,7 +1521,7 @@ private fun ModernSidebarScaffold(
     onNavigate: (String) -> Unit,
     onExitApp: () -> Unit
 ) {
-    val showSidebar = currentRoute in rootRoutes && !(NetflixHomeFeature.ENABLED && currentRoute == Screen.Home.route)
+    val showSidebar = currentRoute in rootRoutes && !NetflixHomeFeature.hidesClassicSidebar(currentRoute)
     val netflixRouteNavigator = remember(navController, currentRoute, onNavigate) {
         { targetRoute: String ->
             onNavigate(targetRoute)
@@ -1478,6 +1531,15 @@ private fun ModernSidebarScaffold(
                 targetRoute = targetRoute
             )
         }
+    }
+    val netflixShellController = remember(netflixRouteNavigator) {
+        com.nuvio.tv.ui.screens.home.netflix.NetflixShellController(
+            navigate = netflixRouteNavigator,
+            openHomeTab = { tab ->
+                com.nuvio.tv.ui.screens.home.netflix.NetflixHomeTabBridge.request(tab)
+                netflixRouteNavigator(com.nuvio.tv.ui.navigation.Screen.Home.route)
+            }
+        )
     }
     val sidebarTokens = NuvioComponents.tokens.sidebar
     val collapsedSidebarWidth = if (sidebarCollapsed) NuvioTheme.spacing.none else sidebarTokens.collapsedWidth
@@ -1747,7 +1809,8 @@ private fun ModernSidebarScaffold(
             CompositionLocalProvider(
                 LocalSidebarExpanded provides isSidebarExpanded,
                 LocalContentFocusRequester provides contentFocusRequester,
-                LocalNetflixRouteNavigator provides netflixRouteNavigator
+                LocalNetflixRouteNavigator provides netflixRouteNavigator,
+                com.nuvio.tv.ui.screens.home.netflix.LocalNetflixShellController provides netflixShellController
             ) {
                 NuvioNavHost(
                     navController = navController,

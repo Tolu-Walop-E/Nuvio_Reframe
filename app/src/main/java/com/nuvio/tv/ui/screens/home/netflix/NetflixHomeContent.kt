@@ -43,6 +43,7 @@ import com.nuvio.tv.core.sync.SyncGenreRowTarget
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.legacyKey
 import com.nuvio.tv.ui.components.ContinueWatchingOptionsDialog
+import com.nuvio.tv.ui.screens.detail.requestFocusAfterFrames
 import com.nuvio.tv.ui.screens.home.ContinueWatchingItem
 import com.nuvio.tv.ui.screens.home.HomeScreenFocusState
 import com.nuvio.tv.ui.screens.home.HomeRow
@@ -86,30 +87,71 @@ fun NetflixHomeContent(
     onPendingFocusRailKeyConsumed: () -> Unit = {},
     onRequestLazyCatalogLoad: (String) -> Unit = {},
     netflixFolderRails: Map<String, com.nuvio.tv.domain.model.CatalogRow> = emptyMap(),
-    onEnsureFolderRails: (List<NetflixFolderRailRequest>) -> Unit = {}
+    onEnsureFolderRails: (List<NetflixFolderRailRequest>) -> Unit = {},
+    selectedContentTab: NetflixContentTab = NetflixContentTab.HOME,
+    onContentTabChanged: (NetflixContentTab) -> Unit = {}
 ) {
-    var heroItem by remember(uiState.heroItems, uiState.catalogRows, uiState.continueWatchingItems) {
+    var heroItem by remember(uiState.heroItems, uiState.catalogRows) {
         mutableStateOf(resolveInitialHero(uiState))
     }
     var pendingHeroItem by remember { mutableStateOf(heroItem) }
-    var focusedTopNavigationIndex by remember { mutableStateOf(1) }
+    // Page wash follows focused card art, independent of the pinned hero showcase.
+    var ambientArtUrl by remember {
+        mutableStateOf(heroItem?.backdrop ?: heroItem?.poster)
+    }
+    var focusedTopNavigationIndex by remember { mutableStateOf(selectedContentTab.navIndex) }
     val topNavigationRequesters = remember { List(NETFLIX_TOP_NAV_ITEM_COUNT) { FocusRequester() } }
     val heroPrimaryRequester = remember { FocusRequester() }
     val firstCardRequestersByRail = remember { mutableStateMapOf<String, FocusRequester>() }
-    val lastFocusedIndexByRail = remember { mutableStateMapOf<String, Int>() }
+    // Seed focus maps from ViewModel on the first frame so Back from detail
+    // already lands on the saved card instead of briefly flashing index 0.
+    val seededFocusRailKey = remember(focusState.hasSavedFocus, focusState.focusedRowKey) {
+        focusState.focusedRowKey.takeIf { focusState.hasSavedFocus }
+    }
+    val seededFocusItemIndex = remember(focusState.hasSavedFocus, focusState.focusedItemIndex) {
+        if (focusState.hasSavedFocus) focusState.focusedItemIndex.coerceAtLeast(0) else 0
+    }
+    val lastFocusedIndexByRail = remember {
+        mutableStateMapOf<String, Int>().also { map ->
+            seededFocusRailKey?.let { map[it] = seededFocusItemIndex }
+        }
+    }
     val requestedTrailerKeys = remember { mutableStateMapOf<String, Boolean>() }
     val playedTrailerKeys = remember { mutableStateMapOf<String, Boolean>() }
-    var pendingFocusRailKey by remember { mutableStateOf<String?>(null) }
+    var pendingFocusRailKey by remember { mutableStateOf(seededFocusRailKey) }
     var railFocusJob by remember { mutableStateOf<Job?>(null) }
     var continueWatchingOptionsItem by remember { mutableStateOf<ContinueWatchingItem?>(null) }
     var genreTargetPickerChip by remember { mutableStateOf<NetflixGenreChip?>(null) }
-    var restoredSavedFocus by remember { mutableStateOf(false) }
+    var restoredSavedFocus by remember {
+        mutableStateOf(false)
+    }
     var previewTrailerHeroKey by remember { mutableStateOf<String?>(null) }
     var heroActionFocused by remember { mutableStateOf(false) }
     var topNavFocused by remember { mutableStateOf(false) }
-    var selectedTab by remember { mutableStateOf(NetflixContentTab.HOME) }
-    var lastContentRailKey by remember { mutableStateOf<String?>(null) }
-    val listState = rememberLazyListState()
+    var selectedTab by remember { mutableStateOf(selectedContentTab) }
+    var lastContentRailKey by remember {
+        mutableStateOf(seededFocusRailKey)
+    }
+    LaunchedEffect(Unit) {
+        NetflixHomeTabBridge.consume()?.let { tab ->
+            selectedTab = tab
+            focusedTopNavigationIndex = tab.navIndex
+            onContentTabChanged(tab)
+        }
+    }
+    LaunchedEffect(selectedContentTab) {
+        if (selectedTab != selectedContentTab) {
+            selectedTab = selectedContentTab
+            focusedTopNavigationIndex = selectedContentTab.navIndex
+        }
+    }
+    val listState = rememberLazyListState(
+        initialFirstVisibleItemIndex = if (focusState.hasSavedFocus) {
+            focusState.verticalScrollIndex.coerceAtLeast(0)
+        } else {
+            0
+        }
+    )
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
     val contentRails = remember(uiState.homeRows, uiState.catalogRows) {
@@ -283,6 +325,9 @@ fun NetflixHomeContent(
         delay(NETFLIX_METADATA_SETTLE_DELAY_MS)
         if (pendingHeroItem?.key == candidate?.key) {
             heroItem = candidate
+            if (ambientArtUrl.isNullOrBlank()) {
+                ambientArtUrl = candidate?.backdrop ?: candidate?.poster
+            }
         }
     }
 
@@ -321,23 +366,35 @@ fun NetflixHomeContent(
 
         val focusedRowKey = focusState.focusedRowKey
         if (focusState.hasSavedFocus && focusedRowKey != null && focusedRowKey in railKeys) {
-            lastFocusedIndexByRail[focusedRowKey] = focusState.focusedItemIndex
+            lastFocusedIndexByRail[focusedRowKey] = focusState.focusedItemIndex.coerceAtLeast(0)
+            lastContentRailKey = focusedRowKey
             val lazyListIndex = railKeys.indexOf(focusedRowKey) + NETFLIX_HOME_STATIC_ROW_COUNT
-            runCatching { listState.scrollToItem(lazyListIndex) }
-            withFrameNanos { }
+            if (listState.firstVisibleItemIndex != lazyListIndex) {
+                runCatching { listState.scrollToItem(lazyListIndex) }
+            }
+            // Keep pending until the rail scaffold successfully focuses the card.
             pendingFocusRailKey = focusedRowKey
-            delay(NETFLIX_FOCUS_SETTLE_DELAY_MS)
-            listState.scrollToItem(lazyListIndex)
+            repeat(NETFLIX_FOCUS_RETRY_FRAMES) {
+                withFrameNanos { }
+                if (pendingFocusRailKey != focusedRowKey) {
+                    restoredSavedFocus = true
+                    return@LaunchedEffect
+                }
+            }
+            // Scaffold may still be composing — leave pending set and mark restored
+            // so we do not restart with a second scroll/focus hop.
             restoredSavedFocus = true
         } else if (heroItem != null && !focusState.hasSavedFocus) {
             // Only fall back to hero focus when there is no saved position;
             // otherwise wait for the saved rail to appear in railKeys (rails
             // can still be loading right after returning from another screen).
             runCatching { listState.scrollToItem(NETFLIX_HOME_HERO_ROW_INDEX) }
-            withFrameNanos { }
-            runCatching { heroPrimaryRequester.requestFocus() }
-            delay(NETFLIX_FOCUS_SETTLE_DELAY_MS)
-            restoredSavedFocus = true
+            if (heroPrimaryRequester.requestFocusAfterFrames(2)) {
+                restoredSavedFocus = true
+            } else {
+                delay(NETFLIX_FOCUS_SETTLE_DELAY_MS)
+                restoredSavedFocus = true
+            }
         }
     }
 
@@ -371,21 +428,15 @@ fun NetflixHomeContent(
         if (!visible) {
             runCatching { listState.scrollToItem(lazyListIndex) }
         }
+        // Never focus card 0 then jump — scaffold restores lastFocusedIndex.
+        pendingFocusRailKey = railKey
         repeat(NETFLIX_FOCUS_RETRY_FRAMES) {
             withFrameNanos { }
-            val lastIndex = lastFocusedIndexByRail[railKey] ?: 0
-            // Prefer the rail's pending-focus path which restores last card index.
-            pendingFocusRailKey = railKey
-            val requester = firstCardRequestersByRail[railKey]
-            if (requester != null && runCatching { requester.requestFocus() }.isSuccess) {
-                // Scaffold will refine to lastFocusedIndex via pendingFocusRailKey.
+            if (pendingFocusRailKey != railKey) {
                 return true
             }
-            // Keep lastIndex referenced so the compiler/optimizer doesn't drop the read.
-            if (lastIndex < 0) return@repeat
         }
-        pendingFocusRailKey = railKey
-        return false
+        return pendingFocusRailKey != railKey
     }
 
     suspend fun focusHeroNow(): Boolean {
@@ -458,10 +509,13 @@ fun NetflixHomeContent(
 
     var appliedTab by remember { mutableStateOf(selectedTab) }
     LaunchedEffect(selectedTab) {
+        onContentTabChanged(selectedTab)
         if (appliedTab == selectedTab) return@LaunchedEffect
         appliedTab = selectedTab
+        focusedTopNavigationIndex = selectedTab.navIndex
         railFocusJob?.cancel()
         pendingFocusRailKey = null
+        lastContentRailKey = null
         val firstEntry = visibleRails.firstNotNullOfOrNull { rail ->
             (rail as? NetflixHomeRail.Catalog)?.entry?.takeIf { it.row.items.isNotEmpty() }
         }
@@ -508,6 +562,7 @@ fun NetflixHomeContent(
             !topNavFocused -> requestTopNavFocus()
             selectedTab != NetflixContentTab.HOME -> {
                 selectedTab = NetflixContentTab.HOME
+                onContentTabChanged(NetflixContentTab.HOME)
                 focusedTopNavigationIndex = NETFLIX_HOME_NAV_INDEX
                 runCatching { topNavigationRequesters[NETFLIX_HOME_NAV_INDEX].requestFocus() }
             }
@@ -518,34 +573,13 @@ fun NetflixHomeContent(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(NetflixHomeTokens.Background)
+            .background(NetflixThemeChrome.background)
     ) {
-        Crossfade(
-            targetState = heroItem?.backdrop ?: heroItem?.poster,
-            animationSpec = tween(640),
-            label = "netflixPageBackdrop"
-        ) { imageUrl ->
-            Box(modifier = Modifier.fillMaxSize()) {
-                AsyncImage(
-                    model = imageUrl,
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                    alpha = 0.20f
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                0f to Color.Black.copy(alpha = 0.72f),
-                                0.42f to Color.Black.copy(alpha = 0.90f),
-                                1f to Color.Black
-                            )
-                        )
-                )
-            }
-        }
+        NetflixPosterBackdrop(
+            imageUrl = ambientArtUrl ?: heroItem?.backdrop ?: heroItem?.poster,
+            modifier = Modifier.fillMaxSize(),
+            accentScrim = NetflixThemeChrome.accent
+        )
 
         // Nav is in normal layout flow (not an overlay). Overlay + LazyColumn
         // bring-into-view was scrolling the focused hero under the absolute nav.
@@ -562,6 +596,9 @@ fun NetflixHomeContent(
                 },
                 modifier = Modifier.fillMaxWidth()
             )
+            if (visibleRails.isEmpty() && (uiState.isLoading || uiState.homeRows.any { it is HomeRow.PlaceholderCatalog })) {
+                NetflixLoadingSkeletonRails(modifier = Modifier.weight(1f))
+            } else {
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -601,7 +638,12 @@ fun NetflixHomeContent(
                             heroItem?.key?.let { playedTrailerKeys[it] = true }
                             previewTrailerHeroKey = null
                         },
-                        onFocusedChanged = { heroActionFocused = it },
+                        onFocusedChanged = {
+                            heroActionFocused = it
+                            if (it) {
+                                ambientArtUrl = heroItem?.backdrop ?: heroItem?.poster
+                            }
+                        },
                         onViewDetails = { target -> navigateToTargetDetails(target, onNavigateToDetail) }
                     )
                 }
@@ -669,11 +711,14 @@ fun NetflixHomeContent(
                         railKey = railKey,
                         title = "Continue Watching",
                         items = uiState.continueWatchingItems,
+                        useEpisodeThumbnails = uiState.useEpisodeThumbnailsInCw,
                         pendingFocusRailKey = pendingFocusRailKey,
                         lastFocusedIndex = lastFocusedIndexByRail[railKey] ?: 0,
                         onItemClick = onContinueWatchingClick,
                         onItemLongClick = { item -> continueWatchingOptionsItem = item },
-                        onItemFocused = {},
+                        onItemFocused = { item ->
+                            ambientArtUrl = item.netflixAmbientArtUrl()
+                        },
                         onFocusedItemChanged = saveFocus,
                         onPendingFocusConsumed = { pendingFocusRailKey = null },
                         onFirstCardRequesterReady = registerRequester,
@@ -693,8 +738,9 @@ fun NetflixHomeContent(
                                 onNavigateToDetail(item.id, item.apiType, addonBaseUrl)
                             },
                             onItemFocused = { item ->
-                                // Keep the hero on the lead entry for this tab;
-                                // scrolling rails must not swap the showcase.
+                                // Hero showcase stays on the lead entry; page wash
+                                // follows whatever card is currently focused.
+                                ambientArtUrl = item.netflixAmbientArtUrl()
                                 onItemFocus(item)
                             },
                             onItemLongClick = onCatalogItemLongPress,
@@ -722,7 +768,11 @@ fun NetflixHomeContent(
                         pendingFocusRailKey = pendingFocusRailKey,
                         lastFocusedIndex = lastFocusedIndexByRail[railKey] ?: 0,
                         onFolderClick = onNavigateToFolderDetail,
-                        onFocusedItemChanged = saveFocus,
+                        onFocusedItemChanged = { index, key ->
+                            saveFocus(index, key)
+                            val folder = rail.collection.folders.getOrNull(index)
+                            ambientArtUrl = folder?.coverImageUrl ?: ambientArtUrl
+                        },
                         onPendingFocusConsumed = { pendingFocusRailKey = null },
                         onFirstCardRequesterReady = registerRequester,
                         onMoveUp = moveUp,
@@ -733,7 +783,8 @@ fun NetflixHomeContent(
             item(key = "bottom_padding") {
                 Spacer(modifier = Modifier.height(NetflixHomeSpacing.BottomFocusClearance))
             }
-            }
+            } // LazyColumn
+            } // else !skeleton
         }
 
         val optionsItem = continueWatchingOptionsItem
@@ -852,7 +903,9 @@ private fun resolveInitialHero(uiState: HomeUiState): NetflixHeroItem? {
         return catalogItem.toNetflixHeroItem(catalog.addonBaseUrl)
     }
 
-    return uiState.continueWatchingItems.firstOrNull()?.toNetflixHeroItem()
+    // Never fall back to Continue Watching — that briefly flashed CW under a
+    // later hero-catalog pick on cold start.
+    return null
 }
 
 private data class NetflixCatalogEntry(

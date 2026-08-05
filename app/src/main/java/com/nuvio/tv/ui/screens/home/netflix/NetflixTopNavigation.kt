@@ -38,32 +38,35 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import com.nuvio.tv.R
 import com.nuvio.tv.ui.navigation.Screen
 
 @Composable
 internal fun NetflixTopNavigation(
     itemFocusRequesters: List<FocusRequester>,
     selectedIndex: Int,
-    onMoveDown: () -> Unit,
+    onMoveDown: () -> Boolean,
     onFocusedIndexChanged: (Int) -> Unit,
     onNavFocusChanged: (Boolean) -> Unit = {},
     selectedTabIndex: Int = 1,
     onTabSelected: (Int) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val routeNavigator = LocalNetflixRouteNavigator.current
+    val shell = LocalNetflixShellController.current
+    val routeNavigator = LocalNetflixRouteNavigator.current ?: shell?.navigate
     // First three are in-place content tabs; Watchlist routes away.
     val centerItems = listOf(
-        "Home" to null,
-        "Movies" to null,
-        "TV Shows" to null,
-        "Watchlist" to Screen.Library.route
+        stringResource(R.string.nav_home) to null,
+        stringResource(R.string.nav_movies) to null,
+        stringResource(R.string.nav_tv_shows) to null,
+        stringResource(R.string.nav_watchlist) to Screen.Library.route
     )
     var focusedNavIndex by remember { mutableStateOf<Int?>(null) }
 
@@ -84,7 +87,7 @@ internal fun NetflixTopNavigation(
         modifier = modifier
             .zIndex(8f)
             .fillMaxWidth()
-            .background(NetflixHomeTokens.Background)
+            .background(Color.Transparent)
     ) {
         Row(
             modifier = Modifier
@@ -99,12 +102,12 @@ internal fun NetflixTopNavigation(
                 selected = selectedIndex == 0,
                 onItemFocusChanged = ::onItemFocusChanged,
                 onMoveDown = onMoveDown,
-                onClick = { routeNavigator?.invoke(Screen.Settings.route) }
+                onClick = { routeNavigator?.invoke(Screen.ProfileSelection.route) }
             ) {
                 Icon(
                     imageVector = Icons.Default.Person,
-                    contentDescription = "Profile",
-                    tint = NetflixHomeTokens.TextPrimary,
+                    contentDescription = stringResource(R.string.nav_profiles),
+                    tint = NetflixThemeChrome.textPrimary,
                     modifier = Modifier.size(20.dp)
                 )
             }
@@ -112,8 +115,8 @@ internal fun NetflixTopNavigation(
             Row(
                 modifier = Modifier
                     .clip(RoundedCornerShape(50))
-                    .background(Color.White.copy(alpha = 0.10f))
-                    .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(50))
+                    .background(Color.Black.copy(alpha = 0.55f))
+                    .border(1.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(50))
                     .padding(horizontal = 6.dp, vertical = 5.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -123,11 +126,15 @@ internal fun NetflixTopNavigation(
                     NetflixTopNavigationItem(
                         index = absoluteIndex,
                         label = label,
-                        selected = if (route == null) selectedTabIndex == absoluteIndex else false,
+                        selected = if (route == null) selectedTabIndex == absoluteIndex else selectedIndex == absoluteIndex,
                         focusRequester = itemFocusRequesters.getOrElse(absoluteIndex) { FocusRequester.Default },
                         onItemFocusChanged = ::onItemFocusChanged,
                         onClick = {
-                            if (route == null) onTabSelected(absoluteIndex) else routeNavigator?.invoke(route)
+                            if (route == null) {
+                                onTabSelected(absoluteIndex)
+                            } else {
+                                routeNavigator?.invoke(route)
+                            }
                         },
                         onMoveDown = onMoveDown
                     )
@@ -145,8 +152,8 @@ internal fun NetflixTopNavigation(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Search,
-                        contentDescription = "Search",
-                        tint = NetflixHomeTokens.TextPrimary,
+                        contentDescription = stringResource(R.string.nav_search),
+                        tint = NetflixThemeChrome.textPrimary,
                         modifier = Modifier.size(19.dp)
                     )
                 }
@@ -160,8 +167,8 @@ internal fun NetflixTopNavigation(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Settings,
-                        contentDescription = "Settings",
-                        tint = NetflixHomeTokens.TextPrimary,
+                        contentDescription = stringResource(R.string.nav_settings),
+                        tint = NetflixThemeChrome.textPrimary,
                         modifier = Modifier.size(19.dp)
                     )
                 }
@@ -178,7 +185,7 @@ private fun NetflixTopNavigationItem(
     focusRequester: FocusRequester,
     onItemFocusChanged: (Boolean, Int) -> Unit,
     onClick: () -> Unit,
-    onMoveDown: () -> Unit
+    onMoveDown: () -> Boolean
 ) {
     var focused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
@@ -194,7 +201,6 @@ private fun NetflixTopNavigationItem(
             .onPreviewKeyEvent { keyEvent ->
                 if (keyEvent.type == KeyEventType.KeyDown && keyEvent.key == Key.DirectionDown) {
                     onMoveDown()
-                    true
                 } else {
                     false
                 }
@@ -206,19 +212,34 @@ private fun NetflixTopNavigationItem(
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
-                alpha = if (focused || selected) 1f else 0.72f
+                alpha = if (focused || selected) 1f else 0.78f
             }
             .clip(RoundedCornerShape(50))
-            .background(if (selected || focused) Color.White.copy(alpha = if (focused) 0.26f else 0.18f) else Color.Transparent)
+            .background(
+                when {
+                    focused -> NetflixThemeChrome.accent.copy(alpha = 0.42f)
+                    selected -> NetflixThemeChrome.accent.copy(alpha = 0.30f)
+                    else -> Color.Transparent
+                }
+            )
+            .border(
+                width = when {
+                    focused -> 2.dp
+                    selected -> 1.5.dp
+                    else -> 0.dp
+                },
+                color = when {
+                    focused -> NetflixThemeChrome.focus
+                    selected -> NetflixThemeChrome.accent.copy(alpha = 0.95f)
+                    else -> Color.Transparent
+                },
+                shape = RoundedCornerShape(50)
+            )
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 8.dp),
-        color = when {
-            focused -> NetflixHomeTokens.TextPrimary
-            selected -> NetflixHomeTokens.TextPrimary
-            else -> NetflixHomeTokens.TextSecondary
-        },
+        color = Color.White,
         style = MaterialTheme.typography.bodyMedium,
-        fontWeight = if (selected || focused) FontWeight.SemiBold else FontWeight.Normal
+        fontWeight = if (selected || focused) FontWeight.Bold else FontWeight.Medium
     )
 }
 
@@ -228,7 +249,7 @@ private fun NetflixTopIconButton(
     focusRequester: FocusRequester,
     selected: Boolean,
     onItemFocusChanged: (Boolean, Int) -> Unit,
-    onMoveDown: () -> Unit,
+    onMoveDown: () -> Boolean,
     onClick: () -> Unit,
     content: @Composable () -> Unit
 ) {
@@ -244,7 +265,6 @@ private fun NetflixTopIconButton(
             .onPreviewKeyEvent { keyEvent ->
                 if (keyEvent.type == KeyEventType.KeyDown && keyEvent.key == Key.DirectionDown) {
                     onMoveDown()
-                    true
                 } else {
                     false
                 }
@@ -256,12 +276,26 @@ private fun NetflixTopIconButton(
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
-                alpha = if (focused || selected) 1f else 0.72f
+                alpha = if (focused || selected) 1f else 0.78f
             }
             .size(38.dp)
             .clip(CircleShape)
-            .background(if (focused || selected) Color.White.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.08f))
-            .border(1.dp, Color.White.copy(alpha = if (focused) 0.52f else 0.10f), CircleShape)
+            .background(
+                when {
+                    focused -> NetflixThemeChrome.accent.copy(alpha = 0.40f)
+                    selected -> NetflixThemeChrome.accent.copy(alpha = 0.28f)
+                    else -> Color.Black.copy(alpha = 0.45f)
+                }
+            )
+            .border(
+                width = if (focused) 2.dp else 1.5.dp,
+                color = when {
+                    focused -> NetflixThemeChrome.focus
+                    selected -> NetflixThemeChrome.accent.copy(alpha = 0.95f)
+                    else -> Color.White.copy(alpha = 0.28f)
+                },
+                shape = CircleShape
+            )
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {

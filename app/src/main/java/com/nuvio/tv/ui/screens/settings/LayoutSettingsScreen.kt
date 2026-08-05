@@ -81,6 +81,7 @@ import com.nuvio.tv.domain.model.HomeLayout
 import com.nuvio.tv.ui.components.ClassicLayoutPreview
 import com.nuvio.tv.ui.components.GridLayoutPreview
 import com.nuvio.tv.ui.components.ModernLayoutPreview
+import com.nuvio.tv.ui.components.NetflixLayoutPreview
 import com.nuvio.tv.ui.components.NuvioDialog
 import com.nuvio.tv.ui.components.cardDepthVisual
 import com.nuvio.tv.ui.screens.addon.QrCodeOverlay
@@ -220,6 +221,19 @@ fun LayoutSettingsContent(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.md)
                     ) {
+                        LayoutCard(
+                            layout = HomeLayout.NETFLIX,
+                            isSelected = uiState.selectedLayout == HomeLayout.NETFLIX,
+                            showLivePreview = activePreviewLayout == HomeLayout.NETFLIX || uiState.selectedLayout == HomeLayout.NETFLIX,
+                            onClick = {
+                                viewModel.onEvent(LayoutSettingsEvent.SelectLayout(HomeLayout.NETFLIX))
+                            },
+                            onFocused = {
+                                focusedSection = LayoutSettingsSection.HOME_LAYOUT
+                                activePreviewLayout = HomeLayout.NETFLIX
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
                         LayoutCard(
                             layout = HomeLayout.MODERN,
                             isSelected = uiState.selectedLayout == HomeLayout.MODERN,
@@ -1231,6 +1245,7 @@ private fun LayoutCard(
             ) {
                 if (showLivePreview) {
                     when (layout) {
+                        HomeLayout.NETFLIX -> NetflixLayoutPreview(modifier = Modifier.fillMaxWidth())
                         HomeLayout.CLASSIC -> ClassicLayoutPreview(modifier = Modifier.fillMaxWidth())
                         HomeLayout.GRID -> GridLayoutPreview(modifier = Modifier.fillMaxWidth())
                         HomeLayout.MODERN -> ModernLayoutPreview(modifier = Modifier.fillMaxWidth())
@@ -1258,6 +1273,7 @@ private fun LayoutCard(
                 }
                 Text(
                     text = when (layout) {
+                        HomeLayout.NETFLIX -> stringResource(R.string.layout_netflix)
                         HomeLayout.CLASSIC -> stringResource(R.string.layout_classic)
                         HomeLayout.GRID -> stringResource(R.string.layout_grid)
                         HomeLayout.MODERN -> stringResource(R.string.layout_modern)

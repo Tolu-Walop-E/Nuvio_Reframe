@@ -53,6 +53,7 @@ class LayoutPreferenceDataStore @Inject constructor(
 
     private val layoutKey = stringPreferencesKey("selected_layout")
     private val hasChosenKey = booleanPreferencesKey("has_chosen_layout")
+    private val netflixLayoutMigratedKey = booleanPreferencesKey("netflix_layout_migrated_v1")
     private val heroCatalogKey = stringPreferencesKey("hero_catalog_key")
     private val heroCatalogKeysKey = stringPreferencesKey("hero_catalog_keys")
     private val homeCatalogOrderKeysKey = stringPreferencesKey("home_catalog_order_keys")
@@ -113,11 +114,11 @@ class LayoutPreferenceDataStore @Inject constructor(
         value?.takeIf { it > 0 } ?: defaultValue
 
     val selectedLayout: Flow<HomeLayout> = profileFlow { prefs ->
-        val layoutName = prefs[layoutKey] ?: HomeLayout.MODERN.name
+        val layoutName = prefs[layoutKey] ?: HomeLayout.NETFLIX.name
         try {
             HomeLayout.valueOf(layoutName)
         } catch (e: IllegalArgumentException) {
-            HomeLayout.MODERN
+            HomeLayout.NETFLIX
         }
     }
 
@@ -393,7 +394,7 @@ class LayoutPreferenceDataStore @Inject constructor(
             val hadChosenLayout = prefs[hasChosenKey] ?: false
             prefs[layoutKey] = layout.name
             if (
-                layout == HomeLayout.MODERN &&
+                (layout == HomeLayout.MODERN || layout == HomeLayout.NETFLIX) &&
                 !hadChosenLayout &&
                 prefs[focusedPosterBackdropTrailerPlaybackTargetKey] == null
             ) {
@@ -401,6 +402,20 @@ class LayoutPreferenceDataStore @Inject constructor(
                     FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD.name
             }
             prefs[hasChosenKey] = true
+        }
+    }
+
+    /**
+     * Users previously forced onto Netflix home while prefs still said MODERN.
+     * One-time migrate those profiles to the explicit NETFLIX layout.
+     */
+    suspend fun migrateForcedNetflixLayoutIfNeeded() {
+        store().edit { prefs ->
+            if (prefs[netflixLayoutMigratedKey] == true) return@edit
+            prefs[netflixLayoutMigratedKey] = true
+            if (prefs[hasChosenKey] == true && prefs[layoutKey] == HomeLayout.MODERN.name) {
+                prefs[layoutKey] = HomeLayout.NETFLIX.name
+            }
         }
     }
 

@@ -21,8 +21,9 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Email
-import androidx.compose.material.icons.filled.LinkOff
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -69,6 +70,8 @@ fun AuthSignInScreen(
     onContinue: (() -> Unit)? = null,
     initialMode: EmailAuthMode = EmailAuthMode.Choice,
     onSuccess: (() -> Unit)? = null,
+    onNavigateToQrSignIn: (() -> Unit)? = null,
+    onNavigateToSyncClaim: (() -> Unit)? = null,
     viewModel: AccountViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -150,6 +153,8 @@ fun AuthSignInScreen(
                             viewModel.clearError()
                             mode = EmailAuthMode.CreateAccount
                         },
+                        onSignInWithQr = onNavigateToQrSignIn,
+                        onLinkWithSyncCode = onNavigateToSyncClaim,
                         onContinueWithoutAccount = onContinue
                     )
 
@@ -211,6 +216,8 @@ private fun AuthBrandPanel(modifier: Modifier) {
 private fun AuthChoicePane(
     onSignIn: () -> Unit,
     onCreateAccount: () -> Unit,
+    onSignInWithQr: (() -> Unit)?,
+    onLinkWithSyncCode: (() -> Unit)?,
     onContinueWithoutAccount: (() -> Unit)?
 ) {
     val firstChoiceFocusRequester = remember { FocusRequester() }
@@ -263,13 +270,28 @@ private fun AuthChoicePane(
                     modifier = Modifier.testTag("auth_create_account_action")
                 )
 
+                Phase1AuthAction.SignInWithQr -> AuthChoiceButton(
+                    icon = Icons.Default.QrCode2,
+                    title = stringResource(R.string.auth_choice_sign_in_qr),
+                    subtitle = stringResource(R.string.auth_choice_sign_in_qr_subtitle),
+                    enabled = choice.enabled && onSignInWithQr != null,
+                    onClick = { onSignInWithQr?.invoke() },
+                    modifier = Modifier.testTag("auth_qr_sign_in_action")
+                )
+
                 Phase1AuthAction.LinkWithSyncCode -> AuthChoiceButton(
-                    icon = Icons.Default.LinkOff,
+                    icon = Icons.Default.Link,
                     title = stringResource(R.string.auth_choice_link_sync_code),
-                    subtitle = stringResource(R.string.auth_choice_link_unavailable),
-                    enabled = choice.enabled,
-                    onClick = {},
-                    modifier = Modifier.testTag("auth_sync_code_unavailable")
+                    subtitle = if (choice.enabled) {
+                        stringResource(R.string.auth_choice_link_sync_code_subtitle)
+                    } else {
+                        stringResource(R.string.auth_choice_link_unavailable)
+                    },
+                    enabled = choice.enabled && onLinkWithSyncCode != null,
+                    onClick = { onLinkWithSyncCode?.invoke() },
+                    modifier = Modifier.testTag(
+                        if (choice.enabled) "auth_sync_code_link" else "auth_sync_code_unavailable"
+                    )
                 )
             }
         }

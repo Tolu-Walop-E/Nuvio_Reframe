@@ -1,6 +1,6 @@
 # Nuvio TV Supabase Backend
 
-This directory contains Phase 1 of the Nuvio TV Supabase backend plus the collection and home-catalog settings extension. It covers profiles, profile lock state reads, addons, plugins, collections, home-row order/settings, linked-device ownership reads, avatar catalog reads, device registration, and the sync overview. Media syncing, linking workflows, TV login, Storage, Realtime, and Edge Functions are intentionally outside this phase.
+This directory contains the Nuvio TV Supabase backend used by the Android cloud fork: profiles/addons/plugins, collections and home-catalog settings, profile settings blobs, library / watch-progress / watched-items sync, profile PINs, sync-code device linking, and TV QR login (SQL + `tv-logins-exchange` Edge Function). Provider credential persistence and branded avatar asset packs remain optional follow-ups.
 
 ## Prerequisites
 
@@ -47,7 +47,7 @@ The tests use pgTAP and run in a transaction that is rolled back:
 supabase test db
 ```
 
-The suite covers anonymous/authenticated grants, cross-user isolation, linked-device owner reads, profile bounds, snapshot deletion scope, collection and home-catalog settings sync, profile-specific plugin identity, device-name truncation, overview shape, and denial of direct writes.
+The suite covers anonymous/authenticated grants, cross-user isolation, linked-device owner reads, profile bounds, snapshot deletion scope, collection / home-catalog / profile-settings blob sync, library / watch-progress / watched-items push/pull/delta/delete, profile-specific plugin identity, device-name truncation, overview shape, and denial of direct writes.
 
 ## Inspect the Schema
 
@@ -77,10 +77,26 @@ Configure these keys in `local.dev.properties` for debug builds or `local.proper
 NUVIO_SUPABASE_URL=http://127.0.0.1:55321
 NUVIO_SUPABASE_ANON_KEY=<anon-key-from-supabase-start>
 NUVIO_SUPABASE_FALLBACK_URL=
-AVATAR_PUBLIC_BASE_URL=
+AVATAR_PUBLIC_BASE_URL=https://<PROJECT>.supabase.co/storage/v1/object/public/avatars
 ```
 
-The Phase 1 seed stores a complete HTTPS placeholder URL in `avatar_catalog.storage_path`, so `AVATAR_PUBLIC_BASE_URL` should remain empty for local development.
+## Avatars (not shipped in the Android APK)
+
+Upstream Nuvio stores avatar art in Supabase Storage, not in `app/src/main/res`. The Android client:
+
+1. Calls `get_avatar_catalog`
+2. Builds `imageUrl` as `AVATAR_PUBLIC_BASE_URL + "/" + storage_path` (or uses `storage_path` as-is when it is already an `http(s)` URL)
+
+`AvatarPickerGrid` groups by category: `anime`, `animation`, `tv`, `movie`, `gaming`.
+
+### Seed your fork
+
+1. Create a **public** Storage bucket named `avatars`.
+2. Upload images under paths that match `avatar_catalog.storage_path` (see `supabase/seed.sql`), e.g. `anime/sample-01.png`.
+3. Set `AVATAR_PUBLIC_BASE_URL` to:
+   `https://<PROJECT>.supabase.co/storage/v1/object/public/avatars`
+4. Run / apply `supabase/seed.sql` (replace sample rows with your real pack ids/names/paths).
+5. Rebuild the Android app so BuildConfig picks up the base URL.
 
 An Android TV device or emulator cannot usually reach the host through `127.0.0.1`. Use the host address appropriate for that device while keeping the same local Supabase API port.
 
@@ -95,13 +111,44 @@ An Android TV device or emulator cannot usually reach the host through `127.0.0.
 
 ## Not Implemented
 
-- Library snapshot or delta syncing.
-- Watch-progress snapshot or delta syncing.
-- Watched-items snapshot or delta syncing.
-- Profile settings blobs.
 - Provider credential persistence.
-- Sync/device linking code creation, claiming, or unlinking RPCs.
-- Profile PIN setting, clearing, or verification.
-- TV login and its exchange Edge Function.
 - Realtime subscriptions/publications.
-- Supabase Storage buckets or uploads.
+- Supabase Storage for non-avatar media (avatar bucket is documented under Avatars above).
+- Hosted approve-web UI for TV login (`supabase/web/tv-login.html`). Do not host this on Supabase Storage or Edge Functions — both rewrite `text/html` to `text/plain` with `nosniff`, so phones show raw HTML source. Bake URL+anon into the page, serve it from any normal HTTPS static host, and point `TV_LOGIN_WEB_BASE_URL` at it. Quick local test: `.\supabase\scripts\serve-tv-login.ps1`.
+
+## Watch Progress + Watched Items
+
+Migration `20260803140000_watch_progress_watched_items.sql` adds:
+
+- Tables `watch_progress`, `watch_progress_events`, `watched_items`, `watched_items_events`
+- RPCs used by `WatchProgressSyncService` / `WatchedItemsSyncService`
+- Real counts in `get_sync_overview` for `watch_progress` and `watched_items`
+
+All writes go through SECURITY DEFINER RPCs with `get_sync_owner()` so linked devices share the owner's rowset.
+
+## Library Items
+
+Migration `20260803150000_library_items.sql` adds:
+
+- Tables `library_items`, `library_items_events`
+- RPCs used by `SupabaseLibrarySyncRemoteDataSource`
+- Real counts in `get_sync_overview` for `library_items`
+
+## Profile Settings Blob
+
+Migration `20260803160000_profile_settings_blob.sql` adds:
+
+- Table `profile_settings_blobs` (per user/profile/platform)
+- `sync_push_profile_settings_blob` / `sync_pull_profile_settings_blob` for `ProfileSettingsSyncService`
+
+## PIN, Sync Codes, TV Login
+
+Migration `20260803170000_pin_sync_codes_tv_login.sql` adds:
+
+- `set_profile_pin` / `clear_profile_pin` / `verify_profile_pin`
+- `generate_sync_code` / `get_sync_code` / `claim_sync_code` / `unlink_device`
+- `start_tv_login_session` / `poll_tv_login_session` / `approve_tv_login_session` / `consume_tv_login_session`
+
+Edge Function `supabase/functions/tv-logins-exchange` (JWT verification disabled so the TV can call with the anon key) consumes an approved session and returns Auth tokens via Admin `createSession`.
+
+Local: set `[edge_runtime] enabled = true` (already in `config.toml`), then `supabase functions serve tv-logins-exchange` or restart the local stack.

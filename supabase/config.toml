@@ -57,7 +57,8 @@ otp_length = 6
 otp_expiry = 3600
 
 [edge_runtime]
-enabled = false
+enabled = true
+policy = "per_worker"
 
 [analytics]
 enabled = false

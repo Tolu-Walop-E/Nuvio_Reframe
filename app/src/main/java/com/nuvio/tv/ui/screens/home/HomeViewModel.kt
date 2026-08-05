@@ -132,6 +132,16 @@ class HomeViewModel @Inject constructor(
     private val _pendingNetflixFocusRailKey = MutableStateFlow<String?>(null)
     val pendingNetflixFocusRailKey: StateFlow<String?> = _pendingNetflixFocusRailKey.asStateFlow()
 
+    private val _netflixContentTab = MutableStateFlow("HOME")
+    val netflixContentTab: StateFlow<String> = _netflixContentTab.asStateFlow()
+
+    fun setNetflixContentTab(tab: String) {
+        val normalized = tab.trim().uppercase()
+        if (normalized !in setOf("HOME", "MOVIES", "SHOWS")) return
+        if (_netflixContentTab.value == normalized) return
+        _netflixContentTab.value = normalized
+    }
+
     private val _netflixFolderRails = MutableStateFlow<Map<String, CatalogRow>>(emptyMap())
     val netflixFolderRails: StateFlow<Map<String, CatalogRow>> = _netflixFolderRails.asStateFlow()
     private val netflixFolderLoadJobs = mutableMapOf<String, Job>()

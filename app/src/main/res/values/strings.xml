@@ -318,6 +318,11 @@
     <string name="theme_color_amber">Amber</string>
     <string name="theme_color_rose">Rose</string>
     <string name="theme_color_white">White</string>
+    <string name="theme_color_slate">Slate</string>
+    <string name="theme_color_cyan">Cyan</string>
+    <string name="theme_color_gold">Gold</string>
+    <string name="theme_color_magenta">Magenta</string>
+    <string name="theme_color_graphite">Graphite</string>
     <string name="appearance_amoled_mode">AMOLED Mode</string>
     <string name="appearance_amoled_mode_subtitle">Use pure black for app backgrounds</string>
     <string name="appearance_amoled_surfaces_mode">Pure Black Surfaces</string>
@@ -460,7 +465,7 @@
     <string name="account_error_device_already_linked">Device is already linked.</string>
     <string name="account_error_generic_retry">Something went wrong. Please try again.</string>
     <string name="account_error_invalid_credentials">Incorrect email or password.</string>
-    <string name="account_error_email_not_confirmed">Please confirm your email first.</string>
+    <string name="account_error_email_not_confirmed">Check your email to confirm your account, then sign in.</string>
     <string name="account_error_email_already_registered">An account with this email already exists.</string>
     <string name="account_error_invalid_email">Please enter a valid email address.</string>
     <string name="account_error_password_too_short">Password is too short.</string>
@@ -857,9 +862,11 @@
     <string name="layout_classic">Classic View</string>
     <string name="layout_grid">Grid View</string>
     <string name="layout_modern">Modern View</string>
+    <string name="layout_netflix">Netflix View</string>
     <string name="layout_classic_desc">Scroll through categories horizontally</string>
     <string name="layout_grid_desc">Browse everything in a vertical grid with a hero section</string>
     <string name="layout_modern_desc">Fixed hero with a single active row for faster browsing</string>
+    <string name="layout_netflix_desc">Top nav, big hero, and poster rails — simple TV browsing</string>
     <string name="layout_section_home">Home Layout</string>
     <string name="layout_section_home_desc">Choose structure and hero source.</string>
     <string name="layout_landscape_posters">Landscape Posters</string>
@@ -1718,6 +1725,11 @@
     <string name="search_voice_unavailable">Voice search is unavailable on this device.</string>
     <string name="search_no_results_title">No Results</string>
     <string name="search_no_results_subtitle">Try searching with different keywords</string>
+    <string name="search_filter_all">All</string>
+    <string name="search_filter_movies">Movies</string>
+    <string name="search_filter_series">TV Shows</string>
+    <string name="search_section_movies">Movies</string>
+    <string name="search_section_series">TV Shows</string>
     <string name="search_error_no_catalogs">No searchable catalogs found in installed addons</string>
 
     <string name="library_syncing">Syncing Trakt library\u2026</string>
@@ -1870,7 +1882,10 @@
     <string name="auth_choice_description">Use email and password to sync profiles, addons, and plugins on this TV.</string>
     <string name="auth_choice_sign_in_email">Sign in with email</string>
     <string name="auth_choice_create_account">Create account</string>
-    <string name="auth_choice_link_sync_code">Link with sync code \u2014 Coming later</string>
+    <string name="auth_choice_sign_in_qr">Sign in with phone</string>
+    <string name="auth_choice_sign_in_qr_subtitle">Scan a QR code on your phone to sign in or create an account.</string>
+    <string name="auth_choice_link_sync_code">Link with sync code</string>
+    <string name="auth_choice_link_sync_code_subtitle">Create or sign in on this TV, then enter the code from your other device.</string>
     <string name="auth_choice_link_unavailable">Device linking is not available in this build yet.</string>
     <string name="auth_create_account_title">Create account</string>
     <string name="auth_create_account_description">Create an account using your email and a password of at least %1$d characters.</string>
@@ -2051,6 +2066,9 @@
     <string name="nav_addons">Addons</string>
     <string name="nav_movies">Movies</string>
     <string name="nav_series">Series</string>
+    <string name="nav_tv_shows">TV Shows</string>
+    <string name="nav_watchlist">Watchlist</string>
+    <string name="nav_profiles">Profiles</string>
     <string name="nav_settings">Settings</string>
     <string name="action_select">Select</string>
     <string name="settings_rounded_ui">Rounded UI</string>

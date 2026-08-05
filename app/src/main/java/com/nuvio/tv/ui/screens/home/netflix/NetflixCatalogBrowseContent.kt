@@ -17,10 +17,12 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -37,6 +39,7 @@ import coil3.compose.AsyncImage
 import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.ui.components.LoadingIndicator
+import com.nuvio.tv.ui.screens.detail.requestFocusAfterFrames
 import com.nuvio.tv.core.build.AppFeaturePolicy
 import android.util.Log
 import kotlinx.coroutines.Job
@@ -86,47 +89,77 @@ fun NetflixCatalogBrowseContent(
             }
         )
     }
+    var ambientArtUrl by remember {
+        mutableStateOf(heroItem?.backdrop ?: heroItem?.poster)
+    }
     val heroPrimaryRequester = remember { FocusRequester() }
     val unusedTopNavRequester = remember { FocusRequester() }
     val firstCardRequestersByRail = remember { mutableStateMapOf<String, FocusRequester>() }
-    val lastFocusedIndexByRail = remember { mutableStateMapOf<String, Int>() }
+
+    // Survive Details → Back via the Nav back-stack SavedStateHandle.
+    var hasSavedFocus by rememberSaveable { mutableStateOf(false) }
+    var savedRailKey by rememberSaveable { mutableStateOf<String?>(null) }
+    var savedItemIndex by rememberSaveable { mutableIntStateOf(0) }
+    var savedVerticalIndex by rememberSaveable { mutableIntStateOf(0) }
+
+    val lastFocusedIndexByRail = remember {
+        mutableStateMapOf<String, Int>().also { map ->
+            val key = savedRailKey
+            if (hasSavedFocus && key != null) {
+                map[key] = savedItemIndex.coerceAtLeast(0)
+            }
+        }
+    }
     val requestedTrailerKeys = remember { mutableStateMapOf<String, Boolean>() }
     val playedTrailerKeys = remember { mutableStateMapOf<String, Boolean>() }
-    var pendingFocusRailKey by remember { mutableStateOf<String?>(null) }
+    var pendingFocusRailKey by remember {
+        mutableStateOf(savedRailKey.takeIf { hasSavedFocus })
+    }
     var railFocusJob by remember { mutableStateOf<Job?>(null) }
     var previewTrailerHeroKey by remember { mutableStateOf<String?>(null) }
     var heroActionFocused by remember { mutableStateOf(false) }
     var initialFocusDone by remember { mutableStateOf(false) }
-    val listState = rememberLazyListState()
+    val listState = rememberLazyListState(
+        initialFirstVisibleItemIndex = if (hasSavedFocus) {
+            savedVerticalIndex.coerceAtLeast(0)
+        } else {
+            0
+        }
+    )
     val coroutineScope = rememberCoroutineScope()
     val netflixTrailersEnabled = AppFeaturePolicy.inAppTrailerPlaybackEnabled &&
         (NetflixHomeFeature.FORCE_TRAILER_AUTOPLAY || trailerEnabled)
 
-    fun requestRailFocus(railKey: String?): Boolean {
-        if (railKey == null) return false
+    fun saveBrowseFocus(railKey: String, itemIndex: Int, verticalIndex: Int) {
+        lastFocusedIndexByRail[railKey] = itemIndex
+        savedRailKey = railKey
+        savedItemIndex = itemIndex
+        savedVerticalIndex = verticalIndex
+        hasSavedFocus = true
+    }
+
+    suspend fun focusRailNow(railKey: String): Boolean {
         val railIndex = railKeys.indexOf(railKey)
         if (railIndex < 0) return false
-        railFocusJob?.cancel()
         val lazyListIndex = railIndex + BROWSE_STATIC_ROW_COUNT
-        val targetIsComposed = listState.layoutInfo.visibleItemsInfo.any { it.index == lazyListIndex }
-        val directRequester = firstCardRequestersByRail[railKey]
-        if (targetIsComposed && directRequester != null) {
-            pendingFocusRailKey = null
-            if (runCatching { directRequester.requestFocus() }.isSuccess) {
-                return true
-            }
+        val visible = listState.layoutInfo.visibleItemsInfo.any { it.index == lazyListIndex }
+        if (!visible) {
+            runCatching { listState.scrollToItem(lazyListIndex) }
         }
+        pendingFocusRailKey = railKey
+        repeat(6) {
+            withFrameNanos { }
+            if (pendingFocusRailKey != railKey) return true
+        }
+        return pendingFocusRailKey != railKey
+    }
+
+    fun requestRailFocus(railKey: String?): Boolean {
+        if (railKey == null) return false
+        if (railKeys.indexOf(railKey) < 0) return false
+        railFocusJob?.cancel()
         railFocusJob = coroutineScope.launch {
-            pendingFocusRailKey = null
-            if (!targetIsComposed) {
-                listState.scrollToItem(lazyListIndex)
-                withFrameNanos { }
-            }
-            val requester = firstCardRequestersByRail[railKey]
-            if (requester != null && runCatching { requester.requestFocus() }.isSuccess) {
-                return@launch
-            }
-            pendingFocusRailKey = railKey
+            focusRailNow(railKey)
         }
         return true
     }
@@ -140,8 +173,7 @@ fun NetflixCatalogBrowseContent(
         }
         railFocusJob = coroutineScope.launch {
             listState.scrollToItem(BROWSE_HERO_ROW_INDEX)
-            withFrameNanos { }
-            runCatching { heroPrimaryRequester.requestFocus() }
+            heroPrimaryRequester.requestFocusAfterFrames(2)
         }
         return true
     }
@@ -166,44 +198,41 @@ fun NetflixCatalogBrowseContent(
         previewTrailerHeroKey = stableHero.key
     }
 
-    LaunchedEffect(displayRows.isNotEmpty(), initialFocusDone) {
+    LaunchedEffect(displayRows.isNotEmpty(), railKeys, initialFocusDone) {
         if (initialFocusDone || displayRows.isEmpty()) return@LaunchedEffect
-        withFrameNanos { }
-        requestHeroFocus()
-        initialFocusDone = true
+        val restoreKey = savedRailKey
+        if (hasSavedFocus && restoreKey != null && restoreKey in railKeys) {
+            lastFocusedIndexByRail[restoreKey] = savedItemIndex.coerceAtLeast(0)
+            val lazyListIndex = railKeys.indexOf(restoreKey) + BROWSE_STATIC_ROW_COUNT
+            if (listState.firstVisibleItemIndex != lazyListIndex) {
+                runCatching { listState.scrollToItem(lazyListIndex) }
+            }
+            pendingFocusRailKey = restoreKey
+            repeat(6) {
+                withFrameNanos { }
+                if (pendingFocusRailKey != restoreKey) {
+                    initialFocusDone = true
+                    return@LaunchedEffect
+                }
+            }
+            initialFocusDone = true
+        } else {
+            withFrameNanos { }
+            requestHeroFocus()
+            initialFocusDone = true
+        }
     }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(NetflixHomeTokens.Background)
+            .background(NetflixThemeChrome.background)
     ) {
-        Crossfade(
-            targetState = heroItem?.backdrop ?: heroItem?.poster,
-            animationSpec = tween(640),
-            label = "netflixBrowseBackdrop"
-        ) { imageUrl ->
-            Box(modifier = Modifier.fillMaxSize()) {
-                AsyncImage(
-                    model = imageUrl,
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                    alpha = 0.20f
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                0f to Color.Black.copy(alpha = 0.72f),
-                                0.42f to Color.Black.copy(alpha = 0.90f),
-                                1f to Color.Black
-                            )
-                        )
-                )
-            }
-        }
+        NetflixPosterBackdrop(
+            imageUrl = ambientArtUrl ?: heroItem?.backdrop ?: heroItem?.poster,
+            modifier = Modifier.fillMaxSize(),
+            accentScrim = NetflixThemeChrome.accent
+        )
 
         if (displayRows.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -298,14 +327,19 @@ fun NetflixCatalogBrowseContent(
                         onNavigateToDetail(item.id, item.apiType, addonBaseUrl)
                     },
                     onItemFocused = { item ->
-                        // Genre / catalog browse: hero is always the first row
-                        // item — keep it stable while scrolling the rail.
+                        // Hero showcase stays pinned to the lead entry; page wash
+                        // follows the focused rail card.
+                        ambientArtUrl = item.netflixAmbientArtUrl()
                         onItemFocus(item)
                     },
                     onItemLongClick = onCatalogItemLongPress,
                     onLoadMore = onLoadMoreCatalog,
                     onFocusedItemChanged = { index, _ ->
-                        lastFocusedIndexByRail[railKey] = index
+                        saveBrowseFocus(
+                            railKey = railKey,
+                            itemIndex = index,
+                            verticalIndex = railIndex + BROWSE_STATIC_ROW_COUNT
+                        )
                     },
                     onPendingFocusConsumed = { pendingFocusRailKey = null },
                     onFirstCardRequesterReady = { requester ->

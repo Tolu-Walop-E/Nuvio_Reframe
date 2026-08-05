@@ -9,7 +9,7 @@ import kotlin.random.Random
  * Content tabs surfaced in the top navigation. Movies/Shows filter the loaded
  * rails by type instead of navigating away, so switching feels instant.
  */
-internal enum class NetflixContentTab(val navIndex: Int) {
+enum class NetflixContentTab(val navIndex: Int) {
     HOME(1),
     MOVIES(2),
     SHOWS(3);

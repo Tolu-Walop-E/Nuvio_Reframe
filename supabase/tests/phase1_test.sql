@@ -1107,7 +1107,16 @@ select ok(
                 ('public.avatar_catalog'),
                 ('public.registered_devices'),
                 ('public.collection_blobs'),
-                ('public.home_catalog_settings')
+                ('public.home_catalog_settings'),
+                ('public.watch_progress'),
+                ('public.watch_progress_events'),
+                ('public.watched_items'),
+                ('public.watched_items_events'),
+                ('public.library_items'),
+                ('public.library_items_events'),
+                ('public.profile_settings_blobs'),
+                ('public.sync_codes'),
+                ('public.tv_login_sessions')
         ) as phase1_table(relation_name)
         where has_table_privilege(
             'authenticated',
@@ -1131,7 +1140,16 @@ select ok(
                 ('public.avatar_catalog'),
                 ('public.registered_devices'),
                 ('public.collection_blobs'),
-                ('public.home_catalog_settings')
+                ('public.home_catalog_settings'),
+                ('public.watch_progress'),
+                ('public.watch_progress_events'),
+                ('public.watched_items'),
+                ('public.watched_items_events'),
+                ('public.library_items'),
+                ('public.library_items_events'),
+                ('public.profile_settings_blobs'),
+                ('public.sync_codes'),
+                ('public.tv_login_sessions')
         ) as phase1_table(relation_name)
         where has_table_privilege(
             'authenticated',
@@ -1155,7 +1173,16 @@ select ok(
                 ('public.avatar_catalog'),
                 ('public.registered_devices'),
                 ('public.collection_blobs'),
-                ('public.home_catalog_settings')
+                ('public.home_catalog_settings'),
+                ('public.watch_progress'),
+                ('public.watch_progress_events'),
+                ('public.watched_items'),
+                ('public.watched_items_events'),
+                ('public.library_items'),
+                ('public.library_items_events'),
+                ('public.profile_settings_blobs'),
+                ('public.sync_codes'),
+                ('public.tv_login_sessions')
         ) as phase1_table(relation_name)
         where has_table_privilege(
             'authenticated',

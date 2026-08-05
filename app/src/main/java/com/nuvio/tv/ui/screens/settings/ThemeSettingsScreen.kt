@@ -466,4 +466,9 @@ private fun AppTheme.localizedName(): String = when (this) {
     AppTheme.AMBER -> stringResource(R.string.theme_color_amber)
     AppTheme.ROSE -> stringResource(R.string.theme_color_rose)
     AppTheme.WHITE -> stringResource(R.string.theme_color_white)
+    AppTheme.SLATE -> stringResource(R.string.theme_color_slate)
+    AppTheme.CYAN -> stringResource(R.string.theme_color_cyan)
+    AppTheme.GOLD -> stringResource(R.string.theme_color_gold)
+    AppTheme.MAGENTA -> stringResource(R.string.theme_color_magenta)
+    AppTheme.GRAPHITE -> stringResource(R.string.theme_color_graphite)
 }

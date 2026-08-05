@@ -103,6 +103,7 @@ import com.nuvio.tv.ui.components.LoadingIndicator
 import com.nuvio.tv.ui.components.PosterCardDefaults
 import com.nuvio.tv.ui.components.PosterCardStyle
 import com.nuvio.tv.domain.model.DiscoverLocation
+import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.stableKey
 import android.view.inputmethod.CompletionInfo
 import android.view.inputmethod.InputMethodManager
@@ -315,8 +316,25 @@ fun SearchScreen(
     }
     // Stable list of non-empty catalog rows — mirrors ClassicHomeContent's
     // visibleHomeRows pattern so the LazyColumn receives a remember'd list.
-    val visibleCatalogRows = remember(uiState.catalogRows) {
-        uiState.catalogRows.filter { it.items.isNotEmpty() }
+    var resultTypeFilter by rememberSaveable { mutableStateOf(SEARCH_FILTER_ALL) }
+    val movieCatalogRows = remember(uiState.catalogRows) {
+        uiState.catalogRows.mapNotNull { it.filteredByMediaKind(SearchMediaKind.MOVIE) }
+    }
+    val seriesCatalogRows = remember(uiState.catalogRows) {
+        uiState.catalogRows.mapNotNull { it.filteredByMediaKind(SearchMediaKind.SERIES) }
+    }
+    val visibleCatalogRows = remember(resultTypeFilter, movieCatalogRows, seriesCatalogRows) {
+        when (resultTypeFilter) {
+            SEARCH_FILTER_MOVIES -> movieCatalogRows
+            SEARCH_FILTER_SERIES -> seriesCatalogRows
+            else -> movieCatalogRows + seriesCatalogRows
+        }
+    }
+    val netflixChrome = com.nuvio.tv.ui.screens.home.netflix.NetflixHomeFeature.ENABLED
+    val searchContentInset = if (netflixChrome) {
+        com.nuvio.tv.ui.screens.home.netflix.NetflixHomeTokens.PageHorizontalPadding
+    } else {
+        52.dp
     }
     LaunchedEffect(visibleRowKeys) {
         searchRowStates.keys.retainAll(visibleRowKeys)
@@ -506,29 +524,38 @@ fun SearchScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF031018)),
+            .background(if (netflixChrome) Color.Transparent else Color(0xFF031018)),
         contentAlignment = Alignment.TopCenter
     ) {
-        AsyncImage(
-            model = HeroBackdropState.lastDisplayedUrl,
-            contentDescription = null,
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop,
-            alpha = 0.18f
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.linearGradient(
-                        listOf(
-                            Color(0xEE062638),
-                            Color(0xF4051018),
-                            Color(0xFA020407)
+        if (!netflixChrome) {
+            AsyncImage(
+                model = HeroBackdropState.lastDisplayedUrl,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+                alpha = 0.18f
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.linearGradient(
+                            listOf(
+                                Color(0xEE062638),
+                                Color(0xF4051018),
+                                Color(0xFA020407)
+                            )
                         )
                     )
-                )
-        )
+            )
+        } else {
+            // Netflix shell already provides poster-blur chrome + top nav.
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.20f))
+            )
+        }
         val listState = rememberLazyListState()
         LazyColumn(
             modifier = Modifier
@@ -648,7 +675,7 @@ fun SearchScreen(
                         }
                     }
 
-                    !uiState.isSearching && (visibleCatalogRows.isEmpty()) -> {
+                    !uiState.isSearching && movieCatalogRows.isEmpty() && seriesCatalogRows.isEmpty() -> {
                         item {
                             EmptyScreenState(
                                 title = stringResource(R.string.search_no_results_title),
@@ -659,92 +686,112 @@ fun SearchScreen(
                     }
 
                     else -> {
-                        itemsIndexed(
-                            items = visibleCatalogRows,
-                            key = { index, item ->
-                                "${item.stableKey()}_$index"
-                            },
-                            contentType = { _, _ -> "catalog_row" }
-                        ) { index, catalogRow ->
-                            val catalogKey = catalogRow.stableKey()
-                            val isPlaceholder = catalogRow.isLoading &&
-                                catalogRow.items.firstOrNull()?.id?.startsWith("__placeholder_") == true
-                            val hasEnoughForSeeAll = !isPlaceholder && catalogRow.items.size >= 15
+                        item(key = "search_type_filters") {
+                            SearchTypeFilterRow(
+                                selected = resultTypeFilter,
+                                movieCount = movieCatalogRows.sumOf { it.items.size },
+                                seriesCount = seriesCatalogRows.sumOf { it.items.size },
+                                onSelected = { resultTypeFilter = it },
+                                modifier = Modifier.padding(horizontal = searchContentInset)
+                            )
+                        }
 
-                            val listState = searchRowStates.getOrPut(catalogKey) {
-                                val saved = viewModel.savedRowScrollPositions[catalogKey]
-                                LazyListState(
-                                    firstVisibleItemIndex = saved?.first ?: 0,
-                                    firstVisibleItemScrollOffset = saved?.second ?: 0
+                        if (visibleCatalogRows.isEmpty()) {
+                            item(key = "search_filter_empty") {
+                                EmptyScreenState(
+                                    title = stringResource(R.string.search_no_results_title),
+                                    subtitle = when (resultTypeFilter) {
+                                        SEARCH_FILTER_MOVIES -> stringResource(R.string.search_filter_movies)
+                                        SEARCH_FILTER_SERIES -> stringResource(R.string.search_filter_series)
+                                        else -> stringResource(R.string.search_no_results_subtitle)
+                                    },
+                                    icon = Icons.Default.Search
                                 )
                             }
-                            val rowFocusRequester = searchRowFocusRequesters.getOrPut(catalogKey) { FocusRequester() }
-                            val entryFocusRequester = searchRowEntryFocusRequesters.getOrPut(catalogKey) { FocusRequester() }
-
-                            CatalogRowSection(
-                                catalogRow = catalogRow,
-                                showSeeAll = hasEnoughForSeeAll,
-                                showPosterLabels = uiState.posterLabelsEnabled,
-                                showAddonName = uiState.catalogAddonNameEnabled,
-                                showCatalogTypeSuffix = uiState.catalogTypeSuffixEnabled,
-                                enableRowFocusRestorer = true,
-                                rowFocusRequester = rowFocusRequester,
-                                entryFocusRequester = entryFocusRequester,
-                                listState = listState,
-                                restorerFocusedIndex = if (restoringSearchFocus.value && catalogKey == viewModel.savedFocusRowKey) {
-                                    viewModel.savedFocusItemIndex
-                                } else {
-                                    searchRowFocusedItemIndex[catalogKey] ?: -1
-                                },
-                                isItemWatched = { item ->
-                                    val isSeries = item.apiType.equals("series", ignoreCase = true) || item.apiType.equals("tv", ignoreCase = true)
-                                    if (isSeries) item.id in watchedSeriesIds else item.id in watchedMovieIds
-                                },
-                                focusedItemIndex = when {
-                                    restoringSearchFocus.value && catalogKey == viewModel.savedFocusRowKey ->
-                                        viewModel.savedFocusItemIndex
-                                    focusResults && index == 0 -> 0
-                                    else -> -1
-                                },
-                                onItemFocused = { itemIndex ->
-                                    if (focusResults) {
-                                        focusResults = false
+                        } else {
+                            if (resultTypeFilter == SEARCH_FILTER_ALL || resultTypeFilter == SEARCH_FILTER_MOVIES) {
+                                if (movieCatalogRows.isNotEmpty() && resultTypeFilter == SEARCH_FILTER_ALL) {
+                                    item(key = "search_section_movies") {
+                                        SearchSectionHeader(
+                                            title = stringResource(R.string.search_section_movies),
+                                            modifier = Modifier.padding(horizontal = searchContentInset)
+                                        )
                                     }
-                                    if (restoringSearchFocus.value) {
-                                        restoringSearchFocus.value = false
-                                        didRestoreSearchFocus.value = true
-                                        viewModel.hasSavedSearchFocus = false
-                                    }
-                                    // User manually navigated to a row — cancel any
-                                    // pending auto-focus so it doesn't steal focus later.
-                                    pendingFocusMoveToResultsQuery = null
-                                    searchRowFocusedItemIndex[catalogKey] = itemIndex
-                                    lastFocusedRowKey = catalogKey
-                                },
-                                onItemClick = { id, type, addonBaseUrl ->
-                                    lastFocusedRowKey = catalogKey
-                                    // Save focus state to ViewModel before navigating
-                                    viewModel.savedFocusRowKey = catalogKey
-                                    viewModel.savedFocusItemIndex = searchRowFocusedItemIndex[catalogKey] ?: 0
-                                    viewModel.savedRowScrollPositions = searchRowStates.mapValues {
-                                        it.value.firstVisibleItemIndex to it.value.firstVisibleItemScrollOffset
-                                    }
-                                    viewModel.hasSavedSearchFocus = true
-                                    val clickedItem = catalogRow.items.firstOrNull { it.id == id }
-                                    HeroBackdropState.update(clickedItem?.backdropUrl)
-                                    onNavigateToDetail(id, type, addonBaseUrl)
-                                },
-                                onItemLongPress = { item, addonBaseUrl ->
-                                    viewModel.posterOptions.show(item, addonBaseUrl)
-                                },
-                                onSeeAll = {
-                                    onNavigateToSeeAll(
-                                        catalogRow.catalogId,
-                                        catalogRow.addonId,
-                                        catalogRow.apiType
+                                }
+                                itemsIndexed(
+                                    items = if (resultTypeFilter == SEARCH_FILTER_ALL) {
+                                        movieCatalogRows
+                                    } else {
+                                        visibleCatalogRows
+                                    },
+                                    key = { index, item -> "movie_${item.stableKey()}_$index" },
+                                    contentType = { _, _ -> "catalog_row" }
+                                ) { index, catalogRow ->
+                                    SearchCatalogResultRow(
+                                        catalogRow = catalogRow,
+                                        index = index,
+                                        uiState = uiState,
+                                        watchedMovieIds = watchedMovieIds,
+                                        watchedSeriesIds = watchedSeriesIds,
+                                        restoringSearchFocus = restoringSearchFocus,
+                                        didRestoreSearchFocus = didRestoreSearchFocus,
+                                        focusResults = focusResults,
+                                        onFocusResultsConsumed = { focusResults = false },
+                                        pendingFocusMoveToResultsQuery = pendingFocusMoveToResultsQuery,
+                                        onClearPendingFocusMove = { pendingFocusMoveToResultsQuery = null },
+                                        searchRowStates = searchRowStates,
+                                        searchRowFocusRequesters = searchRowFocusRequesters,
+                                        searchRowEntryFocusRequesters = searchRowEntryFocusRequesters,
+                                        searchRowFocusedItemIndex = searchRowFocusedItemIndex,
+                                        viewModel = viewModel,
+                                        onNavigateToDetail = onNavigateToDetail,
+                                        onNavigateToSeeAll = onNavigateToSeeAll,
+                                        onLastFocusedRowKey = { lastFocusedRowKey = it }
                                     )
                                 }
-                            )
+                            }
+
+                            if (resultTypeFilter == SEARCH_FILTER_ALL || resultTypeFilter == SEARCH_FILTER_SERIES) {
+                                if (seriesCatalogRows.isNotEmpty() && resultTypeFilter == SEARCH_FILTER_ALL) {
+                                    item(key = "search_section_series") {
+                                        SearchSectionHeader(
+                                            title = stringResource(R.string.search_section_series),
+                                            modifier = Modifier.padding(horizontal = searchContentInset)
+                                        )
+                                    }
+                                }
+                                itemsIndexed(
+                                    items = if (resultTypeFilter == SEARCH_FILTER_ALL) {
+                                        seriesCatalogRows
+                                    } else {
+                                        visibleCatalogRows
+                                    },
+                                    key = { index, item -> "series_${item.stableKey()}_$index" },
+                                    contentType = { _, _ -> "catalog_row" }
+                                ) { index, catalogRow ->
+                                    SearchCatalogResultRow(
+                                        catalogRow = catalogRow,
+                                        index = index,
+                                        uiState = uiState,
+                                        watchedMovieIds = watchedMovieIds,
+                                        watchedSeriesIds = watchedSeriesIds,
+                                        restoringSearchFocus = restoringSearchFocus,
+                                        didRestoreSearchFocus = didRestoreSearchFocus,
+                                        focusResults = focusResults,
+                                        onFocusResultsConsumed = { focusResults = false },
+                                        pendingFocusMoveToResultsQuery = pendingFocusMoveToResultsQuery,
+                                        onClearPendingFocusMove = { pendingFocusMoveToResultsQuery = null },
+                                        searchRowStates = searchRowStates,
+                                        searchRowFocusRequesters = searchRowFocusRequesters,
+                                        searchRowEntryFocusRequesters = searchRowEntryFocusRequesters,
+                                        searchRowFocusedItemIndex = searchRowFocusedItemIndex,
+                                        viewModel = viewModel,
+                                        onNavigateToDetail = onNavigateToDetail,
+                                        onNavigateToSeeAll = onNavigateToSeeAll,
+                                        onLastFocusedRowKey = { lastFocusedRowKey = it }
+                                    )
+                                }
+                            }
                         }
 
                         // Results are up but more catalogs are still answering, as on mobile.
@@ -1110,4 +1157,195 @@ private fun SearchInputField(
             }
         }
     }
+}
+
+private const val SEARCH_FILTER_ALL = "all"
+private const val SEARCH_FILTER_MOVIES = "movie"
+private const val SEARCH_FILTER_SERIES = "series"
+
+private enum class SearchMediaKind { MOVIE, SERIES }
+
+private fun isSeriesType(type: String?): Boolean {
+    val value = type.orEmpty()
+    return value.equals("series", ignoreCase = true) || value.equals("tv", ignoreCase = true)
+}
+
+private fun CatalogRow.filteredByMediaKind(kind: SearchMediaKind): CatalogRow? {
+    val filteredItems = items.filter { item ->
+        val effectiveType = item.apiType.ifBlank { apiType }
+        when (kind) {
+            SearchMediaKind.MOVIE -> !isSeriesType(effectiveType)
+            SearchMediaKind.SERIES -> isSeriesType(effectiveType)
+        }
+    }
+    return copy(items = filteredItems).takeIf { it.items.isNotEmpty() }
+}
+
+@Composable
+private fun SearchSectionHeader(
+    title: String,
+    modifier: Modifier = Modifier
+) {
+    Text(
+        text = title,
+        color = Color.White,
+        style = androidx.tv.material3.MaterialTheme.typography.titleLarge,
+        modifier = modifier.padding(top = 8.dp, bottom = 4.dp)
+    )
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun SearchTypeFilterRow(
+    selected: String,
+    movieCount: Int,
+    seriesCount: Int,
+    onSelected: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        SearchTypeChip(
+            label = stringResource(R.string.search_filter_all),
+            selected = selected == SEARCH_FILTER_ALL,
+            onClick = { onSelected(SEARCH_FILTER_ALL) }
+        )
+        SearchTypeChip(
+            label = "${stringResource(R.string.search_filter_movies)} ($movieCount)",
+            selected = selected == SEARCH_FILTER_MOVIES,
+            onClick = { onSelected(SEARCH_FILTER_MOVIES) }
+        )
+        SearchTypeChip(
+            label = "${stringResource(R.string.search_filter_series)} ($seriesCount)",
+            selected = selected == SEARCH_FILTER_SERIES,
+            onClick = { onSelected(SEARCH_FILTER_SERIES) }
+        )
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun SearchTypeChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    var focused by remember { mutableStateOf(false) }
+    Button(
+        onClick = onClick,
+        modifier = Modifier.onFocusChanged { focused = it.isFocused },
+        colors = ButtonDefaults.colors(
+            containerColor = when {
+                selected -> Color.White
+                focused -> Color.White.copy(alpha = 0.22f)
+                else -> Color.White.copy(alpha = 0.10f)
+            },
+            contentColor = if (selected) Color.Black else Color.White,
+            focusedContainerColor = if (selected) Color.White else Color.White.copy(alpha = 0.28f),
+            focusedContentColor = if (selected) Color.Black else Color.White
+        ),
+        shape = ButtonDefaults.shape(RoundedCornerShape(22.dp))
+    ) {
+        Text(text = label)
+    }
+}
+
+@Composable
+private fun SearchCatalogResultRow(
+    catalogRow: CatalogRow,
+    index: Int,
+    uiState: SearchUiState,
+    watchedMovieIds: Set<String>,
+    watchedSeriesIds: Set<String>,
+    restoringSearchFocus: androidx.compose.runtime.MutableState<Boolean>,
+    didRestoreSearchFocus: androidx.compose.runtime.MutableState<Boolean>,
+    focusResults: Boolean,
+    onFocusResultsConsumed: () -> Unit,
+    pendingFocusMoveToResultsQuery: String?,
+    onClearPendingFocusMove: () -> Unit,
+    searchRowStates: MutableMap<String, LazyListState>,
+    searchRowFocusRequesters: MutableMap<String, FocusRequester>,
+    searchRowEntryFocusRequesters: MutableMap<String, FocusRequester>,
+    searchRowFocusedItemIndex: MutableMap<String, Int>,
+    viewModel: SearchViewModel,
+    onNavigateToDetail: (String, String, String) -> Unit,
+    onNavigateToSeeAll: (String, String, String) -> Unit,
+    onLastFocusedRowKey: (String) -> Unit
+) {
+    val catalogKey = catalogRow.stableKey()
+    val isPlaceholder = catalogRow.isLoading &&
+        catalogRow.items.firstOrNull()?.id?.startsWith("__placeholder_") == true
+    val hasEnoughForSeeAll = !isPlaceholder && catalogRow.items.size >= 15
+
+    val listState = searchRowStates.getOrPut(catalogKey) {
+        val saved = viewModel.savedRowScrollPositions[catalogKey]
+        LazyListState(
+            firstVisibleItemIndex = saved?.first ?: 0,
+            firstVisibleItemScrollOffset = saved?.second ?: 0
+        )
+    }
+    val rowFocusRequester = searchRowFocusRequesters.getOrPut(catalogKey) { FocusRequester() }
+    val entryFocusRequester = searchRowEntryFocusRequesters.getOrPut(catalogKey) { FocusRequester() }
+
+    CatalogRowSection(
+        catalogRow = catalogRow,
+        showSeeAll = hasEnoughForSeeAll,
+        showPosterLabels = uiState.posterLabelsEnabled,
+        showAddonName = uiState.catalogAddonNameEnabled,
+        showCatalogTypeSuffix = true,
+        enableRowFocusRestorer = true,
+        rowFocusRequester = rowFocusRequester,
+        entryFocusRequester = entryFocusRequester,
+        listState = listState,
+        restorerFocusedIndex = if (restoringSearchFocus.value && catalogKey == viewModel.savedFocusRowKey) {
+            viewModel.savedFocusItemIndex
+        } else {
+            searchRowFocusedItemIndex[catalogKey] ?: -1
+        },
+        isItemWatched = { item ->
+            val isSeries = isSeriesType(item.apiType)
+            if (isSeries) item.id in watchedSeriesIds else item.id in watchedMovieIds
+        },
+        focusedItemIndex = when {
+            restoringSearchFocus.value && catalogKey == viewModel.savedFocusRowKey ->
+                viewModel.savedFocusItemIndex
+            focusResults && index == 0 -> 0
+            else -> -1
+        },
+        onItemFocused = { itemIndex ->
+            if (focusResults) onFocusResultsConsumed()
+            if (restoringSearchFocus.value) {
+                restoringSearchFocus.value = false
+                didRestoreSearchFocus.value = true
+                viewModel.hasSavedSearchFocus = false
+            }
+            onClearPendingFocusMove()
+            searchRowFocusedItemIndex[catalogKey] = itemIndex
+            onLastFocusedRowKey(catalogKey)
+        },
+        onItemClick = { id, type, addonBaseUrl ->
+            onLastFocusedRowKey(catalogKey)
+            viewModel.savedFocusRowKey = catalogKey
+            viewModel.savedFocusItemIndex = searchRowFocusedItemIndex[catalogKey] ?: 0
+            viewModel.savedRowScrollPositions = searchRowStates.mapValues {
+                it.value.firstVisibleItemIndex to it.value.firstVisibleItemScrollOffset
+            }
+            viewModel.hasSavedSearchFocus = true
+            val clickedItem = catalogRow.items.firstOrNull { it.id == id }
+            HeroBackdropState.update(clickedItem?.backdropUrl)
+            onNavigateToDetail(id, type, addonBaseUrl)
+        },
+        onItemLongPress = { item, addonBaseUrl ->
+            viewModel.posterOptions.show(item, addonBaseUrl)
+        },
+        onSeeAll = {
+            onNavigateToSeeAll(
+                catalogRow.catalogId,
+                catalogRow.addonId,
+                catalogRow.apiType
+            )
+        }
+    )
 }

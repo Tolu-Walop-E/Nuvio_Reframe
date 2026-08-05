@@ -148,32 +148,32 @@ internal fun NetflixMediaCard(
                 onLongClick = onLongClick
             )
             .clip(shape)
-            .background(NetflixHomeTokens.Surface)
+            .background(NetflixThemeChrome.surface)
             .border(
                 width = if (focused) NetflixHomeTokens.FocusBorder else 1.dp,
-                color = if (focused) NetflixHomeTokens.Focus else Color.Transparent,
+                color = if (focused) NetflixThemeChrome.focus else Color.Transparent,
                 shape = shape
             ),
         contentAlignment = Alignment.BottomStart
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            if (shouldPlayTrailer) {
-                if (!hasTrailerFrame) {
-                    Crossfade(
-                        targetState = artwork,
-                        animationSpec = tween(durationMillis = NetflixHomeMotion.ArtworkCrossfadeDurationMs),
-                        label = "netflixCardArtwork"
-                    ) { targetArtwork ->
-                        if (!targetArtwork.imageUrl.isNullOrBlank()) {
-                            AsyncImage(
-                                model = targetArtwork.imageUrl,
-                                contentDescription = title,
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop
-                            )
-                        }
-                    }
+            // Keep poster under the player always. TrailerPlayer fades in on first
+            // frame (alpha 0→1); removing artwork earlier caused a surface flash.
+            Crossfade(
+                targetState = artwork,
+                animationSpec = tween(durationMillis = NetflixHomeMotion.ArtworkCrossfadeDurationMs),
+                label = "netflixCardArtwork"
+            ) { targetArtwork ->
+                if (!targetArtwork.imageUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = targetArtwork.imageUrl,
+                        contentDescription = title,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
                 }
+            }
+            if (shouldPlayTrailer) {
                 TrailerPlayer(
                     trailerUrl = trailerUrl,
                     trailerAudioUrl = trailerAudioUrl,
@@ -186,21 +186,6 @@ internal fun NetflixMediaCard(
                     enter = fadeIn(animationSpec = tween(120)),
                     exit = fadeOut(animationSpec = tween(100))
                 )
-            } else {
-                Crossfade(
-                    targetState = artwork,
-                    animationSpec = tween(durationMillis = NetflixHomeMotion.ArtworkCrossfadeDurationMs),
-                    label = "netflixCardArtwork"
-                ) { targetArtwork ->
-                    if (!targetArtwork.imageUrl.isNullOrBlank()) {
-                        AsyncImage(
-                            model = targetArtwork.imageUrl,
-                            contentDescription = title,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
-                    }
-                }
             }
             if (focused && !hasTrailerFrame) {
                 Box(
@@ -250,7 +235,7 @@ internal fun NetflixMediaCard(
                             .fillMaxWidth(progress.coerceIn(0f, 1f))
                             .height(NetflixHomeTokens.ProgressBarHeight)
                             .clip(progressShape)
-                            .background(NetflixHomeTokens.Accent)
+                            .background(NetflixThemeChrome.progress)
                     )
                 }
             }
@@ -264,7 +249,7 @@ internal fun NetflixMediaCard(
                 androidx.compose.foundation.layout.Column {
                     Text(
                         text = title,
-                        color = NetflixHomeTokens.TextPrimary,
+                        color = NetflixThemeChrome.textPrimary,
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = if (showFallbackTitle) 2 else 1,
@@ -273,7 +258,7 @@ internal fun NetflixMediaCard(
                     if (showLabels && !subtitle.isNullOrBlank()) {
                         Text(
                             text = subtitle,
-                            color = NetflixHomeTokens.TextSecondary,
+                            color = NetflixThemeChrome.textSecondary,
                             style = MaterialTheme.typography.bodySmall,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
