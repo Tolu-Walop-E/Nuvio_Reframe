@@ -11,6 +11,7 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.core.sync.LocalHomeCatalogSettingsState
+import com.nuvio.tv.core.sync.SyncGenreRowTarget
 import com.nuvio.tv.core.sync.SyncHomeCatalogPayload
 import com.nuvio.tv.core.sync.buildHomeCatalogSyncPayload
 import com.nuvio.tv.core.sync.homeCatalogKey
@@ -56,11 +57,13 @@ class LayoutPreferenceDataStore @Inject constructor(
 
     private val layoutKey = stringPreferencesKey("selected_layout")
     private val hasChosenKey = booleanPreferencesKey("has_chosen_layout")
+    private val netflixLayoutMigratedKey = booleanPreferencesKey("netflix_layout_migrated_v1")
     private val heroCatalogKey = stringPreferencesKey("hero_catalog_key")
     private val heroCatalogKeysKey = stringPreferencesKey("hero_catalog_keys")
     private val homeCatalogOrderKeysKey = stringPreferencesKey("home_catalog_order_keys")
     private val disabledHomeCatalogKeysKey = stringPreferencesKey("disabled_home_catalog_keys")
     private val customCatalogTitlesKey = stringPreferencesKey("custom_catalog_titles")
+    private val genreRowTargetsKey = stringPreferencesKey("genre_row_targets")
     private val sidebarCollapsedKey = booleanPreferencesKey("sidebar_collapsed_by_default")
     private val modernSidebarEnabledKey = booleanPreferencesKey("modern_sidebar_enabled")
     private val legacyModernSidebarEnabledKey = booleanPreferencesKey("glass_sidepanel_enabled")
@@ -106,6 +109,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     private val fastHorizontalNavigationEnabledKey = booleanPreferencesKey("fast_horizontal_navigation_enabled")
     private val followAddonsOrderKey = booleanPreferencesKey("follow_addons_order")
     private val composeHighlighterEnabledKey = booleanPreferencesKey("compose_highlighter_enabled")
+    private val activeViewPackJsonKey = stringPreferencesKey("active_view_pack_json")
 
     private fun <T> profileFlow(extract: (prefs: androidx.datastore.preferences.core.Preferences) -> T): Flow<T> =
         profileManager.activeProfileId.flatMapLatest { pid ->
@@ -132,11 +136,11 @@ class LayoutPreferenceDataStore @Inject constructor(
         value?.takeIf { it > 0 } ?: defaultValue
 
     val selectedLayout: Flow<HomeLayout> = profileFlow { prefs ->
-        val layoutName = prefs[layoutKey] ?: HomeLayout.MODERN.name
+        val layoutName = prefs[layoutKey] ?: HomeLayout.NETFLIX.name
         try {
             HomeLayout.valueOf(layoutName)
         } catch (e: IllegalArgumentException) {
-            HomeLayout.MODERN
+            HomeLayout.NETFLIX
         }
     }
 
@@ -196,6 +200,16 @@ class LayoutPreferenceDataStore @Inject constructor(
             parseCustomTitles(prefs.getStringOrMigrateSet(customCatalogTitlesKey))
         }
     }
+
+    val genreRowTargets: Flow<Map<String, SyncGenreRowTarget>> =
+        profileManager.activeProfileId.flatMapLatest { pid ->
+            val profile = profileManager.profiles.value.find { it.id == pid }
+            val usePrimary = profile != null && !profile.isPrimary && profile.usesPrimaryAddons
+            val effectivePid = if (usePrimary) 1 else pid
+            factory.get(effectivePid, FEATURE).data.map { prefs ->
+                parseGenreRowTargets(prefs[genreRowTargetsKey])
+            }
+        }
 
     val sidebarCollapsedByDefault: Flow<Boolean> = profileFlow { prefs ->
         val modernSidebarEnabled =
@@ -270,7 +284,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     }
 
     val focusedPosterBackdropTrailerEnabled: Flow<Boolean> = profileFlow { prefs ->
-        prefs[focusedPosterBackdropTrailerEnabledKey] ?: false
+        prefs[focusedPosterBackdropTrailerEnabledKey] ?: true
     }
 
     val focusedPosterBackdropTrailerMuted: Flow<Boolean> = profileFlow { prefs ->
@@ -280,9 +294,9 @@ class LayoutPreferenceDataStore @Inject constructor(
     val focusedPosterBackdropTrailerPlaybackTarget: Flow<FocusedPosterTrailerPlaybackTarget> =
         profileFlow { prefs ->
             val stored = prefs[focusedPosterBackdropTrailerPlaybackTargetKey]
-                ?: FocusedPosterTrailerPlaybackTarget.HERO_MEDIA.name
+                ?: FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD.name
             runCatching { FocusedPosterTrailerPlaybackTarget.valueOf(stored) }
-                .getOrDefault(FocusedPosterTrailerPlaybackTarget.HERO_MEDIA)
+                .getOrDefault(FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD)
         }
 
     val posterCardWidthDp: Flow<Int> = profileFlow { prefs ->
@@ -376,6 +390,11 @@ class LayoutPreferenceDataStore @Inject constructor(
         prefs[composeHighlighterEnabledKey] ?: false
     }
 
+    /** Raw Studio `.view.json` for the active home pack, or null when unset. */
+    val activeViewPackJson: Flow<String?> = profileFlow { prefs ->
+        prefs[activeViewPackJsonKey]?.trim()?.takeIf { it.isNotEmpty() }
+    }
+
     suspend fun setMemoryOnlyVerticalScroll(enabled: Boolean) {
         store().edit { prefs ->
             prefs[memoryOnlyVerticalScrollKey] = enabled
@@ -406,19 +425,48 @@ class LayoutPreferenceDataStore @Inject constructor(
         }
     }
 
+    suspend fun setActiveViewPackJson(json: String?) {
+        val trimmed = json?.trim()?.takeIf { it.isNotEmpty() }
+        store().edit { prefs ->
+            if (trimmed == null) {
+                prefs.remove(activeViewPackJsonKey)
+            } else {
+                prefs[activeViewPackJsonKey] = trimmed
+            }
+        }
+    }
+
+    suspend fun clearActiveViewPack() {
+        setActiveViewPackJson(null)
+    }
+
     suspend fun setLayout(layout: HomeLayout) {
         store().edit { prefs ->
             val hadChosenLayout = prefs[hasChosenKey] ?: false
             prefs[layoutKey] = layout.name
             if (
-                layout == HomeLayout.MODERN &&
+                (layout == HomeLayout.MODERN || layout == HomeLayout.NETFLIX) &&
                 !hadChosenLayout &&
                 prefs[focusedPosterBackdropTrailerPlaybackTargetKey] == null
             ) {
                 prefs[focusedPosterBackdropTrailerPlaybackTargetKey] =
-                    FocusedPosterTrailerPlaybackTarget.HERO_MEDIA.name
+                    FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD.name
             }
             prefs[hasChosenKey] = true
+        }
+    }
+
+    /**
+     * Users previously forced onto Netflix home while prefs still said MODERN.
+     * One-time migrate those profiles to the explicit NETFLIX layout.
+     */
+    suspend fun migrateForcedNetflixLayoutIfNeeded() {
+        store().edit { prefs ->
+            if (prefs[netflixLayoutMigratedKey] == true) return@edit
+            prefs[netflixLayoutMigratedKey] = true
+            if (prefs[hasChosenKey] == true && prefs[layoutKey] == HomeLayout.MODERN.name) {
+                prefs[layoutKey] = HomeLayout.NETFLIX.name
+            }
         }
     }
 
@@ -752,6 +800,37 @@ class LayoutPreferenceDataStore @Inject constructor(
         }
     }
 
+    suspend fun setGenreRowTarget(chipKey: String, target: SyncGenreRowTarget?) {
+        val normalizedKey = chipKey.trim()
+        if (normalizedKey.isEmpty()) return
+        store().edit { prefs ->
+            val updated = parseGenreRowTargets(prefs[genreRowTargetsKey]).toMutableMap()
+            if (target?.isValid() == true) {
+                updated[normalizedKey] = target
+            } else {
+                updated.remove(normalizedKey)
+            }
+            if (updated.isEmpty()) {
+                prefs.remove(genreRowTargetsKey)
+            } else {
+                prefs[genreRowTargetsKey] = gson.toJson(updated)
+            }
+        }
+    }
+
+    private fun parseGenreRowTargets(json: String?): Map<String, SyncGenreRowTarget> {
+        if (json.isNullOrBlank()) return emptyMap()
+        return try {
+            val type = object : TypeToken<Map<String, SyncGenreRowTarget>>() {}.type
+            gson.fromJson<Map<String, SyncGenreRowTarget>>(json, type)
+                .orEmpty()
+                .filterKeys { it.isNotBlank() }
+                .filterValues(SyncGenreRowTarget::isValid)
+        } catch (_: Exception) {
+            emptyMap()
+        }
+    }
+
     internal suspend fun getHomeCatalogSettingsState(): LocalHomeCatalogSettingsState {
         return readHomeCatalogSettingsState(store().data.first())
     }
@@ -800,6 +879,13 @@ class LayoutPreferenceDataStore @Inject constructor(
             } else {
                 prefs.remove(customCatalogTitlesKey)
             }
+            if (payload.genreTargets.isNotEmpty()) {
+                prefs[genreRowTargetsKey] = gson.toJson(
+                    payload.genreTargets.filterValues(SyncGenreRowTarget::isValid)
+                )
+            } else {
+                prefs.remove(genreRowTargetsKey)
+            }
         }
     }
 
@@ -808,7 +894,8 @@ class LayoutPreferenceDataStore @Inject constructor(
             orderKeys = parseCatalogKeys(prefs.getStringOrMigrateSet(homeCatalogOrderKeysKey)),
             disabledKeys = parseCatalogKeys(prefs.getStringOrMigrateSet(disabledHomeCatalogKeysKey)).toSet(),
             customTitles = parseCustomTitles(prefs.getStringOrMigrateSet(customCatalogTitlesKey)),
-            hideUnreleasedContent = prefs[hideUnreleasedContentKey] ?: false
+            hideUnreleasedContent = prefs[hideUnreleasedContentKey] ?: false,
+            genreTargets = parseGenreRowTargets(prefs[genreRowTargetsKey])
         )
     }
 }

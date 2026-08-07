@@ -3,6 +3,7 @@ package com.nuvio.tv.core.sync
 import android.os.SystemClock
 import android.util.Log
 import com.nuvio.tv.core.auth.AuthManager
+import com.nuvio.tv.core.collections.CollectionsImportSupport
 import com.nuvio.tv.core.plugin.PluginManager
 import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.data.local.StartupSyncPreferences
@@ -30,6 +31,8 @@ private const val FORCE_RESYNC_MIN_INTERVAL_MS = 30_000L
 private const val FULL_STARTUP_PULL_TTL_MS = 6 * 60 * 60 * 1000L
 private const val PERIODIC_WATCH_STATE_PULL_INTERVAL_MS = 120_000L
 private const val PERIODIC_LIBRARY_PULL_INTERVAL_MS = 240_000L
+/** Delay the first non-forced cloud pull so home can paint from local caches. */
+private const val FIRST_STARTUP_PULL_DELAY_MS = 1_200L
 
 @Singleton
 class StartupSyncService @Inject constructor(
@@ -37,7 +40,9 @@ class StartupSyncService @Inject constructor(
     private val pluginSyncService: PluginSyncService,
     private val addonSyncService: AddonSyncService,
     private val collectionSyncService: CollectionSyncService,
+    private val collectionsImportSupport: CollectionsImportSupport,
     private val homeCatalogSettingsSyncService: HomeCatalogSettingsSyncService,
+    private val viewPackSyncService: ViewPackSyncService,
     private val watchProgressSyncService: WatchProgressSyncService,
     private val librarySyncService: LibrarySyncService,
     private val watchedItemsSyncService: WatchedItemsSyncService,
@@ -257,6 +262,15 @@ class StartupSyncService @Inject constructor(
                             Log.e(TAG, "Realtime home catalog settings pull failed profile=$profileId", error)
                         }
                 }
+                "view_pack" -> {
+                    viewPackSyncService.pullFromRemote()
+                        .onSuccess { applied ->
+                            Log.d(TAG, "Realtime view pack pull completed profile=$profileId applied=$applied")
+                        }
+                        .onFailure { error ->
+                            Log.e(TAG, "Realtime view pack pull failed profile=$profileId", error)
+                        }
+                }
                 "profiles" -> {
                     profileSyncService.pullFromRemote()
                         .onSuccess { profiles ->
@@ -344,6 +358,9 @@ class StartupSyncService @Inject constructor(
         }
 
         startupPullJob = scope.launch {
+            if (!force) {
+                delay(FIRST_STARTUP_PULL_DELAY_MS)
+            }
             val maxAttempts = 3
             var syncCompleted = false
             for (attempt in 1..maxAttempts) {
@@ -582,6 +599,9 @@ class StartupSyncService @Inject constructor(
                         .onFailure { e ->
                             Log.e(TAG, "Failed to pull collections from remote, keeping local", e)
                         }
+                    if (collectionsImportSupport.importBundledXperienceAnimeIfEmpty()) {
+                        Log.i(TAG, "Imported bundled Xperience anime collections for profile $profileId")
+                    }
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to pull collections from remote", e)
                 }
@@ -601,10 +621,25 @@ class StartupSyncService @Inject constructor(
                 }
             }
 
+            val viewPackJob = async {
+                try {
+                    viewPackSyncService.pullFromRemote()
+                        .onSuccess { applied ->
+                            Log.d(TAG, "View pack pull completed for profile $profileId (applied=$applied)")
+                        }
+                        .onFailure { e ->
+                            Log.e(TAG, "Failed to pull view pack from remote, keeping local", e)
+                        }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to pull view pack from remote", e)
+                }
+            }
+
             pluginJob.await()
             addonJob.await()
             collectionJob.await()
             homeCatalogJob.await()
+            viewPackJob.await()
             libraryJob.await()
         }
     }

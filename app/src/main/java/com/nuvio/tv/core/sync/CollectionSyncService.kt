@@ -97,7 +97,13 @@ class CollectionSyncService @Inject constructor(
             val rows = response.decodeList<SupabaseCollectionBlob>()
             val blob = rows.firstOrNull()
             if (blob == null) {
-                Log.d(TAG, "No remote collections for profile $profileId; keeping local")
+                val localCollections = collectionsDataStore.getCurrentCollections()
+                if (localCollections.isNotEmpty()) {
+                    Log.i(TAG, "No remote collections for profile $profileId; seeding from local")
+                    pushToRemote().getOrThrow()
+                } else {
+                    Log.d(TAG, "No remote collections for profile $profileId; keeping local")
+                }
                 return@withContext Result.success(false)
             }
 
@@ -107,7 +113,8 @@ class CollectionSyncService @Inject constructor(
             // Preserve local if remote is empty but local has data
             val localCollections = collectionsDataStore.getCurrentCollections()
             if (remoteCollections.isEmpty() && localCollections.isNotEmpty()) {
-                Log.w(TAG, "Remote collections empty while local has ${localCollections.size}; preserving local")
+                Log.w(TAG, "Remote collections empty while local has ${localCollections.size}; seeding remote from local")
+                pushToRemote().getOrThrow()
                 return@withContext Result.success(false)
             }
 

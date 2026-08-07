@@ -26,7 +26,6 @@ import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -50,13 +49,13 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import androidx.compose.ui.res.stringResource
 import com.nuvio.tv.R
+import com.nuvio.tv.BuildConfig
 import com.nuvio.tv.domain.model.AuthState
-
-private const val SHOW_SYNC_CODE_FEATURES = false
 
 @Composable
 fun AccountScreen(
     onNavigateToAuthSignIn: () -> Unit = {},
+    onNavigateToCreateAccount: () -> Unit = {},
     onNavigateToSyncGenerate: () -> Unit = {},
     onNavigateToSyncClaim: () -> Unit = {},
     onBackPress: () -> Unit = {},
@@ -117,43 +116,30 @@ fun AccountScreen(
                 item {
                     AccountActionCard(
                         icon = Icons.Default.Person,
-                        title = stringResource(R.string.account_signin_create_title),
-                        description = stringResource(R.string.account_signin_create_desc),
+                        title = stringResource(R.string.auth_choice_sign_in_email),
+                        description = stringResource(R.string.account_signin_email_subtitle),
                         onClick = onNavigateToAuthSignIn
                     )
                 }
-                if (SHOW_SYNC_CODE_FEATURES) {
-                    item {
-                        Spacer(modifier = Modifier.height(NuvioTheme.spacing.sm))
-                        Text(
-                            text = stringResource(R.string.account_sync_code_title),
-                            style = MaterialTheme.typography.titleLarge,
-                            color = NuvioTheme.colors.TextPrimary,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Spacer(modifier = Modifier.height(NuvioTheme.spacing.xs))
-                        Text(
-                            text = stringResource(R.string.account_sync_code_description),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = NuvioTheme.colors.TextSecondary
-                        )
-                    }
-                    item {
-                        AccountActionCard(
-                            icon = Icons.Default.VpnKey,
-                            title = stringResource(R.string.sync_generate_title),
-                            description = stringResource(R.string.account_generate_sync_desc),
-                            onClick = onNavigateToSyncGenerate
-                        )
-                    }
-                    item {
-                        AccountActionCard(
-                            icon = Icons.Default.Sync,
-                            title = stringResource(R.string.sync_claim_title),
-                            description = stringResource(R.string.account_enter_sync_desc),
-                            onClick = onNavigateToSyncClaim
-                        )
-                    }
+                item {
+                    AccountActionCard(
+                        icon = Icons.Default.Person,
+                        title = stringResource(R.string.auth_choice_create_account),
+                        description = stringResource(
+                            R.string.auth_create_account_description,
+                            MIN_EMAIL_AUTH_PASSWORD_LENGTH
+                        ),
+                        onClick = onNavigateToCreateAccount
+                    )
+                }
+                item {
+                    AccountActionCard(
+                        icon = Icons.Default.LinkOff,
+                        title = stringResource(R.string.auth_choice_link_sync_code),
+                        description = stringResource(R.string.auth_choice_link_unavailable),
+                        enabled = false,
+                        onClick = {}
+                    )
                 }
             }
 
@@ -170,7 +156,7 @@ fun AccountScreen(
                         onUnlink = { viewModel.unlinkDevice(it) }
                     )
                 }
-                if (SHOW_SYNC_CODE_FEATURES) {
+                if (BuildConfig.FEATURE_DEVICE_LINKING_ENABLED) {
                     item {
                         AccountActionCard(
                             icon = Icons.Default.VpnKey,
@@ -204,10 +190,12 @@ private fun AccountActionCard(
     icon: ImageVector,
     title: String,
     description: String,
+    enabled: Boolean = true,
     onClick: () -> Unit
 ) {
     Button(
         onClick = onClick,
+        enabled = enabled,
         colors = ButtonDefaults.colors(
             containerColor = NuvioTheme.colors.BackgroundCard,
             focusedContainerColor = NuvioTheme.colors.FocusBackground,

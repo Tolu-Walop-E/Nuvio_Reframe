@@ -301,7 +301,10 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                 watchedItemsVersion = watchedItemsSize,
                 hasLoadedRemoteProgress = hasLoadedRemoteProgress
             )
-        }.debounce(CW_PROGRESS_DEBOUNCE_MS).collectLatest { snapshot ->
+        }.debounce {
+            // First CW cycle: resolve immediately so home isn't gated on a 500ms wait.
+            if (!_initialCwResolved.value) 0L else CW_PROGRESS_DEBOUNCE_MS
+        }.collectLatest { snapshot ->
             val debug = CwDebugSession()
             val pipelineProfileId = profileManager.activeProfileId.value
             try {

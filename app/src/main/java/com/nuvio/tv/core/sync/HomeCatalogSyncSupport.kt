@@ -5,11 +5,16 @@ import com.nuvio.tv.domain.model.CatalogDescriptor
 import com.nuvio.tv.domain.model.Collection
 import com.nuvio.tv.domain.model.enabledAddons
 
+internal const val HOME_GENRES_ROW_TYPE = "special"
+internal const val HOME_GENRES_ROW_ID = "genres"
+internal const val HOME_GENRES_ROW_KEY = "_special_genres"
+
 internal data class LocalHomeCatalogSettingsState(
     val orderKeys: List<String> = emptyList(),
     val disabledKeys: Set<String> = emptySet(),
     val customTitles: Map<String, String> = emptyMap(),
-    val hideUnreleasedContent: Boolean = false
+    val hideUnreleasedContent: Boolean = false,
+    val genreTargets: Map<String, SyncGenreRowTarget> = emptyMap()
 )
 
 private data class HomeCatalogSyncEntry(
@@ -29,6 +34,10 @@ internal fun homeCatalogKey(addonId: String, type: String, catalogId: String): S
 
 internal fun homeCollectionKey(collectionId: String): String {
     return "collection_${collectionId}"
+}
+
+internal fun isFloatingHomeRowKey(key: String): Boolean {
+    return key.startsWith("collection_") || key == HOME_GENRES_ROW_KEY
 }
 
 internal fun homeLegacyDisabledCatalogKey(
@@ -69,7 +78,13 @@ internal fun buildHomeCatalogSyncPayload(
             collectionId = collection.id
         )
     }
-    val entryByKey = (catalogEntries + collectionEntries).associateBy { it.key }
+    val genreEntry = HomeCatalogSyncEntry(
+        key = HOME_GENRES_ROW_KEY,
+        type = HOME_GENRES_ROW_TYPE,
+        catalogId = HOME_GENRES_ROW_ID,
+        catalogName = "Genres"
+    )
+    val entryByKey = (listOf(genreEntry) + catalogEntries + collectionEntries).associateBy { it.key }
     val catalogKeys = catalogEntries.map { it.key }
     val collectionKeys = collectionEntries.map { it.key }
 
@@ -78,8 +93,13 @@ internal fun buildHomeCatalogSyncPayload(
         .filter { it in entryByKey }
         .distinct()
         .toList()
-    val savedSet = savedValid.toSet()
-    val mergedOrder = savedValid +
+    val migratedSavedOrder = if (HOME_GENRES_ROW_KEY in savedValid) {
+        savedValid
+    } else {
+        listOf(HOME_GENRES_ROW_KEY) + savedValid
+    }
+    val savedSet = migratedSavedOrder.toSet()
+    val mergedOrder = migratedSavedOrder +
         catalogKeys.filterNot { it in savedSet } +
         collectionKeys.filterNot { it in savedSet }
 
@@ -119,7 +139,10 @@ internal fun buildHomeCatalogSyncPayload(
 
     return SyncHomeCatalogPayload(
         hideUnreleasedContent = localState.hideUnreleasedContent,
-        items = items
+        items = items,
+        genreTargets = localState.genreTargets
+            .filterKeys { it.isNotBlank() }
+            .filterValues(SyncGenreRowTarget::isValid)
     )
 }
 

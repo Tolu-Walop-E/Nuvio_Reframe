@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -54,20 +55,24 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.domain.model.AuthState
 import androidx.compose.ui.res.stringResource
-import com.nuvio.tv.BuildConfig
 import com.nuvio.tv.R
 
 @Composable
 fun AccountSettingsContent(
     uiState: AccountUiState,
     viewModel: AccountViewModel,
-    onNavigateToAuthQrSignIn: () -> Unit = {},
+    onNavigateToAuthSignIn: () -> Unit = {},
+    onNavigateToCreateAccount: () -> Unit = {},
+    onNavigateToSyncGenerate: () -> Unit = {},
+    onNavigateToSyncClaim: () -> Unit = {},
+    onNavigateToQrSignIn: () -> Unit = {},
     initialFocusRequester: FocusRequester? = null
 ) {
     if (uiState.authState is AuthState.FullAccount) {
         SignedInAccountSettingsContent(
             uiState = uiState,
             viewModel = viewModel,
+            onNavigateToSyncGenerate = onNavigateToSyncGenerate,
             initialFocusRequester = initialFocusRequester
         )
         return
@@ -100,22 +105,49 @@ fun AccountSettingsContent(
                 item(key = "account_sync_note_signed_out") {
                     AccountInlineNote(text = stringResource(R.string.account_sync_restart_note))
                 }
-                item(key = "account_sign_in_qr") {
+                item(key = "account_sign_in_email") {
                     SettingsActionButton(
                         icon = Icons.Default.VpnKey,
-                        title = stringResource(
-                            if (BuildConfig.SELF_HOSTED) R.string.account_signin_email_title else R.string.account_signin_qr_title
-                        ),
-                        subtitle = stringResource(
-                            if (BuildConfig.SELF_HOSTED) R.string.account_signin_email_subtitle else R.string.account_signin_qr_subtitle
-                        ),
-                        onClick = onNavigateToAuthQrSignIn,
+                        title = stringResource(R.string.auth_choice_sign_in_email),
+                        subtitle = stringResource(R.string.account_signin_email_subtitle),
+                        onClick = onNavigateToAuthSignIn,
                         modifier = if (initialFocusRequester != null) {
                             Modifier.focusRequester(initialFocusRequester)
                         } else {
                             Modifier
                         }
                     )
+                }
+                item(key = "account_create_account") {
+                    SettingsActionButton(
+                        icon = Icons.Default.Person,
+                        title = stringResource(R.string.auth_choice_create_account),
+                        subtitle = stringResource(
+                            R.string.auth_create_account_description,
+                            MIN_EMAIL_AUTH_PASSWORD_LENGTH
+                        ),
+                        onClick = onNavigateToCreateAccount
+                    )
+                }
+                if (com.nuvio.tv.BuildConfig.FEATURE_TV_LOGIN_ENABLED) {
+                    item(key = "account_sign_in_qr") {
+                        SettingsActionButton(
+                            icon = Icons.Default.VpnKey,
+                            title = stringResource(R.string.auth_choice_sign_in_qr),
+                            subtitle = stringResource(R.string.auth_choice_sign_in_qr_subtitle),
+                            onClick = onNavigateToQrSignIn
+                        )
+                    }
+                }
+                if (com.nuvio.tv.BuildConfig.FEATURE_DEVICE_LINKING_ENABLED) {
+                    item(key = "account_link_sync_code") {
+                        SettingsActionButton(
+                            icon = Icons.Default.VpnKey,
+                            title = stringResource(R.string.auth_choice_link_sync_code),
+                            subtitle = stringResource(R.string.auth_choice_link_sync_code_subtitle),
+                            onClick = onNavigateToSyncClaim
+                        )
+                    }
                 }
             }
 
@@ -129,6 +161,7 @@ fun AccountSettingsContent(
 private fun SignedInAccountSettingsContent(
     uiState: AccountUiState,
     viewModel: AccountViewModel,
+    onNavigateToSyncGenerate: () -> Unit,
     initialFocusRequester: FocusRequester?
 ) {
     val listState = rememberLazyListState()
@@ -160,11 +193,30 @@ private fun SignedInAccountSettingsContent(
             } else if (uiState.isSyncOverviewLoading) {
                 item(key = "account_sync_overview_loading") { SyncOverviewLoadingCard() }
             }
+
+            if (com.nuvio.tv.BuildConfig.FEATURE_DEVICE_LINKING_ENABLED) {
+                item(key = "account_generate_sync_code") {
+                    SettingsActionButton(
+                        icon = Icons.Default.VpnKey,
+                        title = stringResource(R.string.sync_generate_title),
+                        subtitle = stringResource(R.string.account_generate_sync_signed_in_desc),
+                        onClick = onNavigateToSyncGenerate,
+                        modifier = if (initialFocusRequester != null) {
+                            Modifier.focusRequester(initialFocusRequester)
+                        } else {
+                            Modifier
+                        }
+                    )
+                }
+            }
         }
 
         SignOutSettingsButton(
             onClick = { showSignOutConfirmation = true },
-            modifier = if (initialFocusRequester != null) {
+            modifier = if (
+                initialFocusRequester != null &&
+                !com.nuvio.tv.BuildConfig.FEATURE_DEVICE_LINKING_ENABLED
+            ) {
                 Modifier.focusRequester(initialFocusRequester)
             } else {
                 Modifier
@@ -371,18 +423,27 @@ private fun SettingsActionButton(
     title: String,
     subtitle: String,
     onClick: () -> Unit,
+    enabled: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     var isFocused by remember { mutableStateOf(false) }
 
     Card(
-        onClick = onClick,
+        onClick = { if (enabled) onClick() },
         modifier = modifier
             .fillMaxWidth()
             .onFocusChanged { isFocused = it.isFocused },
         colors = CardDefaults.colors(
-            containerColor = NuvioTheme.colors.BackgroundCard,
-            focusedContainerColor = NuvioTheme.colors.FocusBackground
+            containerColor = if (enabled) {
+                NuvioTheme.colors.BackgroundCard
+            } else {
+                NuvioTheme.colors.BackgroundCard.copy(alpha = 0.55f)
+            },
+            focusedContainerColor = if (enabled) {
+                NuvioTheme.colors.FocusBackground
+            } else {
+                NuvioTheme.colors.BackgroundCard.copy(alpha = 0.55f)
+            }
         ),
         border = CardDefaults.border(
             focusedBorder = Border(
@@ -403,20 +464,24 @@ private fun SettingsActionButton(
                 imageVector = icon,
                 contentDescription = null,
                 modifier = Modifier.size(22.dp),
-                tint = if (isFocused) NuvioTheme.colors.Primary else NuvioTheme.colors.TextSecondary
+                tint = when {
+                    !enabled -> NuvioTheme.colors.TextTertiary.copy(alpha = 0.6f)
+                    isFocused -> NuvioTheme.colors.Primary
+                    else -> NuvioTheme.colors.TextSecondary
+                }
             )
             Spacer(modifier = Modifier.width(NuvioTheme.spacing.md))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = title,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = NuvioTheme.colors.TextPrimary,
+                    color = if (enabled) NuvioTheme.colors.TextPrimary else NuvioTheme.colors.TextTertiary,
                     fontWeight = FontWeight.Medium
                 )
                 Text(
                     text = subtitle,
                     fontSize = 11.sp,
-                    color = NuvioTheme.colors.TextSecondary
+                    color = if (enabled) NuvioTheme.colors.TextSecondary else NuvioTheme.colors.TextTertiary.copy(alpha = 0.75f)
                 )
             }
         }

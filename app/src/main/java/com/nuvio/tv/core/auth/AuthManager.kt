@@ -25,9 +25,14 @@ import io.ktor.client.plugins.ServerResponseException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.Json
 import okhttp3.Headers
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -125,12 +130,17 @@ class AuthManager @Inject constructor(
                             if (user.email.isNullOrBlank()) {
                                 clearInvalidRemoteSession()
                                 finishStartupAuthDiagnostics("signed_out", "authenticated_session_missing_email")
-                            } else if (!validateAuthenticatedSession(force = false)) {
-                                finishStartupAuthDiagnostics("signed_out", "authenticated_session_invalid")
                             } else {
+                                // Unlock UI from the cached session immediately. Network
+                                // validation (retrieveUserForCurrentSession) must not block
+                                // cold-start first paint for returning users.
                                 _authState.value = AuthState.FullAccount(userId = user.id, email = user.email!!)
                                 authSessionNoticeDataStore.markNuvioAuthenticated()
-                                finishStartupAuthDiagnostics("success", "authenticated_session_validated")
+                                if (!validateAuthenticatedSession(force = false)) {
+                                    finishStartupAuthDiagnostics("signed_out", "authenticated_session_invalid")
+                                } else {
+                                    finishStartupAuthDiagnostics("success", "authenticated_session_validated")
+                                }
                             }
                         } else {
                             clearInvalidRemoteSession()
@@ -305,6 +315,7 @@ class AuthManager @Inject constructor(
     suspend fun signUpWithEmail(email: String, password: String): Result<Unit> {
         val diagnostics = AuthDiagnosticsSession(authDiagnosticReportRepository, "signup")
         return try {
+            requireEmailAuthConfiguration()
             val payload = buildJsonObject {
                 put("email", email)
                 put("password", password)
@@ -316,22 +327,24 @@ class AuthManager @Inject constructor(
                 headers = supabaseHeaders(),
                 body = payload
             ).body
-            runCatching {
-                val result = json.decodeFromString<TvLoginExchangeResult>(body)
-                auth.importTokenResponse(result)
-            }
+            val result = decodeEmailAuthTokenResponse(body, isSignup = true)
+            auth.importTokenResponse(result)
             diagnostics.finishSuccess("signup_completed")
             Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            Log.e(TAG, "Sign up failed", e)
-            diagnostics.finishFailure("signup_failed", AUTH_ENDPOINT_SIGNUP, e.authHttpStatus(), e)
-            Result.failure(e)
+            val failure = e.toSafeAuthFailure()
+            Log.e(TAG, "Sign up failed reason=${failure.reason}")
+            diagnostics.finishFailure("signup_failed", AUTH_ENDPOINT_SIGNUP, e.authHttpStatus(), failure)
+            Result.failure(failure)
         }
     }
 
     suspend fun signInWithEmail(email: String, password: String): Result<Unit> {
         val diagnostics = AuthDiagnosticsSession(authDiagnosticReportRepository, "password_login")
         return try {
+            requireEmailAuthConfiguration()
             val payload = buildJsonObject {
                 put("email", email)
                 put("password", password)
@@ -343,15 +356,18 @@ class AuthManager @Inject constructor(
                 headers = supabaseHeaders(),
                 body = payload
             ).body
-            val result = json.decodeFromString<TvLoginExchangeResult>(body)
+            val result = decodeEmailAuthTokenResponse(body, isSignup = false)
             Log.d(TAG, "Sign in token response tokenType=${result.tokenType ?: "-"} expiresIn=${result.expiresIn ?: "-"} accessTokenPresent=${result.accessToken.isNotBlank()} refreshTokenPresent=${result.refreshToken.isNotBlank()}")
             auth.importTokenResponse(result)
             diagnostics.finishSuccess("password_login_completed")
             Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            Log.e(TAG, "Sign in failed", e)
-            diagnostics.finishFailure("password_login_failed", AUTH_ENDPOINT_PASSWORD, e.authHttpStatus(), e)
-            Result.failure(e)
+            val failure = e.toSafeAuthFailure()
+            Log.e(TAG, "Sign in failed reason=${failure.reason}")
+            diagnostics.finishFailure("password_login_failed", AUTH_ENDPOINT_PASSWORD, e.authHttpStatus(), failure)
+            Result.failure(failure)
         }
     }
 
@@ -763,6 +779,40 @@ class AuthManager @Inject constructor(
         }
     }
 
+    private fun requireEmailAuthConfiguration() {
+        val configuredUrl = BuildConfig.SUPABASE_URL.trim()
+        val configuredKey = BuildConfig.SUPABASE_ANON_KEY.trim()
+        if (configuredUrl.toHttpUrlOrNull() == null || configuredKey.isBlank()) {
+            throw AuthFailureException(AuthFailureReason.MissingConfiguration)
+        }
+    }
+
+    private fun decodeEmailAuthTokenResponse(
+        body: String,
+        isSignup: Boolean
+    ): TvLoginExchangeResult {
+        val payload = runCatching { json.parseToJsonElement(body).jsonObject }
+            .getOrElse { throw AuthFailureException(AuthFailureReason.MalformedResponse) }
+        val accessToken = payload.stringValue("access_token")
+        val refreshToken = payload.stringValue("refresh_token")
+        if (accessToken.isNullOrBlank() || refreshToken.isNullOrBlank()) {
+            if (isSignup && payload["user"] != null) {
+                throw AuthFailureException(AuthFailureReason.EmailNotConfirmed)
+            }
+            throw AuthFailureException(AuthFailureReason.MalformedResponse)
+        }
+
+        val result = runCatching { json.decodeFromString<TvLoginExchangeResult>(body) }
+            .getOrElse { throw AuthFailureException(AuthFailureReason.MalformedResponse) }
+        if (result.expiresIn == null || result.expiresIn <= 0L) {
+            throw AuthFailureException(AuthFailureReason.MalformedResponse)
+        }
+        return result
+    }
+
+    private fun JsonObject.stringValue(key: String): String? =
+        (get(key) as? JsonPrimitive)?.contentOrNull
+
     private fun supabaseUrl(endpoint: String): String =
         "${BuildConfig.SUPABASE_URL.trimEnd('/')}$endpoint"
 
@@ -792,7 +842,43 @@ private class AuthHttpException(
     val endpoint: String,
     val statusCode: Int,
     val responseBody: String
-) : Exception("Auth request failed endpoint=$endpoint status=$statusCode body=$responseBody")
+) : Exception("Auth request failed endpoint=$endpoint status=$statusCode")
+
+private fun Throwable.toSafeAuthFailure(): AuthFailureException {
+    if (this is AuthFailureException) return this
+
+    findCause<AuthHttpException>()?.let { error ->
+        val body = error.responseBody.lowercase()
+        val reason = when {
+            error.statusCode == 429 || body.contains("rate limit") || body.contains("too many requests") ->
+                AuthFailureReason.RateLimited
+            body.contains("invalid login credentials") || body.contains("invalid_credentials") ->
+                AuthFailureReason.InvalidCredentials
+            body.contains("email not confirmed") -> AuthFailureReason.EmailNotConfirmed
+            body.contains("already registered") || body.contains("already been registered") ->
+                AuthFailureReason.EmailAlreadyRegistered
+            body.contains("invalid email") || body.contains("email address is invalid") ->
+                AuthFailureReason.InvalidEmail
+            body.contains("password") && (body.contains("short") || body.contains("at least")) ->
+                AuthFailureReason.PasswordTooShort
+            body.contains("password") && body.contains("weak") -> AuthFailureReason.PasswordTooWeak
+            body.contains("signup") && body.contains("disabled") -> AuthFailureReason.SignupDisabled
+            else -> AuthFailureReason.Unknown
+        }
+        return AuthFailureException(reason)
+    }
+
+    val reason = when {
+        hasCause<UnknownHostException>() || hasCause<NoRouteToHostException>() ->
+            AuthFailureReason.NetworkUnavailable
+        hasCause<SocketTimeoutException>() || hasCause<HttpRequestTimeoutException>() ->
+            AuthFailureReason.ConnectionTimeout
+        hasCause<ConnectException>() -> AuthFailureReason.ConnectionRefused
+        hasCause<IOException>() || hasCause<SSLException>() -> AuthFailureReason.NetworkUnavailable
+        else -> AuthFailureReason.Unknown
+    }
+    return AuthFailureException(reason)
+}
 
 private fun Headers.toDiagnosticMap(): Map<String, String> =
     names().associateWith { name -> values(name).joinToString(", ") }

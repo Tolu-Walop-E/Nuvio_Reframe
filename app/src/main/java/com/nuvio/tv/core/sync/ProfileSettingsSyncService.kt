@@ -71,7 +71,9 @@ private val catalogKeysExcludedFromProfileSettingsBlob = setOf(
 )
 
 private val localOnlyLayoutProfileSettingsKeys = setOf(
-    "last_non_off_discover_location"
+    "last_non_off_discover_location",
+    // Synced via dedicated view_pack_blobs RPCs (Studio Send to TV).
+    "active_view_pack_json",
 )
 
 private val localOnlyPlayerProfileSettingsKeys = setOf(

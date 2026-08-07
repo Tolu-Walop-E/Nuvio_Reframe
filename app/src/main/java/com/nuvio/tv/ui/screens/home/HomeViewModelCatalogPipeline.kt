@@ -51,6 +51,7 @@ internal fun HomeViewModel.observeCollectionsPipeline() {
                 // Deduplicate by collection ID (keep last occurrence) to prevent
                 // duplicate LazyColumn keys when users import overlapping collections.
                 collectionsCache = collections.associateBy { it.id }.values.toList()
+                _uiState.update { state -> state.copy(collections = collectionsCache) }
                 rebuildCatalogOrder(addonsCache)
                 scheduleUpdateCatalogRows()
             }
@@ -61,6 +62,7 @@ internal fun HomeViewModel.loadHomeCatalogOrderPreferencePipeline() {
     viewModelScope.launch {
         layoutPreferenceDataStore.homeCatalogOrderKeys.collectLatest { keys ->
             homeCatalogOrderKeys = keys
+            _uiState.update { state -> state.copy(homeCatalogOrderKeys = keys) }
             rebuildCatalogOrder(addonsCache)
             scheduleUpdateCatalogRows()
         }
@@ -77,12 +79,175 @@ internal fun HomeViewModel.loadFollowAddonsOrderPipeline() {
     }
 }
 
+internal fun HomeViewModel.loadActiveViewPackPipeline() {
+    viewModelScope.launch {
+        maybeImportPendingViewPackFile()
+        layoutPreferenceDataStore.activeViewPackJson.collectLatest { json ->
+            if (json.isNullOrBlank()) {
+                activeViewPackOrderKeys = null
+                activeViewPackRowScales = emptyMap()
+                activeViewPackRowShowLabels = emptyMap()
+                activeViewPackRowTrailers = emptyMap()
+                activeViewPackRowPosterGrow = emptyMap()
+                activeViewPackCatalogRefs = emptyMap()
+                activeViewPackHeroDataSource = null
+                _uiState.update { state ->
+                    if (state.activeViewPackName == null &&
+                        !state.activeViewPackRotateEnabled &&
+                        state.viewPackRowShowLabels.isEmpty() &&
+                        !state.viewPackHeroEnabled
+                    ) {
+                        state
+                    } else {
+                        state.copy(
+                            activeViewPackName = null,
+                            activeViewPackRotateEnabled = false,
+                            viewPackRowScales = emptyMap(),
+                            viewPackRowShowLabels = emptyMap(),
+                            viewPackRowTrailers = emptyMap(),
+                            viewPackRowPosterGrow = emptyMap(),
+                            viewPackCatalogPosterScale = 1f,
+                            viewPackCollectionLandscapeScale = 1f,
+                            viewPackHeroEnabled = false,
+                            viewPackHeroTrailerEnabled = false,
+                            viewPackHeroLabel = "Featured",
+                            viewPackHeroDataSource = null,
+                            viewPackFeaturedPreview = null,
+                            viewPackFeaturedMeta = null,
+                            viewPackFeaturedAddonBaseUrl = "",
+                            viewPackFeaturedHeightPx = null
+                        )
+                    }
+                }
+                rebuildCatalogOrder(addonsCache)
+                scheduleUpdateCatalogRows()
+                return@collectLatest
+            }
+            try {
+                val parsed = com.nuvio.tv.core.viewpack.parseViewPackJson(json)
+                val rotated = com.nuvio.tv.core.viewpack.applyUnlockedRotation(parsed)
+                if (rotated.didShuffle || rotated.pack.shuffleSeed != parsed.shuffleSeed ||
+                    rotated.pack.lastShuffleAt != parsed.lastShuffleAt
+                ) {
+                    layoutPreferenceDataStore.setActiveViewPackJson(
+                        com.nuvio.tv.core.viewpack.serializeViewPackJson(rotated.pack)
+                    )
+                    // setActiveViewPackJson will re-emit; skip applying twice from this emission
+                    return@collectLatest
+                }
+                activeViewPackOrderKeys = com.nuvio.tv.core.viewpack.homeOrderKeysFromPack(rotated.pack)
+                activeViewPackRowScales = com.nuvio.tv.core.viewpack.homeRowScalesFromPack(rotated.pack)
+                activeViewPackRowShowLabels = com.nuvio.tv.core.viewpack.homeRowShowLabelsFromPack(rotated.pack)
+                activeViewPackRowTrailers = com.nuvio.tv.core.viewpack.homeRowTrailersFromPack(rotated.pack)
+                activeViewPackRowPosterGrow = com.nuvio.tv.core.viewpack.homeRowPosterGrowFromPack(rotated.pack)
+                activeViewPackCatalogRefs = com.nuvio.tv.core.viewpack.packCatalogRefs(rotated.pack)
+                activeViewPackHeroDataSource = com.nuvio.tv.core.viewpack.packHeroDataSource(rotated.pack)
+                // Expanded folder / catalog rails need their backing catalogs fetched
+                // even when those catalogs are not in the default home set.
+                val folderRefs = com.nuvio.tv.core.viewpack.packFolderCatalogRefs(
+                    pack = rotated.pack,
+                    collectionsById = collectionsCache.associateBy { it.id }
+                )
+                folderRefs.values.forEach { ref ->
+                    ensureCatalogLoaded(ref.addonId, ref.type, ref.catalogId)
+                }
+                activeViewPackCatalogRefs.values.forEach { ref ->
+                    ensureCatalogLoaded(ref.addonId, ref.type, ref.catalogId)
+                }
+                _uiState.update { state ->
+                    state.copy(
+                        activeViewPackName = rotated.pack.name,
+                        activeViewPackRotateEnabled = rotated.pack.rotateUnlocked,
+                        viewPackRowScales = activeViewPackRowScales,
+                        viewPackRowShowLabels = activeViewPackRowShowLabels,
+                        viewPackRowTrailers = activeViewPackRowTrailers,
+                        viewPackRowPosterGrow = activeViewPackRowPosterGrow,
+                        viewPackCatalogPosterScale =
+                            com.nuvio.tv.core.viewpack.normalizePackCardScale(
+                                rotated.pack.catalogPosterScale
+                            ),
+                        viewPackCollectionLandscapeScale =
+                            com.nuvio.tv.core.viewpack.normalizePackCardScale(
+                                rotated.pack.collectionLandscapeScale
+                            ),
+                        viewPackHeroEnabled = com.nuvio.tv.core.viewpack.packHasHero(rotated.pack),
+                        viewPackHeroTrailerEnabled =
+                            com.nuvio.tv.core.viewpack.packHeroTrailerEnabled(rotated.pack),
+                        viewPackHeroLabel = com.nuvio.tv.core.viewpack.packHeroLabel(rotated.pack),
+                        viewPackHeroDataSource = activeViewPackHeroDataSource,
+                        viewPackFeaturedHeightPx = com.nuvio.tv.core.viewpack.packHeroHeightPx(rotated.pack)
+                    )
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("HomeViewModel", "Invalid active view pack", e)
+                activeViewPackOrderKeys = null
+                activeViewPackRowScales = emptyMap()
+                activeViewPackRowShowLabels = emptyMap()
+                activeViewPackRowTrailers = emptyMap()
+                activeViewPackRowPosterGrow = emptyMap()
+                activeViewPackCatalogRefs = emptyMap()
+                activeViewPackHeroDataSource = null
+                _uiState.update { state ->
+                    state.copy(
+                        activeViewPackName = null,
+                        activeViewPackRotateEnabled = false,
+                        viewPackRowScales = emptyMap(),
+                        viewPackRowShowLabels = emptyMap(),
+                        viewPackRowTrailers = emptyMap(),
+                        viewPackRowPosterGrow = emptyMap(),
+                        viewPackCatalogPosterScale = 1f,
+                        viewPackCollectionLandscapeScale = 1f,
+                        viewPackHeroEnabled = false,
+                        viewPackHeroTrailerEnabled = false,
+                        viewPackHeroLabel = "Featured",
+                        viewPackHeroDataSource = null,
+                        viewPackFeaturedPreview = null,
+                        viewPackFeaturedMeta = null,
+                        viewPackFeaturedAddonBaseUrl = "",
+                        viewPackFeaturedHeightPx = null
+                    )
+                }
+            }
+            rebuildCatalogOrder(addonsCache)
+            scheduleUpdateCatalogRows()
+        }
+    }
+}
+
+/** One-shot import: push `current.view.json` into the app external files dir (adb / Send-to-TV). */
+private suspend fun HomeViewModel.maybeImportPendingViewPackFile() {
+    val dir = appContext.getExternalFilesDir(null) ?: return
+    val candidates = listOf(
+        java.io.File(dir, "current.view.json"),
+        java.io.File(dir, "import.view.json")
+    )
+    val file = candidates.firstOrNull { it.exists() && it.canRead() } ?: return
+    try {
+        val text = file.readText().trim()
+        if (text.isEmpty()) return
+        val pack = com.nuvio.tv.core.viewpack.parseViewPackJson(text)
+        val rotated = com.nuvio.tv.core.viewpack.applyUnlockedRotation(pack)
+        layoutPreferenceDataStore.setActiveViewPackJson(
+            com.nuvio.tv.core.viewpack.serializeViewPackJson(rotated.pack)
+        )
+        val done = java.io.File(dir, "${file.name}.imported")
+        if (done.exists()) done.delete()
+        if (!file.renameTo(done)) {
+            file.delete()
+        }
+        android.util.Log.i("HomeViewModel", "Imported view pack from ${file.name}: ${rotated.pack.name}")
+    } catch (e: Exception) {
+        android.util.Log.w("HomeViewModel", "Failed to import pending view pack file", e)
+    }
+}
+
 internal fun HomeViewModel.loadDisabledHomeCatalogPreferencePipeline() {
     viewModelScope.launch {
         layoutPreferenceDataStore.disabledHomeCatalogKeys.collectLatest { keys ->
             val newKeys = keys.toSet()
             if (newKeys == disabledHomeCatalogKeys) return@collectLatest
             disabledHomeCatalogKeys = newKeys
+            _uiState.update { state -> state.copy(disabledHomeCatalogKeys = newKeys) }
             rebuildCatalogOrder(addonsCache)
             if (addonsCache.isNotEmpty()) {
                 loadAllCatalogsPipeline(addonsCache)
@@ -90,6 +255,16 @@ internal fun HomeViewModel.loadDisabledHomeCatalogPreferencePipeline() {
                 scheduleUpdateCatalogRows()
             }
         }
+    }
+}
+
+internal fun HomeViewModel.loadGenreRowTargetsPipeline() {
+    viewModelScope.launch {
+        layoutPreferenceDataStore.genreRowTargets
+            .distinctUntilChanged()
+            .collectLatest { targets ->
+                _uiState.update { state -> state.copy(genreRowTargets = targets) }
+            }
     }
 }
 
@@ -134,6 +309,12 @@ internal fun HomeViewModel.observeInstalledAddonsPipeline() {
             .collectLatest { installedAddons ->
                 val addons = installedAddons.enabledAddons()
                 addonsCache = addons
+                _uiState.update {
+                    it.copy(
+                        genreCatalogCandidates =
+                            com.nuvio.tv.ui.screens.home.netflix.buildGenreCatalogCandidates(addons)
+                    )
+                }
                 loadAllCatalogsPipeline(addons)
             }
     }
@@ -579,8 +760,28 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
         } else {
             rawRows
         }
-        val selectedHeroCatalogSet = heroCatalogKeys.toSet()
+        // Catalogs loaded on demand (genre chips, remaps) live in catalogsMap but
+        // may not be in home order — still expose them via fullCatalogRows so
+        // CatalogSeeAll can render after ensureCatalogLoaded.
         val orderedKeySet = orderedKeys.toSet()
+        val extraLoadedRows = catalogSnapshot.keys
+            .asSequence()
+            .filter { it !in orderedKeySet }
+            .mapNotNull { key ->
+                val row = catalogSnapshot[key] ?: return@mapNotNull null
+                if (row.items.isEmpty()) return@mapNotNull null
+                val custom = titlesSnapshot[key]
+                if (!custom.isNullOrBlank()) row.copy(catalogName = custom) else row
+            }
+            .toList()
+        val extraRowsFiltered = if (hideUnreleased) {
+            val today = LocalDate.now()
+            extraLoadedRows.map { it.filterReleasedItems(today) }
+        } else {
+            extraLoadedRows
+        }
+        val fullRowsForBrowse = orderedRows + extraRowsFiltered
+        val selectedHeroCatalogSet = heroCatalogKeys.toSet()
         val selectedHeroRows = if (selectedHeroCatalogSet.isNotEmpty()) {
             // Include hero catalogs from ordered rows
             val fromOrdered = orderedRows.filter { row ->
@@ -693,7 +894,7 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
             }
         }
 
-        CatalogUpdateResult(computedDisplayRows, computedHeroItems, emptyList(), orderedRows)
+        CatalogUpdateResult(computedDisplayRows, computedHeroItems, emptyList(), fullRowsForBrowse)
     }
 
     _fullCatalogRows.update { rows ->
@@ -710,25 +911,76 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                 placeholderDescriptors.associateBy { it.catalogKey }
             }
             val addedCollectionIds = mutableSetOf<String>()
+            val packActive = activeViewPackOrderKeys != null
             collectionsCache.forEach { collection ->
                 val key = "collection_${collection.id}"
-            if (collection.pinToTop && key !in disabledHomeCatalogKeys && addedCollectionIds.add(collection.id)) {
+            if (!packActive && collection.pinToTop && key !in disabledHomeCatalogKeys && addedCollectionIds.add(collection.id)) {
                 add(HomeRow.CollectionRow(collection))
             }
         }
+        val packFolderRefs = if (packActive) {
+            val refs = LinkedHashMap<String, com.nuvio.tv.core.viewpack.PackFolderCatalogRef>()
+            for (key in orderedKeys) {
+                if (!com.nuvio.tv.core.viewpack.isPackFolderOrderKey(key) || key in refs) continue
+                for (collection in collectionsCache) {
+                    for (folder in collection.folders) {
+                        val candidate = com.nuvio.tv.core.viewpack.packFolderOrderKey(
+                            collection.id,
+                            folder.id
+                        )
+                        if (candidate != key) continue
+                        val source = folder.sources
+                            .filterIsInstance<com.nuvio.tv.domain.model.AddonCatalogCollectionSource>()
+                            .firstOrNull()
+                            ?: folder.catalogSources.firstOrNull()?.let { legacy ->
+                                com.nuvio.tv.domain.model.AddonCatalogCollectionSource(
+                                    addonId = legacy.addonId,
+                                    type = legacy.type,
+                                    catalogId = legacy.catalogId,
+                                    genre = legacy.genre
+                                )
+                            }
+                            ?: continue
+                        refs[key] = com.nuvio.tv.core.viewpack.PackFolderCatalogRef(
+                            orderKey = key,
+                            collectionId = collection.id,
+                            folderId = folder.id,
+                            folderTitle = folder.title,
+                            addonId = source.addonId,
+                            type = source.type,
+                            catalogId = source.catalogId
+                        )
+                    }
+                }
+            }
+            refs
+        } else {
+            emptyMap()
+        }
+
         for (key in orderedKeys) {
-            if (key in disabledHomeCatalogKeys) continue
+            // With an active pack the order already IS the explicit allow-list,
+            // so the per-rail disabled preference must not drop pack rails.
+            if (!packActive && key in disabledHomeCatalogKeys) continue
             val collectionEntry = collectionsSnapshot[key]
             if (collectionEntry != null) {
-                if (!collectionEntry.pinToTop && addedCollectionIds.add(collectionEntry.id)) {
+                if ((packActive || !collectionEntry.pinToTop) && addedCollectionIds.add(collectionEntry.id)) {
                     add(HomeRow.CollectionRow(collectionEntry))
                 }
             } else {
-                    val catalogRow = displayRowsByKey[key]
+                    val folderRef = packFolderRefs[key]
+                    val catalogLookupKey = folderRef?.catalogOrderKey ?: key
+                    val catalogRow = displayRowsByKey[catalogLookupKey]?.let { row ->
+                        if (folderRef != null && folderRef.folderTitle.isNotBlank()) {
+                            row.copy(catalogName = folderRef.folderTitle)
+                        } else {
+                            row
+                        }
+                    }
                     if (catalogRow != null && catalogRow.items.isNotEmpty()) {
                         add(HomeRow.Catalog(catalogRow))
                     } else {
-                        val placeholder = placeholdersByKey[key]
+                        val placeholder = placeholdersByKey[catalogLookupKey]
                         if (placeholder != null) {
                         if (currentLayout == HomeLayout.MODERN) {
                             add(HomeRow.PlaceholderCatalog(
@@ -743,9 +995,9 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                                 addonName = placeholder.addonName,
                                 addonBaseUrl = placeholder.addonBaseUrl,
                                 catalogId = placeholder.catalogId,
-                                catalogName = placeholder.catalogName,
+                                catalogName = folderRef?.folderTitle ?: placeholder.catalogName,
                                 apiType = placeholder.apiType,
-                                displayTitle = placeholder.displayTitle
+                                displayTitle = folderRef?.folderTitle ?: placeholder.displayTitle
                             ))
                         } else {
                             val fakeItems = (0 until 8).map { i ->
@@ -769,13 +1021,29 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                                 addonName = placeholder.addonName,
                                 addonBaseUrl = placeholder.addonBaseUrl,
                                 catalogId = placeholder.catalogId,
-                                catalogName = placeholder.catalogName,
+                                catalogName = folderRef?.folderTitle ?: placeholder.catalogName,
                                 type = com.nuvio.tv.domain.model.ContentType.fromString(placeholder.apiType),
                                 rawType = placeholder.apiType,
                                 items = fakeItems,
                                 isLoading = true,
                                 hasMore = false
                             )))
+                        }
+                    } else if (folderRef != null) {
+                        // Kick load; rail appears once catalog arrives.
+                        ensureCatalogLoaded(folderRef.addonId, folderRef.type, folderRef.catalogId)
+                    } else if (packActive) {
+                        val packCatalog = activeViewPackCatalogRefs[key]
+                        if (packCatalog != null) {
+                            ensureCatalogLoaded(
+                                packCatalog.addonId,
+                                packCatalog.type,
+                                packCatalog.catalogId
+                            )
+                        } else {
+                            resolveAddonCatalogForHomeKey(key)?.let { (addonId, type, catalogId) ->
+                                ensureCatalogLoaded(addonId, type, catalogId)
+                            }
                         }
                     }
                 }
@@ -864,12 +1132,48 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
     // catalogs loaded after the initial startup race set an error).
     val hasContent = computedHomeRows.isNotEmpty() || baseHeroItems.isNotEmpty() || displayRows.isNotEmpty()
 
+    val packFeaturedMeta: MetaPreview?
+    val packFeaturedAddonBaseUrl: String
+    val packFeaturedPreview: HeroPreview?
+    if (activeViewPackHeroDataSource != null) {
+        val byKey = displayRows.associateBy { it.legacyKey() }
+        val resolved = com.nuvio.tv.core.viewpack.resolvePackHeroMeta(
+            heroDataSource = activeViewPackHeroDataSource,
+            packOrderKeys = activeViewPackOrderKeys,
+            catalogRowsByLegacyKey = byKey
+        )
+        if (resolved != null) {
+            val row = byKey.values.firstOrNull { row ->
+                row.items.any { it.id == resolved.id && it.apiType == resolved.apiType }
+            }
+            packFeaturedMeta = resolved
+            packFeaturedAddonBaseUrl = row?.addonBaseUrl.orEmpty()
+            packFeaturedPreview = heroPreviewFromMeta(
+                item = resolved,
+                useLandscapePosters = true,
+                strTypeMovie = appContext.getString(R.string.type_movie),
+                strTypeSeries = appContext.getString(R.string.type_series)
+            )
+        } else {
+            packFeaturedMeta = null
+            packFeaturedAddonBaseUrl = ""
+            packFeaturedPreview = null
+        }
+    } else {
+        packFeaturedMeta = null
+        packFeaturedAddonBaseUrl = ""
+        packFeaturedPreview = null
+    }
+
     _uiState.update { state ->
         state.copy(
             catalogRows = if (state.catalogRows == displayRows) state.catalogRows else displayRows,
             heroItems = if (state.heroItems == baseHeroItems) state.heroItems else baseHeroItems,
             gridItems = if (state.gridItems == nextGridItems) state.gridItems else nextGridItems,
             homeRows = if (state.homeRows == computedHomeRows) state.homeRows else computedHomeRows,
+            viewPackFeaturedPreview = packFeaturedPreview,
+            viewPackFeaturedMeta = packFeaturedMeta,
+            viewPackFeaturedAddonBaseUrl = packFeaturedAddonBaseUrl,
             isLoading = false,
             error = if (hasContent) null else state.error
         )

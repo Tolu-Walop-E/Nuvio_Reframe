@@ -48,7 +48,10 @@ class ImdbEpisodeRatingsRepository @Inject constructor(
 
         val now = System.currentTimeMillis()
         cache[cacheKey]?.let { cached ->
-            if (cached.expiresAtMs > now) return cached.ratings
+            if (cached.expiresAtMs > now) {
+                Log.d(tag, "Cache hit $cacheKey size=${cached.ratings.size}")
+                return cached.ratings
+            }
             cache.remove(cacheKey)
         }
 
@@ -59,9 +62,17 @@ class ImdbEpisodeRatingsRepository @Inject constructor(
                         imdbId = normalizedImdbId,
                         tmdbId = normalizedTmdbId
                     ).also { result ->
-                        cache[cacheKey] = CacheEntry(
-                            ratings = result,
-                            expiresAtMs = System.currentTimeMillis() + cacheTtlMs
+                        // Never cache empty — transient 5xx / missing TMDB key should retry.
+                        if (result.isNotEmpty()) {
+                            cache[cacheKey] = CacheEntry(
+                                ratings = result,
+                                expiresAtMs = System.currentTimeMillis() + cacheTtlMs
+                            )
+                        }
+                        Log.i(
+                            tag,
+                            "Fetched episode ratings cacheKey=$cacheKey size=${result.size} " +
+                                "imdb=$normalizedImdbId tmdb=$normalizedTmdbId"
                         )
                     }
                 } finally {
@@ -91,6 +102,7 @@ class ImdbEpisodeRatingsRepository @Inject constructor(
             return fetchFromSeriesGraph(tmdbId)
         }
 
+        Log.w(tag, "No TMDB id for episode ratings fallback (imdbId=$imdbId)")
         return emptyMap()
     }
 

@@ -3,7 +3,6 @@ package com.nuvio.tv.core.auth
 import android.content.Context
 import android.util.Log
 import com.nuvio.tv.core.sync.androidtv.AndroidTvChannelManager
-import com.nuvio.tv.core.profile.ProfileScopedCredentialStore
 import com.nuvio.tv.data.local.ProfileDataStore
 import com.nuvio.tv.data.local.ProfileDataStoreFactory
 import com.nuvio.tv.data.local.ProfileLockStateDataStore
@@ -22,7 +21,6 @@ class AccountLocalDataResetService @Inject constructor(
     private val profileDataStoreFactory: ProfileDataStoreFactory,
     private val profileDataStore: ProfileDataStore,
     private val profileLockStateDataStore: ProfileLockStateDataStore,
-    private val credentialStores: Set<@JvmSuppressWildcards ProfileScopedCredentialStore>,
     private val androidTvChannelManager: AndroidTvChannelManager
 ) {
     suspend fun clearAfterSignOut() = withContext(Dispatchers.IO) {
@@ -34,8 +32,8 @@ class AccountLocalDataResetService @Inject constructor(
             .onFailure { Log.w(ACCOUNT_RESET_TAG, "Failed to clear profile metadata", it) }
         runCatching { profileLockStateDataStore.clearAll() }
             .onFailure { Log.w(ACCOUNT_RESET_TAG, "Failed to clear profile lock states", it) }
-        runCatching { credentialStores.forEach(ProfileScopedCredentialStore::clearAllProfiles) }
-            .onFailure { Log.w(ACCOUNT_RESET_TAG, "Failed to clear profile credentials", it) }
+        // Keep device tracking credentials (Simkl) across Nuvio account sign-out.
+        // Profile deletion still clears per-profile credentials via ProfileManager.
         runCatching { clearAccountFiles() }
             .onFailure { Log.w(ACCOUNT_RESET_TAG, "Failed to clear account files", it) }
     }

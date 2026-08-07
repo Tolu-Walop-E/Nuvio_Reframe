@@ -11,7 +11,9 @@ import com.nuvio.tv.domain.model.HomeLayout
 import com.nuvio.tv.domain.model.LibraryListTab
 import com.nuvio.tv.domain.model.LibrarySourceMode
 import com.nuvio.tv.domain.model.MetaPreview
+import com.nuvio.tv.core.sync.SyncGenreRowTarget
 import com.nuvio.tv.domain.model.WatchProgress
+import com.nuvio.tv.ui.screens.home.netflix.GenreCatalogCandidate
 
 @Immutable
 data class HomeUiState(
@@ -23,7 +25,9 @@ data class HomeUiState(
     val error: String? = null,
     val selectedItemId: String? = null,
     val installedAddonsCount: Int = 0,
-    val homeLayout: HomeLayout = HomeLayout.MODERN,
+    /** Genre-capable catalogs derived from installed addons (Netflix chip strip). */
+    val genreCatalogCandidates: List<GenreCatalogCandidate> = emptyList(),
+    val homeLayout: HomeLayout = HomeLayout.NETFLIX,
     val modernLandscapePostersEnabled: Boolean = false,
     val modernHeroFullScreenBackdropEnabled: Boolean = false,
     val heroItems: List<MetaPreview> = emptyList(),
@@ -36,10 +40,10 @@ data class HomeUiState(
     val classicFocusGradientEnabled: Boolean = false,
     val focusedPosterBackdropExpandEnabled: Boolean = false,
     val focusedPosterBackdropExpandDelaySeconds: Int = 3,
-    val focusedPosterBackdropTrailerEnabled: Boolean = false,
+    val focusedPosterBackdropTrailerEnabled: Boolean = true,
     val focusedPosterBackdropTrailerMuted: Boolean = true,
     val focusedPosterBackdropTrailerPlaybackTarget: FocusedPosterTrailerPlaybackTarget =
-        FocusedPosterTrailerPlaybackTarget.HERO_MEDIA,
+        FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD,
     val posterCardWidthDp: Int = 126,
     val posterCardHeightDp: Int = 189,
     val posterCardCornerRadiusDp: Int = 12,
@@ -64,7 +68,42 @@ data class HomeUiState(
     val continueWatchingCardStyle: ContinueWatchingCardStyle = ContinueWatchingCardStyle.CARD,
     val heroEnrichmentEnabled: Boolean = false,
     val startupAuthNotice: StartupAuthNotice? = null,
-    val homeRows: List<HomeRow> = emptyList()
+    val homeRows: List<HomeRow> = emptyList(),
+    val homeCatalogOrderKeys: List<String> = emptyList(),
+    val disabledHomeCatalogKeys: Set<String> = emptySet(),
+    val genreRowTargets: Map<String, SyncGenreRowTarget> = emptyMap(),
+    /** All imported collections (not only those visible on the home rail). */
+    val collections: List<Collection> = emptyList(),
+    /** Active Studio view pack name when imported; null = default catalog order. */
+    val activeViewPackName: String? = null,
+    val activeViewPackRotateEnabled: Boolean = false,
+    /** Per-rail card size scales from the active view pack, keyed by home order key. */
+    val viewPackRowScales: Map<String, Float> = emptyMap(),
+    /** Per-rail poster title visibility from the active view pack. */
+    val viewPackRowShowLabels: Map<String, Boolean> = emptyMap(),
+    /** Per-rail in-card trailer opt-in from the active view pack. */
+    val viewPackRowTrailers: Map<String, Boolean> = emptyMap(),
+    /** Per-rail focus-grow (landscape expand) from the active view pack. */
+    val viewPackRowPosterGrow: Map<String, Boolean> = emptyMap(),
+    /** Pack-global catalog/media poster scale (1 = default). */
+    val viewPackCatalogPosterScale: Float = 1f,
+    /** Pack-global collection landscape tile scale (1 = default). */
+    val viewPackCollectionLandscapeScale: Float = 1f,
+    /** Studio pack includes a hero block — show inset Featured banner. */
+    val viewPackHeroEnabled: Boolean = false,
+    /** Pack hero block `trailer` — when pack active, gates hero trailer autoplay. */
+    val viewPackHeroTrailerEnabled: Boolean = false,
+    /** Eyebrow label for the pack Featured banner (defaults to Featured). */
+    val viewPackHeroLabel: String = "Featured",
+    /** Pack hero dataSource (`featured` / `catalog:…`) — spotlight stays on this source. */
+    val viewPackHeroDataSource: String? = null,
+    /** Fixed Featured spotlight from the pack hero source (not focus-driven). */
+    val viewPackFeaturedPreview: HeroPreview? = null,
+    /** Meta for navigating Play / More Info on the fixed Featured banner. */
+    val viewPackFeaturedMeta: MetaPreview? = null,
+    val viewPackFeaturedAddonBaseUrl: String = "",
+    /** Studio hero block height in canvas px (e.g. 520 of 1080). */
+    val viewPackFeaturedHeightPx: Int? = null
 )
 
 @Immutable

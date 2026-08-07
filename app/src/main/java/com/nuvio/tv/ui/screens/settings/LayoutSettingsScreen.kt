@@ -83,6 +83,7 @@ import com.nuvio.tv.ui.components.CardCwStylePreview
 import com.nuvio.tv.ui.components.ClassicLayoutPreview
 import com.nuvio.tv.ui.components.GridLayoutPreview
 import com.nuvio.tv.ui.components.ModernLayoutPreview
+import com.nuvio.tv.ui.components.NetflixLayoutPreview
 import com.nuvio.tv.ui.components.NuvioDialog
 import com.nuvio.tv.ui.components.PosterCwStylePreview
 import com.nuvio.tv.ui.components.WideCwStylePreview
@@ -105,6 +106,7 @@ fun LayoutSettingsScreen(
 }
 
 private enum class LayoutSettingsSection {
+    VIEW_PACK,
     HOME_LAYOUT,
     HOME_CONTENT,
     DETAIL_PAGE,
@@ -136,6 +138,7 @@ fun LayoutSettingsContent(
     var showStreamBadgePositionDialog by rememberSaveable { mutableStateOf(false) }
 
     val defaultHomeLayoutHeaderFocus = remember { FocusRequester() }
+    val viewPackImportFocus = remember { FocusRequester() }
     val homeContentHeaderFocus = remember { FocusRequester() }
     val detailPageHeaderFocus = remember { FocusRequester() }
     val streamsHeaderFocus = remember { FocusRequester() }
@@ -155,6 +158,11 @@ fun LayoutSettingsContent(
         if (!homeContentExpanded && focusedSection == LayoutSettingsSection.HOME_CONTENT) {
             homeContentHeaderFocus.requestFocus()
         }
+    }
+    LaunchedEffect(uiState.viewPackMessage) {
+        val message = uiState.viewPackMessage ?: return@LaunchedEffect
+        Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+        viewModel.onEvent(LayoutSettingsEvent.ClearViewPackMessage)
     }
     LaunchedEffect(detailPageExpanded, focusedSection) {
         if (!detailPageExpanded && focusedSection == LayoutSettingsSection.DETAIL_PAGE) {
@@ -210,6 +218,24 @@ fun LayoutSettingsContent(
             contentPadding = PaddingValues(bottom = 18.dp),
             verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.md)
         ) {
+            item(key = "view_pack_import") {
+                ViewPackImportCard(
+                    packName = uiState.activeViewPackName,
+                    rotateEnabled = uiState.activeViewPackRotateEnabled,
+                    importFocusRequester = viewPackImportFocus,
+                    onImport = {
+                        viewModel.onEvent(LayoutSettingsEvent.ImportViewPackFromClipboard)
+                    },
+                    onReshuffle = {
+                        viewModel.onEvent(LayoutSettingsEvent.ForceReshuffleViewPack)
+                    },
+                    onRemove = {
+                        viewModel.onEvent(LayoutSettingsEvent.ClearActiveViewPack)
+                    },
+                    onFocused = { focusedSection = LayoutSettingsSection.VIEW_PACK }
+                )
+            }
+
             item(key = "home_layout_section") {
                 CollapsibleSectionCard(
                     title = stringResource(R.string.layout_section_home),
@@ -223,6 +249,17 @@ fun LayoutSettingsContent(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.md)
                     ) {
+                        LayoutCard(
+                            layout = HomeLayout.NETFLIX,
+                            isSelected = uiState.selectedLayout == HomeLayout.NETFLIX,
+                            onClick = {
+                                viewModel.onEvent(LayoutSettingsEvent.SelectLayout(HomeLayout.NETFLIX))
+                            },
+                            onFocused = {
+                                focusedSection = LayoutSettingsSection.HOME_LAYOUT
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
                         LayoutCard(
                             layout = HomeLayout.MODERN,
                             isSelected = uiState.selectedLayout == HomeLayout.MODERN,
@@ -1076,6 +1113,82 @@ private fun CollapsibleSectionCard(
 }
 
 @Composable
+private fun ViewPackImportCard(
+    packName: String?,
+    rotateEnabled: Boolean,
+    importFocusRequester: FocusRequester,
+    onImport: () -> Unit,
+    onReshuffle: () -> Unit,
+    onRemove: () -> Unit,
+    onFocused: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(NuvioTheme.colors.SurfaceVariant.copy(alpha = 0.55f))
+            .padding(NuvioTheme.spacing.md),
+        verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.sm)
+    ) {
+        Text(
+            text = stringResource(R.string.layout_view_pack_import_title),
+            style = MaterialTheme.typography.titleMedium,
+            color = NuvioTheme.colors.TextPrimary
+        )
+        Text(
+            text = if (packName != null) {
+                stringResource(R.string.layout_view_pack_active, packName)
+            } else {
+                stringResource(R.string.layout_view_pack_import_sub)
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = NuvioTheme.colors.TextSecondary
+        )
+        if (packName != null && rotateEnabled) {
+            Text(
+                text = stringResource(R.string.layout_view_pack_rotate_on),
+                style = MaterialTheme.typography.bodySmall,
+                color = NuvioTheme.colors.TextTertiary
+            )
+        }
+        Button(
+            onClick = onImport,
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusRequester(importFocusRequester)
+                .onFocusChanged { if (it.isFocused) onFocused() }
+        ) {
+            Text(text = stringResource(R.string.layout_view_pack_import_clipboard))
+        }
+        if (packName != null) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.sm)
+            ) {
+                if (rotateEnabled) {
+                    Button(
+                        onClick = onReshuffle,
+                        modifier = Modifier
+                            .weight(1f)
+                            .onFocusChanged { if (it.isFocused) onFocused() }
+                    ) {
+                        Text(text = stringResource(R.string.layout_view_pack_reshuffle_now))
+                    }
+                }
+                Button(
+                    onClick = onRemove,
+                    modifier = Modifier
+                        .weight(1f)
+                        .onFocusChanged { if (it.isFocused) onFocused() }
+                ) {
+                    Text(text = stringResource(R.string.layout_view_pack_clear))
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun CompactToggleRow(
     title: String,
     subtitle: String?,
@@ -1369,6 +1482,10 @@ private fun LayoutCard(
                         modifier = Modifier.fillMaxWidth(),
                         animated = animatePreview
                     )
+                    HomeLayout.NETFLIX -> NetflixLayoutPreview(
+                        modifier = Modifier.fillMaxWidth(),
+                        animated = animatePreview
+                    )
                 }
             }
 
@@ -1390,6 +1507,7 @@ private fun LayoutCard(
                 }
                 Text(
                     text = when (layout) {
+                        HomeLayout.NETFLIX -> stringResource(R.string.layout_netflix)
                         HomeLayout.CLASSIC -> stringResource(R.string.layout_classic)
                         HomeLayout.GRID -> stringResource(R.string.layout_grid)
                         HomeLayout.MODERN -> stringResource(R.string.layout_modern)

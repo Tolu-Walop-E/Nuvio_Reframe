@@ -9,4 +9,9 @@ sealed interface AppDeepLink {
     data class AddonInstall(
         val manifestUrl: String
     ) : AppDeepLink
+
+    /** Studio view pack install — [packUrl] is an http(s) URL to `.view.json`. */
+    data class ViewPackInstall(
+        val packUrl: String
+    ) : AppDeepLink
 }

@@ -2,6 +2,7 @@ package com.nuvio.tv.ui.screens.home
 
 import android.content.Context
 import android.os.SystemClock
+import android.util.Log
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -13,6 +14,8 @@ import com.nuvio.tv.core.tmdb.TmdbService
 import com.nuvio.tv.data.local.AuthSessionNoticeDataStore
 import com.nuvio.tv.data.local.CollectionsDataStore
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
+import com.nuvio.tv.core.sync.HomeCatalogSettingsSyncService
+import com.nuvio.tv.core.sync.SyncGenreRowTarget
 import com.nuvio.tv.data.local.PlayerSettingsDataStore
 import com.nuvio.tv.data.local.StartupAuthNotice
 import com.nuvio.tv.data.local.MDBListSettingsDataStore
@@ -29,6 +32,9 @@ import com.nuvio.tv.domain.model.LibraryEntryInput
 import com.nuvio.tv.domain.model.ListMembershipChanges
 import com.nuvio.tv.domain.model.Meta
 import com.nuvio.tv.domain.model.MetaPreview
+import com.nuvio.tv.domain.model.enabledAddons
+import com.nuvio.tv.domain.model.skipStep
+import com.nuvio.tv.domain.model.supportsExtra
 import com.nuvio.tv.data.repository.MDBListRepository
 import com.nuvio.tv.domain.model.MDBListSettings
 import com.nuvio.tv.domain.model.TmdbSettings
@@ -37,6 +43,7 @@ import com.nuvio.tv.domain.repository.CatalogRepository
 import com.nuvio.tv.domain.repository.LibraryRepository
 import com.nuvio.tv.domain.repository.MetaRepository
 import com.nuvio.tv.domain.repository.WatchProgressRepository
+import com.nuvio.tv.ui.screens.home.netflix.NetflixFolderRailRequest
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -68,6 +75,7 @@ class HomeViewModel @Inject constructor(
     internal val metaRepository: MetaRepository,
     internal val collectionsDataStore: CollectionsDataStore,
     internal val layoutPreferenceDataStore: LayoutPreferenceDataStore,
+    internal val homeCatalogSettingsSyncService: HomeCatalogSettingsSyncService,
     internal val playerSettingsDataStore: PlayerSettingsDataStore,
     internal val tmdbSettingsDataStore: TmdbSettingsDataStore,
     internal val mdbListSettingsDataStore: MDBListSettingsDataStore,
@@ -121,6 +129,23 @@ class HomeViewModel @Inject constructor(
     private val _scrollToTopTrigger = MutableStateFlow(0)
     val scrollToTopTrigger: StateFlow<Int> = _scrollToTopTrigger.asStateFlow()
 
+    private val _pendingNetflixFocusRailKey = MutableStateFlow<String?>(null)
+    val pendingNetflixFocusRailKey: StateFlow<String?> = _pendingNetflixFocusRailKey.asStateFlow()
+
+    private val _netflixContentTab = MutableStateFlow("HOME")
+    val netflixContentTab: StateFlow<String> = _netflixContentTab.asStateFlow()
+
+    fun setNetflixContentTab(tab: String) {
+        val normalized = tab.trim().uppercase()
+        if (normalized !in setOf("HOME", "MOVIES", "SHOWS")) return
+        if (_netflixContentTab.value == normalized) return
+        _netflixContentTab.value = normalized
+    }
+
+    private val _netflixFolderRails = MutableStateFlow<Map<String, CatalogRow>>(emptyMap())
+    val netflixFolderRails: StateFlow<Map<String, CatalogRow>> = _netflixFolderRails.asStateFlow()
+    private val netflixFolderLoadJobs = mutableMapOf<String, Job>()
+
     internal val _currentLocaleTag = MutableStateFlow(LocaleCache.localeTag)
 
     fun notifyLocaleChanged() {
@@ -134,6 +159,88 @@ class HomeViewModel @Inject constructor(
         clearFocusState()
         _gridFocusState.value = HomeScreenFocusState()
         _scrollToTopTrigger.value++
+    }
+
+    fun requestNetflixGenreRailFocus() {
+        _pendingNetflixFocusRailKey.value = "genre_strip"
+    }
+
+    fun consumePendingNetflixFocusRailKey(): String? {
+        val key = _pendingNetflixFocusRailKey.value
+        _pendingNetflixFocusRailKey.value = null
+        return key
+    }
+
+    /**
+     * Expand collection folders into Netflix title rails by loading each folder's
+     * primary addon catalog source (For You, In Theaters, Trending Anime, …).
+     */
+    fun ensureNetflixFolderRails(requests: List<NetflixFolderRailRequest>) {
+        if (requests.isEmpty()) return
+        requests.forEach { request ->
+            if (_netflixFolderRails.value.containsKey(request.railKey)) return@forEach
+            if (netflixFolderLoadJobs.containsKey(request.railKey)) return@forEach
+            netflixFolderLoadJobs[request.railKey] = viewModelScope.launch {
+                loadNetflixFolderRail(request)
+            }
+        }
+    }
+
+    private suspend fun loadNetflixFolderRail(request: NetflixFolderRailRequest) {
+        val source = request.source
+        val addons = runCatching {
+            addonRepository.getInstalledAddons().first().enabledAddons()
+        }.getOrDefault(emptyList())
+        if (addons.isEmpty()) return
+
+        val preferred = addons.find { it.id == source.addonId } ?: addons.first()
+        var catalog = preferred.catalogs.find { it.id == source.catalogId && it.apiType == source.type }
+            ?: preferred.catalogs.find {
+                it.id == source.catalogId.substringBefore(",") && it.apiType == source.type
+            }
+        var effectiveAddon = preferred
+        if (catalog == null) {
+            for (addon in addons) {
+                val match = addon.catalogs.find { it.id == source.catalogId && it.apiType == source.type }
+                if (match != null) {
+                    effectiveAddon = addon
+                    catalog = match
+                    break
+                }
+            }
+        }
+
+        val genre = source.genre?.trim().orEmpty()
+        val extraArgs = if (genre.isNotEmpty() && !genre.equals("None", ignoreCase = true)) {
+            mapOf("genre" to genre)
+        } else {
+            emptyMap()
+        }
+        val supportsSkip = catalog?.supportsExtra("skip") ?: false
+        val skipStep = catalog?.skipStep() ?: 100
+
+        catalogRepository.getCatalog(
+            addonBaseUrl = effectiveAddon.baseUrl,
+            addonId = effectiveAddon.id,
+            addonName = effectiveAddon.displayName,
+            catalogId = source.catalogId,
+            catalogName = request.title,
+            type = source.type,
+            skip = 0,
+            skipStep = skipStep,
+            extraArgs = extraArgs,
+            supportsSkip = supportsSkip
+        ).collect { result ->
+            when (result) {
+                is com.nuvio.tv.core.network.NetworkResult.Success -> {
+                    val row = result.data.copy(catalogName = request.title)
+                    if (row.items.isNotEmpty()) {
+                        _netflixFolderRails.update { it + (request.railKey to row) }
+                    }
+                }
+                else -> Unit
+            }
+        }
     }
 
     internal val _loadingCatalogs = MutableStateFlow<Set<String>>(emptySet())
@@ -162,6 +269,18 @@ class HomeViewModel @Inject constructor(
     internal var homeCatalogOrderKeys: List<String> = emptyList()
     internal var disabledHomeCatalogKeys: Set<String> = emptySet()
     internal var followAddonsOrderEnabled: Boolean = false
+    /** When non-null, home catalog/collection order is strictly this pack-derived list. */
+    internal var activeViewPackOrderKeys: List<String>? = null
+    /** Per-rail size scales from the active view pack, keyed by home order key. */
+    internal var activeViewPackRowScales: Map<String, Float> = emptyMap()
+    internal var activeViewPackRowShowLabels: Map<String, Boolean> = emptyMap()
+    internal var activeViewPackRowTrailers: Map<String, Boolean> = emptyMap()
+    internal var activeViewPackRowPosterGrow: Map<String, Boolean> = emptyMap()
+    /** Expanded Studio `catalog:…` rails → load refs (for ensureCatalogLoaded). */
+    internal var activeViewPackCatalogRefs:
+        Map<String, com.nuvio.tv.core.viewpack.PackCatalogRef> = emptyMap()
+    /** Pack hero dataSource (`featured` / `catalog:…`). */
+    internal var activeViewPackHeroDataSource: String? = null
     internal var customCatalogTitles: Map<String, String> = emptyMap()
     internal var currentHeroCatalogKeys: List<String> = emptyList()
     internal var catalogUpdateJob: Job? = null
@@ -225,6 +344,16 @@ class HomeViewModel @Inject constructor(
     internal var pendingTmdbEnrichItemId: String? = null
     /** Item that was focused during startup grace period — will be enriched once grace ends. */
     internal var deferredEnrichItem: MetaPreview? = null
+    /** Trailer preview requested during startup grace — retried once grace ends. */
+    internal var deferredTrailerRequest: DeferredTrailerRequest? = null
+
+    internal data class DeferredTrailerRequest(
+        val itemId: String,
+        val title: String,
+        val releaseInfo: String?,
+        val apiType: String,
+        val fallbackYtId: String? = null
+    )
     internal var adjacentItemPrefetchJob: Job? = null
     internal var pendingAdjacentPrefetchItemId: String? = null
     internal val movieWatchedObserverJobs = mutableMapOf<String, Job>()
@@ -292,7 +421,9 @@ class HomeViewModel @Inject constructor(
             observeContinueWatchingSortMode()
             loadHomeCatalogOrderPreference()
             loadFollowAddonsOrder()
+            loadActiveViewPack()
             loadDisabledHomeCatalogPreference()
+            loadGenreRowTargets()
             loadCustomCatalogTitles()
             observeLibraryState()
             observeTmdbSettings()
@@ -362,6 +493,18 @@ class HomeViewModel @Inject constructor(
             deferredEnrichItem?.let { item ->
                 deferredEnrichItem = null
                 onItemFocusPipeline(item)
+            }
+            // Trailer preview is also deferred during grace — home cards otherwise
+            // never fetch if focus never changes after cold start.
+            deferredTrailerRequest?.let { req ->
+                deferredTrailerRequest = null
+                requestTrailerPreviewPipeline(
+                    itemId = req.itemId,
+                    title = req.title,
+                    releaseInfo = req.releaseInfo,
+                    apiType = req.apiType,
+                    fallbackYtId = req.fallbackYtId
+                )
             }
         }
 
@@ -504,9 +647,20 @@ class HomeViewModel @Inject constructor(
 
     private fun loadFollowAddonsOrder() = loadFollowAddonsOrderPipeline()
 
+    private fun loadActiveViewPack() = loadActiveViewPackPipeline()
+
     private fun loadDisabledHomeCatalogPreference() = loadDisabledHomeCatalogPreferencePipeline()
 
+    private fun loadGenreRowTargets() = loadGenreRowTargetsPipeline()
+
     private fun loadCustomCatalogTitles() = loadCustomCatalogTitlesPipeline()
+
+    fun setGenreRowTarget(chipKey: String, target: SyncGenreRowTarget?) {
+        viewModelScope.launch {
+            layoutPreferenceDataStore.setGenreRowTarget(chipKey, target)
+            homeCatalogSettingsSyncService.triggerPush()
+        }
+    }
 
     private fun observeTmdbSettings() = observeTmdbSettingsPipeline()
 
@@ -710,7 +864,7 @@ class HomeViewModel @Inject constructor(
                 // catalog arrivals are batched into a single heavy update pass.
                 !hasRenderedFirstCatalog && hasAnyCatalogRows() -> {
                     hasRenderedFirstCatalog = true
-                    150L
+                    0L
                 }
                 // During bulk loading, batch aggressively — placeholders are
                 // already visible so the user won't notice the delay.
@@ -744,6 +898,60 @@ class HomeViewModel @Inject constructor(
         val generation = catalogLoadGeneration
         pendingCatalogLoads = (pendingCatalogLoads + 1)
         loadCatalogPipeline(addon, catalog, generation)
+    }
+
+    /**
+     * Load a catalog by id even when it was never part of the home lazy queue
+     * (genre collection catalogs, long-press remaps, etc.).
+     */
+    fun ensureCatalogLoaded(addonId: String, type: String, catalogId: String) {
+        val key = catalogKey(addonId = addonId, type = type, catalogId = catalogId)
+        if (key in snapshotCatalogKeys()) {
+            // Already fetched — still refresh fullCatalogRows so CatalogSeeAll
+            // picks up collection-only catalogs that aren't in home order.
+            scheduleUpdateCatalogRows()
+            return
+        }
+        if (!lazyLoadRequestedKeys.add(key)) return
+
+        val pending = synchronized(catalogStateLock) { pendingLazyCatalogs.remove(key) }
+        if (pending != null) {
+            pendingCatalogLoads = (pendingCatalogLoads + 1)
+            loadCatalogPipeline(pending.first, pending.second, catalogLoadGeneration)
+            return
+        }
+
+        val addon = addonsCache.firstOrNull { it.id == addonId }
+            ?: addonsCache.firstOrNull { addon ->
+                addon.catalogs.any { it.id == catalogId && it.apiType.equals(type, ignoreCase = true) }
+            }
+        if (addon == null) {
+            lazyLoadRequestedKeys.remove(key)
+            Log.w(TAG, "ensureCatalogLoaded: addon not found addonId=$addonId catalogId=$catalogId type=$type")
+            return
+        }
+        val catalog = addon.catalogs.firstOrNull {
+            it.id == catalogId && it.apiType.equals(type, ignoreCase = true)
+        } ?: addon.catalogs.firstOrNull { it.id == catalogId }
+        if (catalog == null) {
+            // Catalog may exist on the addon server but not be declared in the
+            // manifest extras list — still attempt a direct fetch.
+            val synthetic = CatalogDescriptor(
+                type = com.nuvio.tv.domain.model.ContentType.fromString(type),
+                rawType = type,
+                id = catalogId,
+                name = catalogId
+                    .substringAfterLast('/')
+                    .replace('_', ' ')
+                    .replaceFirstChar { ch -> ch.uppercase() },
+                showInHome = false
+            )
+            pendingCatalogLoads = (pendingCatalogLoads + 1)
+            loadCatalogPipeline(addon, synthetic, catalogLoadGeneration)
+            return
+        }
+        pendingCatalogLoads = (pendingCatalogLoads + 1)
+        loadCatalogPipeline(addon, catalog, catalogLoadGeneration)
     }
 
     /**

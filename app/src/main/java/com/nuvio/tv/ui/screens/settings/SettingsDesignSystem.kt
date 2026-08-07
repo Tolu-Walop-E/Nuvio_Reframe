@@ -53,6 +53,8 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -277,12 +279,15 @@ internal fun SettingsRailButton(
     onFocused: () -> Unit = {},
     icon: ImageVector? = null,
     rawIconRes: Int? = null,
+    /** Blocks focus exiting toward the start edge (Netflix Home / classic sidebar). */
+    trapExitStart: Boolean = false,
     onFocusedItemPositioned: ((LayoutCoordinates) -> Unit)? = null
 ) {
     var isFocused by remember { mutableStateOf(false) }
     var itemCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
     val glideIndicator = onFocusedItemPositioned != null
     val zen = isFlatSettingsStyle()
+    val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val railShape = if (zen) SettingsZenRowShape else RoundedCornerShape(SettingsPillRadius)
     val appliedModifier = if (focusRequester != null) {
         modifier.focusRequester(focusRequester)
@@ -293,6 +298,19 @@ internal fun SettingsRailButton(
     Card(
         onClick = onClick,
         modifier = appliedModifier
+            .then(
+                if (trapExitStart) {
+                    Modifier.focusProperties {
+                        if (isRtl) {
+                            right = FocusRequester.Cancel
+                        } else {
+                            left = FocusRequester.Cancel
+                        }
+                    }
+                } else {
+                    Modifier
+                }
+            )
             .padding(top = NuvioTheme.spacing.xxs, bottom = NuvioTheme.spacing.xxs)
             .fillMaxWidth()
             .heightIn(min = SettingsRailItemHeight)
@@ -424,11 +442,14 @@ internal fun SettingsTopBarTab(
     onFocused: () -> Unit = {},
     icon: ImageVector? = null,
     rawIconRes: Int? = null,
+    trapExitStart: Boolean = false,
+    trapExitEnd: Boolean = false,
     onFocusedTabPositioned: ((LayoutCoordinates) -> Unit)? = null
 ) {
     var isFocused by remember { mutableStateOf(false) }
     var tabCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
     val glideIndicator = onFocusedTabPositioned != null
+    val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val appliedModifier = if (focusRequester != null) {
         modifier.focusRequester(focusRequester)
     } else {
@@ -447,6 +468,20 @@ internal fun SettingsTopBarTab(
     Card(
         onClick = onClick,
         modifier = appliedModifier
+            .then(
+                if (trapExitStart || trapExitEnd) {
+                    Modifier.focusProperties {
+                        if (trapExitStart) {
+                            if (isRtl) right = FocusRequester.Cancel else left = FocusRequester.Cancel
+                        }
+                        if (trapExitEnd) {
+                            if (isRtl) left = FocusRequester.Cancel else right = FocusRequester.Cancel
+                        }
+                    }
+                } else {
+                    Modifier
+                }
+            )
             .onGloballyPositioned { coordinates ->
                 tabCoordinates = coordinates
                 if (isFocused) onFocusedTabPositioned?.invoke(coordinates)

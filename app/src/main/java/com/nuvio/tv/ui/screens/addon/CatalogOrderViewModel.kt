@@ -1,10 +1,14 @@
 package com.nuvio.tv.ui.screens.addon
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.nuvio.tv.R
+import com.nuvio.tv.core.sync.HOME_GENRES_ROW_KEY
 import com.nuvio.tv.core.sync.HomeCatalogSettingsSyncService
 import com.nuvio.tv.core.sync.homeCatalogKey
 import com.nuvio.tv.core.sync.homeLegacyDisabledCatalogKey
+import com.nuvio.tv.core.sync.isFloatingHomeRowKey
 import com.nuvio.tv.data.local.CollectionsDataStore
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
 import com.nuvio.tv.domain.model.Addon
@@ -12,6 +16,7 @@ import com.nuvio.tv.domain.model.CatalogDescriptor
 import com.nuvio.tv.domain.model.Collection
 import com.nuvio.tv.domain.model.enabledAddons
 import com.nuvio.tv.domain.repository.AddonRepository
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -24,6 +29,7 @@ import javax.inject.Inject
 
 @HiltViewModel
 class CatalogOrderViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val addonRepository: AddonRepository,
     private val collectionsDataStore: CollectionsDataStore,
     private val layoutPreferenceDataStore: LayoutPreferenceDataStore,
@@ -40,7 +46,7 @@ class CatalogOrderViewModel @Inject constructor(
 
     fun moveUp(key: String) {
         if (_uiState.value.followAddonsOrder) {
-            moveCollectionBetweenAddons(key, -1)
+            moveFloatingRowBetweenAddons(key, -1)
         } else {
             moveCatalog(key, -1)
         }
@@ -48,7 +54,7 @@ class CatalogOrderViewModel @Inject constructor(
 
     fun moveDown(key: String) {
         if (_uiState.value.followAddonsOrder) {
-            moveCollectionBetweenAddons(key, 1)
+            moveFloatingRowBetweenAddons(key, 1)
         } else {
             moveCatalog(key, 1)
         }
@@ -94,8 +100,8 @@ class CatalogOrderViewModel @Inject constructor(
      * Moving up means jumping above the previous addon block (all catalogs from one addon).
      * Moving down means jumping below the next addon block.
      */
-    private fun moveCollectionBetweenAddons(key: String, direction: Int) {
-        if (!key.startsWith("collection_")) return
+    private fun moveFloatingRowBetweenAddons(key: String, direction: Int) {
+        if (!isFloatingHomeRowKey(key)) return
 
         val items = _uiState.value.items
         val currentIndex = items.indexOfFirst { it.key == key }
@@ -108,14 +114,14 @@ class CatalogOrderViewModel @Inject constructor(
             // Moving up: find the start of the previous addon block
             // Skip any adjacent collections above
             var scanIdx = currentIndex - 1
-            while (scanIdx >= 0 && currentKeys[scanIdx].startsWith("collection_")) {
+            while (scanIdx >= 0 && isFloatingHomeRowKey(currentKeys[scanIdx])) {
                 scanIdx--
             }
             if (scanIdx < 0) return // already at top
 
             // scanIdx is now pointing at an addon catalog. Find the start of its addon block.
             val targetAddonName = items[scanIdx].addonName
-            while (scanIdx > 0 && !currentKeys[scanIdx - 1].startsWith("collection_") &&
+            while (scanIdx > 0 && !isFloatingHomeRowKey(currentKeys[scanIdx - 1]) &&
                 items[scanIdx - 1].addonName == targetAddonName) {
                 scanIdx--
             }
@@ -123,14 +129,14 @@ class CatalogOrderViewModel @Inject constructor(
         } else {
             // Moving down: find the end of the next addon block
             var scanIdx = currentIndex + 1
-            while (scanIdx < currentKeys.size && currentKeys[scanIdx].startsWith("collection_")) {
+            while (scanIdx < currentKeys.size && isFloatingHomeRowKey(currentKeys[scanIdx])) {
                 scanIdx++
             }
             if (scanIdx >= currentKeys.size) return // already at bottom
 
             // scanIdx is now pointing at an addon catalog. Find the end of its addon block.
             val targetAddonName = items[scanIdx].addonName
-            while (scanIdx < currentKeys.lastIndex && !currentKeys[scanIdx + 1].startsWith("collection_") &&
+            while (scanIdx < currentKeys.lastIndex && !isFloatingHomeRowKey(currentKeys[scanIdx + 1]) &&
                 items[scanIdx + 1].addonName == targetAddonName) {
                 scanIdx++
             }
@@ -209,6 +215,13 @@ class CatalogOrderViewModel @Inject constructor(
         followAddonsOrder: Boolean = false
     ): List<CatalogOrderItem> {
         val defaultEntries = buildDefaultCatalogEntries(addons)
+        val genreEntry = CatalogOrderEntry(
+            key = HOME_GENRES_ROW_KEY,
+            disableKey = HOME_GENRES_ROW_KEY,
+            catalogName = context.getString(R.string.collections_editor_emoji_category_genres),
+            addonName = context.getString(R.string.app_name),
+            typeLabel = "row"
+        )
         val collectionEntries = collections.map { collection ->
             CatalogOrderEntry(
                 key = "collection_${collection.id}",
@@ -218,7 +231,8 @@ class CatalogOrderViewModel @Inject constructor(
                 typeLabel = "collection"
             )
         }
-        val allEntries = defaultEntries + collectionEntries
+        val floatingEntries = listOf(genreEntry) + collectionEntries
+        val allEntries = listOf(genreEntry) + defaultEntries + collectionEntries
         val availableMap = allEntries.associateBy { it.key }
         val defaultOrderKeys = allEntries.map { it.key }
 
@@ -227,7 +241,7 @@ class CatalogOrderViewModel @Inject constructor(
             // In follow mode, addon catalogs stay in manifest order.
             // Collections are positioned based on their relative position in savedOrderKeys.
             val addonKeys = defaultEntries.map { it.key }
-            val collectionKeys = collectionEntries.map { it.key }.toSet()
+            val floatingKeys = floatingEntries.map { it.key }.toSet()
 
             val savedValid = savedOrderKeys.filter { it in availableMap }.distinct()
 
@@ -236,10 +250,13 @@ class CatalogOrderViewModel @Inject constructor(
                 // Strategy: walk through savedValid, output addon keys in manifest order,
                 // insert collections at their saved positions relative to addon boundaries.
                 val result = mutableListOf<String>()
+                if (HOME_GENRES_ROW_KEY !in savedValid) {
+                    result.add(HOME_GENRES_ROW_KEY)
+                }
                 var addonPointer = 0 // pointer into addonKeys (manifest order)
 
                 for (savedKey in savedValid) {
-                    if (savedKey in collectionKeys) {
+                    if (savedKey in floatingKeys) {
                         // Place collection here - but first flush any addon keys up to this point
                         // that haven't been placed yet
                         result.add(savedKey)
@@ -266,10 +283,10 @@ class CatalogOrderViewModel @Inject constructor(
                     }
                     addonPointer++
                 }
-                // Append any collections not in savedValid
-                for (ck in collectionKeys) {
-                    if (ck !in result) {
-                        result.add(ck)
+                // Append synthetic and collection rows not present in saved order.
+                for (floatingKey in floatingEntries.map { it.key }) {
+                    if (floatingKey !in result) {
+                        result.add(floatingKey)
                     }
                 }
                 // Normalize: ensure collections sit at addon block boundaries, not mid-block.
@@ -277,7 +294,7 @@ class CatalogOrderViewModel @Inject constructor(
                 effectiveOrder = normalizeCollectionPositions(result, availableMap)
             } else {
                 // No saved order - addon manifest order + collections at end
-                effectiveOrder = addonKeys + collectionKeys.toList()
+                effectiveOrder = listOf(HOME_GENRES_ROW_KEY) + addonKeys + collectionEntries.map { it.key }
             }
         } else {
             val savedValid = savedOrderKeys
@@ -288,18 +305,22 @@ class CatalogOrderViewModel @Inject constructor(
 
             val savedKeySet = savedValid.toSet()
             val missing = defaultOrderKeys.filterNot { it in savedKeySet }
-            effectiveOrder = savedValid + missing
+            effectiveOrder = if (HOME_GENRES_ROW_KEY in savedKeySet) {
+                savedValid + missing
+            } else {
+                listOf(HOME_GENRES_ROW_KEY) + savedValid + missing.filterNot { it == HOME_GENRES_ROW_KEY }
+            }
         }
 
         return effectiveOrder.mapIndexedNotNull { index, key ->
             val entry = availableMap[key] ?: return@mapIndexedNotNull null
             val displayName = customTitles[key]?.takeIf { it.isNotBlank() } ?: entry.catalogName
-            val isCollection = key.startsWith("collection_")
+            val isFloatingRow = isFloatingHomeRowKey(key)
 
             val canMoveUp: Boolean
             val canMoveDown: Boolean
             if (followAddonsOrder) {
-                if (isCollection) {
+                if (isFloatingRow) {
                     canMoveUp = index > 0
                     canMoveDown = index < effectiveOrder.lastIndex
                 } else {
@@ -341,7 +362,7 @@ class CatalogOrderViewModel @Inject constructor(
             var i = 0
             while (i < result.size) {
                 val key = result[i]
-                if (!key.startsWith("collection_")) {
+                if (!isFloatingHomeRowKey(key)) {
                     i++
                     continue
                 }
@@ -351,7 +372,7 @@ class CatalogOrderViewModel @Inject constructor(
                     result.removeAt(i)
                     var insertPos = i
                     while (insertPos < result.size &&
-                        !result[insertPos].startsWith("collection_") &&
+                        !isFloatingHomeRowKey(result[insertPos]) &&
                         availableMap[result[insertPos]]?.addonName == prevAddon
                     ) {
                         insertPos++
@@ -373,7 +394,7 @@ class CatalogOrderViewModel @Inject constructor(
         availableMap: Map<String, CatalogOrderEntry>
     ): String? {
         for (j in index - 1 downTo 0) {
-            if (!order[j].startsWith("collection_")) {
+            if (!isFloatingHomeRowKey(order[j])) {
                 return availableMap[order[j]]?.addonName
             }
         }
@@ -386,7 +407,7 @@ class CatalogOrderViewModel @Inject constructor(
         availableMap: Map<String, CatalogOrderEntry>
     ): String? {
         for (j in index + 1 until order.size) {
-            if (!order[j].startsWith("collection_")) {
+            if (!isFloatingHomeRowKey(order[j])) {
                 return availableMap[order[j]]?.addonName
             }
         }

@@ -31,12 +31,13 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class LayoutSettingsUiState(
-    val selectedLayout: HomeLayout = HomeLayout.MODERN,
+    val selectedLayout: HomeLayout = HomeLayout.NETFLIX,
     val hasChosen: Boolean = false,
     val availableCatalogs: List<CatalogInfo> = emptyList(),
     val heroCatalogKeys: List<String> = emptyList(),
@@ -75,6 +76,9 @@ data class LayoutSettingsUiState(
     val showUnairedNextUp: Boolean = true,
     val continueWatchingSortMode: ContinueWatchingSortMode = ContinueWatchingSortMode.DEFAULT,
     val continueWatchingCardStyle: ContinueWatchingCardStyle = ContinueWatchingCardStyle.CARD,
+    val activeViewPackName: String? = null,
+    val activeViewPackRotateEnabled: Boolean = false,
+    val viewPackMessage: String? = null
 )
 
 data class CatalogInfo(
@@ -129,6 +133,10 @@ sealed class LayoutSettingsEvent {
     data class SetContinueWatchingCardStyle(val style: ContinueWatchingCardStyle) : LayoutSettingsEvent()
     data object ResetPosterCardStyle : LayoutSettingsEvent()
     data object ResetCardDepthStyle : LayoutSettingsEvent()
+    data object ImportViewPackFromClipboard : LayoutSettingsEvent()
+    data object ClearActiveViewPack : LayoutSettingsEvent()
+    data object ForceReshuffleViewPack : LayoutSettingsEvent()
+    data object ClearViewPackMessage : LayoutSettingsEvent()
 }
 
 @HiltViewModel
@@ -139,7 +147,8 @@ class LayoutSettingsViewModel @Inject constructor(
     private val traktSettingsDataStore: TraktSettingsDataStore,
     private val trailerSettingsDataStore: TrailerSettingsDataStore,
     private val addonRepository: AddonRepository,
-    private val metaRepository: com.nuvio.tv.domain.repository.MetaRepository
+    private val metaRepository: com.nuvio.tv.domain.repository.MetaRepository,
+    private val viewPackSyncService: com.nuvio.tv.core.sync.ViewPackSyncService,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(LayoutSettingsUiState())
@@ -355,6 +364,37 @@ class LayoutSettingsViewModel @Inject constructor(
                     updateUiStateIfChanged { it.copy(continueWatchingCardStyle = style) }
                 }
         }
+        viewModelScope.launch {
+            layoutPreferenceDataStore.activeViewPackJson
+                .distinctUntilChanged()
+                .collectLatest { json ->
+                    if (json.isNullOrBlank()) {
+                        updateUiStateIfChanged {
+                            it.copy(
+                                activeViewPackName = null,
+                                activeViewPackRotateEnabled = false
+                            )
+                        }
+                        return@collectLatest
+                    }
+                    try {
+                        val pack = com.nuvio.tv.core.viewpack.parseViewPackJson(json)
+                        updateUiStateIfChanged {
+                            it.copy(
+                                activeViewPackName = pack.name,
+                                activeViewPackRotateEnabled = pack.rotateUnlocked
+                            )
+                        }
+                    } catch (_: Exception) {
+                        updateUiStateIfChanged {
+                            it.copy(
+                                activeViewPackName = null,
+                                activeViewPackRotateEnabled = false
+                            )
+                        }
+                    }
+                }
+        }
         loadAvailableCatalogs()
     }
 
@@ -402,6 +442,96 @@ class LayoutSettingsViewModel @Inject constructor(
             is LayoutSettingsEvent.SetContinueWatchingCardStyle -> setContinueWatchingCardStyle(event.style)
             LayoutSettingsEvent.ResetPosterCardStyle -> resetPosterCardStyle()
             LayoutSettingsEvent.ResetCardDepthStyle -> resetCardDepthStyle()
+            LayoutSettingsEvent.ImportViewPackFromClipboard -> importViewPackFromClipboard()
+            LayoutSettingsEvent.ClearActiveViewPack -> clearActiveViewPack()
+            LayoutSettingsEvent.ForceReshuffleViewPack -> forceReshuffleViewPack()
+            LayoutSettingsEvent.ClearViewPackMessage ->
+                updateUiStateIfChanged { it.copy(viewPackMessage = null) }
+        }
+    }
+
+    private fun importViewPackFromClipboard() {
+        viewModelScope.launch {
+            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+            val text = clipboard?.primaryClip
+                ?.takeIf { it.itemCount > 0 }
+                ?.getItemAt(0)
+                ?.coerceToText(context)
+                ?.toString()
+                ?.trim()
+            if (text.isNullOrEmpty()) {
+                updateUiStateIfChanged {
+                    it.copy(viewPackMessage = context.getString(R.string.layout_view_pack_clipboard_empty))
+                }
+                return@launch
+            }
+            try {
+                val (name, json) = com.nuvio.tv.core.viewpack.ViewPackRemoteImport.loadAndSerialize(text)
+                layoutPreferenceDataStore.setActiveViewPackJson(json)
+                updateUiStateIfChanged {
+                    it.copy(
+                        viewPackMessage = context.getString(
+                            R.string.layout_view_pack_imported,
+                            name
+                        )
+                    )
+                }
+            } catch (e: Exception) {
+                updateUiStateIfChanged {
+                    it.copy(
+                        viewPackMessage = context.getString(
+                            R.string.layout_view_pack_import_failed,
+                            e.message ?: "unknown"
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    private fun clearActiveViewPack() {
+        viewModelScope.launch {
+            viewPackSyncService.clearActiveAndRemote()
+            updateUiStateIfChanged {
+                it.copy(viewPackMessage = context.getString(R.string.layout_view_pack_cleared))
+            }
+        }
+    }
+
+    private fun forceReshuffleViewPack() {
+        viewModelScope.launch {
+            val json = layoutPreferenceDataStore.activeViewPackJson.first()
+            if (json.isNullOrBlank()) {
+                updateUiStateIfChanged {
+                    it.copy(viewPackMessage = context.getString(R.string.layout_view_pack_none))
+                }
+                return@launch
+            }
+            try {
+                val pack = com.nuvio.tv.core.viewpack.parseViewPackJson(json)
+                if (!pack.rotateUnlocked) {
+                    updateUiStateIfChanged {
+                        it.copy(viewPackMessage = context.getString(R.string.layout_view_pack_rotate_off))
+                    }
+                    return@launch
+                }
+                val rotated = com.nuvio.tv.core.viewpack.applyUnlockedRotation(pack, force = true)
+                layoutPreferenceDataStore.setActiveViewPackJson(
+                    com.nuvio.tv.core.viewpack.serializeViewPackJson(rotated.pack)
+                )
+                updateUiStateIfChanged {
+                    it.copy(viewPackMessage = context.getString(R.string.layout_view_pack_reshuffled))
+                }
+            } catch (e: Exception) {
+                updateUiStateIfChanged {
+                    it.copy(
+                        viewPackMessage = context.getString(
+                            R.string.layout_view_pack_import_failed,
+                            e.message ?: "unknown"
+                        )
+                    )
+                }
+            }
         }
     }
 

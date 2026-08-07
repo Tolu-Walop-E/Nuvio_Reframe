@@ -82,6 +82,15 @@ fun AuthQrSignInScreen(
     onContinue: (() -> Unit)? = null,
     viewModel: AccountViewModel = hiltViewModel()
 ) {
+    if (!BuildConfig.FEATURE_TV_LOGIN_ENABLED) {
+        AuthSignInScreen(
+            onBackPress = onBackPress,
+            onContinue = onContinue,
+            viewModel = viewModel
+        )
+        return
+    }
+
     val uiState by viewModel.uiState.collectAsState()
     val fullAccount = uiState.authState as? AuthState.FullAccount
     val isSignedIn = fullAccount != null
@@ -122,9 +131,11 @@ fun AuthQrSignInScreen(
         }
     }
 
-    LaunchedEffect(uiState.authState, isSignedIn, uiState.qrLoginCode, uiState.isLoading, uiState.error, exitRequested) {
+    val tvLoginEnabled = BuildConfig.FEATURE_TV_LOGIN_ENABLED
+
+    LaunchedEffect(uiState.authState, isSignedIn, uiState.qrLoginCode, uiState.isLoading, uiState.error, exitRequested, tvLoginEnabled) {
         if (
-            !BuildConfig.SELF_HOSTED &&
+            tvLoginEnabled &&
             !exitRequested &&
             uiState.authState !is AuthState.Loading &&
             !isSignedIn &&
@@ -136,14 +147,14 @@ fun AuthQrSignInScreen(
         }
     }
 
-    LaunchedEffect(isSignedIn) {
-        if (!BuildConfig.SELF_HOSTED && isSignedIn && !uiState.qrLoginCode.isNullOrBlank()) {
+    LaunchedEffect(isSignedIn, tvLoginEnabled) {
+        if (tvLoginEnabled && isSignedIn && !uiState.qrLoginCode.isNullOrBlank()) {
             viewModel.clearQrLoginSession()
         }
     }
 
-    LaunchedEffect(isApproved, uiState.isLoading) {
-        if (!BuildConfig.SELF_HOSTED && isApproved && !uiState.isLoading) {
+    LaunchedEffect(isApproved, uiState.isLoading, tvLoginEnabled) {
+        if (tvLoginEnabled && isApproved && !uiState.isLoading) {
             viewModel.exchangeQrLogin()
         }
     }
@@ -183,7 +194,7 @@ fun AuthQrSignInScreen(
                     .padding(start = 56.dp, end = 56.dp),
                 isSignedIn = isSignedIn,
                 fullAccount = fullAccount,
-                selfHosted = BuildConfig.SELF_HOSTED
+                tvLoginEnabled = tvLoginEnabled
             )
 
             AuthQrLoginPane(
@@ -202,7 +213,7 @@ fun AuthQrSignInScreen(
                 uiState = uiState,
                 isSignedIn = isSignedIn,
                 isOnboardingMode = isOnboardingMode,
-                selfHosted = BuildConfig.SELF_HOSTED,
+                tvLoginEnabled = tvLoginEnabled,
                 remainingMillis = remainingMillis,
                 onSignIn = viewModel::signIn,
                 onRefreshOrSignOut = {
@@ -239,7 +250,7 @@ private fun AuthQrBrandPanel(
     modifier: Modifier,
     isSignedIn: Boolean,
     fullAccount: AuthState.FullAccount?,
-    selfHosted: Boolean
+    tvLoginEnabled: Boolean
 ) {
     Column(
         modifier = modifier,
@@ -267,10 +278,10 @@ private fun AuthQrBrandPanel(
         Text(
             text = if (isSignedIn) {
                 stringResource(R.string.auth_qr_connected)
-            } else if (selfHosted) {
-                stringResource(R.string.auth_email_hint)
-            } else {
+            } else if (tvLoginEnabled) {
                 stringResource(R.string.auth_qr_phone_hint)
+            } else {
+                stringResource(R.string.auth_email_hint)
             },
             modifier = Modifier.widthIn(max = 400.dp),
             style = MaterialTheme.typography.bodyLarge.copy(
@@ -303,7 +314,7 @@ private fun AuthQrLoginPane(
     uiState: AccountUiState,
     isSignedIn: Boolean,
     isOnboardingMode: Boolean,
-    selfHosted: Boolean,
+    tvLoginEnabled: Boolean,
     remainingMillis: Long,
     onSignIn: (String, String) -> Unit,
     onRefreshOrSignOut: () -> Unit,
@@ -327,10 +338,10 @@ private fun AuthQrLoginPane(
         Text(
             text = if (isSignedIn) {
                 stringResource(R.string.auth_qr_synced_data)
-            } else if (selfHosted) {
-                stringResource(R.string.auth_email_instruction)
-            } else {
+            } else if (tvLoginEnabled) {
                 stringResource(R.string.auth_qr_scan_instruction)
+            } else {
+                stringResource(R.string.auth_email_instruction)
             },
             style = MaterialTheme.typography.bodyLarge.copy(
                 color = AuthTextSecondary,
@@ -352,13 +363,13 @@ private fun AuthQrLoginPane(
                 containerColor = AuthSecondaryButtonBackground,
                 contentColor = AuthTextSecondary
             )
-        } else if (selfHosted) {
+        } else if (tvLoginEnabled) {
+            AuthQrCodeBlock(uiState = uiState, remainingMillis = remainingMillis)
+        } else {
             AuthEmailLoginForm(
                 uiState = uiState,
                 onSignIn = onSignIn
             )
-        } else {
-            AuthQrCodeBlock(uiState = uiState, remainingMillis = remainingMillis)
         }
 
         Spacer(modifier = Modifier.height(28.dp))
@@ -366,7 +377,7 @@ private fun AuthQrLoginPane(
             horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.md),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (isSignedIn || !selfHosted) {
+            if (isSignedIn || tvLoginEnabled) {
                 Button(
                     onClick = onRefreshOrSignOut,
                     enabled = !uiState.isLoading,

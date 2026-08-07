@@ -169,7 +169,10 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
             )
         }
             .distinctUntilChanged()
-            .debounce(300)
+            .debounce {
+                // First prefs emission must not delay catalog load / home paint.
+                if (!_uiState.value.layoutPreferencesReady) 0L else 300L
+            }
             .collectLatest { prefs ->
                 val effectivePosterLabelsEnabled = if (prefs.layout == HomeLayout.MODERN) {
                     false
@@ -268,10 +271,12 @@ internal fun HomeViewModel.observeModernHomePresentationPipeline() {
                     && old.catalogRows.size == new.catalogRows.size
             }
             .debounce {
-                // Use a longer debounce while catalogs are still loading to
-                // avoid repeated expensive presentation builds during the
-                // initial burst of catalog arrivals.
-                if (catalogsLoadInProgress) 300L else 80L
+                // First modern presentation build: paint ASAP. Later updates can batch.
+                when {
+                    uiState.value.modernHomePresentation.rows.list.isEmpty() -> 0L
+                    catalogsLoadInProgress -> 200L
+                    else -> 80L
+                }
             }
             .collectLatest { input ->
                 val shouldWarmStart = uiState.value.modernHomePresentation.rows.list.isEmpty()
@@ -347,24 +352,47 @@ internal fun HomeViewModel.requestTrailerPreviewPipeline(
     fallbackYtId: String? = null
 ) {
     if (!AppFeaturePolicy.inAppTrailerPlaybackEnabled) return
-    if (startupGracePeriodActive) return
+    if (startupGracePeriodActive) {
+        // Keep the latest focused title so cold-start focus still gets a trailer.
+        deferredTrailerRequest = HomeViewModel.DeferredTrailerRequest(
+            itemId = itemId,
+            title = title,
+            releaseInfo = releaseInfo,
+            apiType = apiType,
+            fallbackYtId = fallbackYtId
+        )
+        android.util.Log.i("NetflixTrailer", "defer-startup-grace id=$itemId")
+        return
+    }
 
     // Resolve fallbackYtId from catalog item if not provided
     val resolvedFallbackYtId = fallbackYtId ?: findCatalogItemById(itemId)?.trailerYtIds?.firstOrNull()
 
-    // Always bump version — only the latest request (highest version) will proceed after debounce
+    if (trailerPreviewNegativeCache.contains(itemId)) {
+        android.util.Log.i("NetflixTrailer", "skip negative-cache id=$itemId")
+        return
+    }
+    if (trailerPreviewUrlsState.containsKey(itemId)) {
+        activeTrailerPreviewItemId = itemId
+        android.util.Log.i("NetflixTrailer", "cache-hit id=$itemId")
+        return
+    }
+    if (!trailerPreviewLoadingIds.add(itemId)) {
+        activeTrailerPreviewItemId = itemId
+        android.util.Log.i("NetflixTrailer", "already-loading id=$itemId")
+        return
+    }
+
+    // Only bump version when we actually start a new network fetch.
     activeTrailerPreviewItemId = itemId
     trailerPreviewRequestVersion++
     val requestVersion = trailerPreviewRequestVersion
-
-    if (trailerPreviewNegativeCache.contains(itemId)) return
-    if (trailerPreviewUrlsState.containsKey(itemId)) return
-    if (!trailerPreviewLoadingIds.add(itemId)) return
+    android.util.Log.i("NetflixTrailer", "fetch-start id=$itemId title=$title version=$requestVersion")
 
     viewModelScope.launch(Dispatchers.IO) {
         try {
-            // Debounce: wait for focus to settle before hitting network
-            delay(180)
+            // Short settle so rapid D-pad moves don't spam TMDB/trailer lookups.
+            delay(40)
 
             // Only the LATEST request proceeds — all earlier ones are stale
             if (trailerPreviewRequestVersion != requestVersion) {
@@ -394,6 +422,8 @@ internal fun HomeViewModel.requestTrailerPreviewPipeline(
                         )
                     }
                     if (fallbackSource?.videoUrl != null) {
+                        android.util.Log.i("NetflixTrailer", "fetch-ok-fallback id=$itemId")
+                        trailerPreviewNegativeCache.remove(itemId)
                         if (trailerPreviewUrlsState[itemId] != fallbackSource.videoUrl) {
                             trailerPreviewUrlsState[itemId] = fallbackSource.videoUrl
                         }
@@ -404,11 +434,25 @@ internal fun HomeViewModel.requestTrailerPreviewPipeline(
                             trailerPreviewAudioUrlsState[itemId] = fallbackAudio
                         }
                     } else {
-                        trailerPreviewNegativeCache.add(itemId)
+                        // Soft miss: if TMDB id / YT ids were not ready yet, do NOT
+                        // permanently negative-cache — detail page will still resolve
+                        // after enrichment, and home should too on retry.
+                        val hardMiss = tmdbId != null || !resolvedFallbackYtId.isNullOrBlank()
+                        if (hardMiss) {
+                            android.util.Log.w("NetflixTrailer", "fetch-miss id=$itemId tmdbId=$tmdbId")
+                            trailerPreviewNegativeCache.add(itemId)
+                        } else {
+                            android.util.Log.w(
+                                "NetflixTrailer",
+                                "fetch-miss-soft id=$itemId (no tmdb/yt yet; retryable)"
+                            )
+                        }
                         trailerPreviewUrlsState.remove(itemId)
                         trailerPreviewAudioUrlsState.remove(itemId)
                     }
                 } else {
+                    android.util.Log.i("NetflixTrailer", "fetch-ok id=$itemId")
+                    trailerPreviewNegativeCache.remove(itemId)
                     val videoUrl = trailerSource.videoUrl
                     if (trailerPreviewUrlsState[itemId] != videoUrl) {
                         trailerPreviewUrlsState[itemId] = videoUrl
@@ -425,6 +469,18 @@ internal fun HomeViewModel.requestTrailerPreviewPipeline(
             trailerPreviewLoadingIds.remove(itemId)
         }
     }
+}
+
+/** Clear a soft/hard home trailer miss and refetch while the item is still focused. */
+internal fun HomeViewModel.retryTrailerPreviewIfFocused(itemId: String) {
+    if (activeTrailerPreviewItemId != itemId) return
+    if (trailerPreviewUrlsState.containsKey(itemId)) return
+    trailerPreviewNegativeCache.remove(itemId)
+    trailerPreviewLoadingIds.remove(itemId)
+    trailerPreviewRequestVersion++
+    val item = findCatalogItemById(itemId) ?: return
+    android.util.Log.i("NetflixTrailer", "retry-after-enrich id=$itemId")
+    requestTrailerPreviewPipeline(item)
 }
 
 internal fun HomeViewModel.onItemFocusPipeline(item: MetaPreview) {
@@ -508,6 +564,10 @@ internal fun HomeViewModel.onItemFocusPipeline(item: MetaPreview) {
                     }
                     updateCatalogItemWithTmdb(item.id, enrichment)
                     tmdbEnriched = true
+                    // Early home trailer fetch often races TMDB id resolution; retry now.
+                    withContext(Dispatchers.Main) {
+                        retryTrailerPreviewIfFocused(item.id)
+                    }
                 }
             }
             // Fall through to external addon when:
@@ -776,13 +836,7 @@ private fun HomeViewModel.updateCatalogItemWithMeta(itemId: String, meta: Meta) 
     // If external meta brought new trailerYtIds and the item has no trailer resolved yet, retry.
     // Only retry if this item is currently focused — avoid prefetching trailers for adjacent items.
     if (incomingTrailerYtIds.isNotEmpty() && !trailerPreviewUrlsState.containsKey(itemId) && activeTrailerPreviewItemId == itemId) {
-        trailerPreviewNegativeCache.remove(itemId)
-        trailerPreviewLoadingIds.remove(itemId)
-        // Bump version so any in-flight pipeline for this item treats itself as stale
-        // and won't overwrite the retry result with a negative cache entry.
-        trailerPreviewRequestVersion++
-        val currentItem = findCatalogItemById(itemId) ?: return
-        requestTrailerPreviewPipeline(currentItem)
+        retryTrailerPreviewIfFocused(itemId)
     }
 }
 

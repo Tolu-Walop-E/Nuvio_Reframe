@@ -54,12 +54,11 @@ fun EpisodeRatingsSection(
     firstItemFocusRequester: FocusRequester? = null,
     ratingsGridFocusRequester: FocusRequester? = null
 ) {
-    val seasonNumbers = remember(episodes) {
-        episodes
-            .mapNotNull { it.season }
-            .filter { it > 0 } // Never show specials season (S0)
-            .distinct()
-            .sorted()
+    // Prefer addon episode list; if it's empty/missing seasons, still show chips from the ratings map.
+    val seasonNumbers = remember(episodes, ratings) {
+        val fromEpisodes = episodes.mapNotNull { it.season }.filter { it > 0 }
+        val fromRatings = ratings.keys.map { it.first }.filter { it > 0 }
+        (fromEpisodes + fromRatings).distinct().sorted()
     }
     val seasonSignature = remember(seasonNumbers) { seasonNumbers.joinToString(",") }
     val seasonFocusRequesters = remember(seasonNumbers) {
@@ -88,17 +87,22 @@ fun EpisodeRatingsSection(
     }
     val defaultChipColor = NuvioTheme.colors.BackgroundCard
     val defaultChipTextColor = NuvioTheme.colors.TextSecondary
-    val seasonRatings = remember(episodesForSeason, ratings) {
-        episodesForSeason.mapNotNull { episode ->
-            val season = episode.season ?: return@mapNotNull null
-            val episodeNumber = episode.episode ?: return@mapNotNull null
-            val rating = ratings[season to episodeNumber]
+    val seasonRatings = remember(episodesForSeason, ratings, selectedSeason) {
+        val episodeNumbers = if (episodesForSeason.isNotEmpty()) {
+            episodesForSeason.mapNotNull { it.episode }
+        } else {
+            ratings.keys.filter { it.first == selectedSeason }.map { it.second }.sorted()
+        }
+        episodeNumbers.map { episodeNumber ->
+            val rating = ratings[selectedSeason to episodeNumber]
             val ratingText = rating?.let { String.format("%.1f", it) } ?: "—"
             val chipColor = rating?.let(::ratingColor) ?: defaultChipColor
             val chipTextColor = rating?.let(::ratingTextColor) ?: defaultChipTextColor
+            val videoId = episodesForSeason.firstOrNull { it.episode == episodeNumber }?.id
+                ?: "rating-$selectedSeason-$episodeNumber"
             EpisodeRatingChipUi(
-                id = episode.id,
-                seasonNumber = season,
+                id = videoId,
+                seasonNumber = selectedSeason,
                 episodeNumber = episodeNumber,
                 ratingText = ratingText,
                 chipColor = chipColor,

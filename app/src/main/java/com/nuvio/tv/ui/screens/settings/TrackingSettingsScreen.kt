@@ -22,8 +22,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -78,6 +85,9 @@ fun TrackingSettingsScreen(
     BackHandler(enabled = !hasOverlay) {
         onBackPress()
     }
+
+    val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    val exitToSettingsKey = if (isRtl) Key.DirectionRight else Key.DirectionLeft
 
     LaunchedEffect(Unit) {
         delay(160L)
@@ -149,6 +159,22 @@ fun TrackingSettingsScreen(
         }
     }
 
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .onPreviewKeyEvent { event ->
+                if (
+                    !hasOverlay &&
+                    event.type == KeyEventType.KeyDown &&
+                    event.key == exitToSettingsKey
+                ) {
+                    onBackPress()
+                    true
+                } else {
+                    false
+                }
+            }
+    ) {
     TrackingSettingsOverview(
         traktState = traktState,
         simklState = simklState,
@@ -383,6 +409,7 @@ fun TrackingSettingsScreen(
             width = 620.dp,
             maxHeight = 360.dp
         )
+    }
     }
 }
 

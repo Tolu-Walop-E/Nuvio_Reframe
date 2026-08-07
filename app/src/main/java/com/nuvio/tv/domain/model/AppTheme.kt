@@ -7,5 +7,10 @@ enum class AppTheme(val displayName: String) {
     EMERALD("Emerald"),
     AMBER("Amber"),
     ROSE("Rose"),
-    WHITE("White")
+    WHITE("White"),
+    SLATE("Slate"),
+    CYAN("Cyan"),
+    GOLD("Gold"),
+    MAGENTA("Magenta"),
+    GRAPHITE("Graphite")
 }

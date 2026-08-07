@@ -119,6 +119,12 @@ internal enum class SettingsSectionDestination {
     External
 }
 
+/** Restores settings-rail focus after returning from an external settings page. */
+internal object SettingsRailFocusRestore {
+    @Volatile
+    var pendingCategory: SettingsCategory? = null
+}
+
 internal data class SettingsSectionSpec(
     val category: SettingsCategory,
     val title: String,
@@ -232,7 +238,11 @@ fun SettingsScreen(
     onNavigateToTracking: () -> Unit = {},
     onNavigateToAddons: () -> Unit = {},
     onNavigateToPlugins: () -> Unit = {},
-    onNavigateToAuthQrSignIn: () -> Unit = {},
+    onNavigateToAuthSignIn: () -> Unit = {},
+    onNavigateToCreateAccount: () -> Unit = {},
+    onNavigateToSyncGenerate: () -> Unit = {},
+    onNavigateToSyncClaim: () -> Unit = {},
+    onNavigateToQrSignIn: () -> Unit = {},
     onNavigateToManageProfiles: () -> Unit = {},
     onNavigateToSupportersContributors: () -> Unit = {},
     onNavigateToLicensesAttributions: () -> Unit = {},
@@ -320,7 +330,20 @@ fun SettingsScreen(
     }
 
     LaunchedEffect(Unit) {
-        runCatching { railContainerFocusRequester.requestFocus() }
+        val pending = SettingsRailFocusRestore.pendingCategory
+        SettingsRailFocusRestore.pendingCategory = null
+        if (pending != null && railFocusRequesters.containsKey(pending)) {
+            selectedCategory = pending
+            delay(SETTINGS_DETAIL_FOCUS_DELAY_MS)
+            val requested = runCatching {
+                railFocusRequesters.getValue(pending).requestFocus()
+            }.isSuccess
+            if (!requested) {
+                runCatching { railContainerFocusRequester.requestFocus() }
+            }
+        } else {
+            runCatching { railContainerFocusRequester.requestFocus() }
+        }
     }
 
     LaunchedEffect(pendingContentFocusRequestId) {
@@ -344,7 +367,7 @@ fun SettingsScreen(
             .padding(
                 start = NuvioTheme.spacing.xxl,
                 end = NuvioTheme.spacing.xxl,
-                top = if (showBuiltInHeader) NuvioTheme.spacing.xl else 68.dp,
+                top = if (showBuiltInHeader) NuvioTheme.spacing.xl else 28.dp,
                 bottom = NuvioTheme.spacing.xl
             )
     ) {
@@ -358,8 +381,14 @@ fun SettingsScreen(
             val onSectionClick: (SettingsSectionSpec) -> Unit = { section ->
                 if (section.destination == SettingsSectionDestination.External) {
                     when (section.category) {
-                        SettingsCategory.ACCOUNT -> onNavigateToAuthQrSignIn()
-                        SettingsCategory.TRACKING -> onNavigateToTracking()
+                        SettingsCategory.ACCOUNT -> {
+                            SettingsRailFocusRestore.pendingCategory = SettingsCategory.ACCOUNT
+                            onNavigateToAuthSignIn()
+                        }
+                        SettingsCategory.TRACKING -> {
+                            SettingsRailFocusRestore.pendingCategory = SettingsCategory.TRACKING
+                            onNavigateToTracking()
+                        }
                         else -> Unit
                     }
                 } else {
@@ -461,12 +490,15 @@ fun SettingsScreen(
                                 items = visibleSections,
                                 key = { it.category }
                             ) { section ->
+                                val sectionIndex = visibleSections.indexOf(section)
                                 SettingsTopBarTab(
                                     title = section.title,
                                     icon = section.icon,
                                     rawIconRes = section.rawIconRes,
                                     isSelected = selectedCategory == section.category,
                                     focusRequester = railFocusRequesters[section.category],
+                                    trapExitStart = sectionIndex == 0,
+                                    trapExitEnd = sectionIndex == visibleSections.lastIndex,
                                     onClick = { onSectionClick(section) },
                                     onFocused = {
                                         if (section.destination == SettingsSectionDestination.Inline) {
@@ -536,7 +568,11 @@ fun SettingsScreen(
                                 onNavigateToManageProfiles = onNavigateToManageProfiles,
                                 onNavigateToAddons = onNavigateToAddons,
                                 onNavigateToPlugins = onNavigateToPlugins,
-                                onNavigateToAuthQrSignIn = onNavigateToAuthQrSignIn,
+                                onNavigateToAuthSignIn = onNavigateToAuthSignIn,
+                                onNavigateToCreateAccount = onNavigateToCreateAccount,
+                                onNavigateToSyncGenerate = onNavigateToSyncGenerate,
+                                onNavigateToSyncClaim = onNavigateToSyncClaim,
+                                onNavigateToQrSignIn = onNavigateToQrSignIn,
                                 onNavigateToSupportersContributors = onNavigateToSupportersContributors,
                                 onNavigateToLicensesAttributions = onNavigateToLicensesAttributions
                             )
@@ -605,12 +641,17 @@ fun SettingsScreen(
                                 }
                             }
                             .onPreviewKeyEvent { event ->
+                                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                                 val toDetailKey = if (isRtl) Key.DirectionLeft else Key.DirectionRight
-                                if (event.type == KeyEventType.KeyDown && event.key == toDetailKey) {
-                                    allowDetailAutofocus = true
-                                    false
-                                } else {
-                                    false
+                                val trapAwayFromSidebarKey = if (isRtl) Key.DirectionRight else Key.DirectionLeft
+                                when (event.key) {
+                                    // Keep focus in the settings rail — do not jump to Netflix "Home".
+                                    trapAwayFromSidebarKey -> true
+                                    toDetailKey -> {
+                                        allowDetailAutofocus = true
+                                        false
+                                    }
+                                    else -> false
                                 }
                             },
                         verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterVertically)
@@ -625,6 +666,7 @@ fun SettingsScreen(
                                 rawIconRes = section.rawIconRes,
                                 isSelected = selectedCategory == section.category,
                                 focusRequester = railFocusRequesters[section.category],
+                                trapExitStart = true,
                                 onClick = { onSectionClick(section) },
                                 onFocusedItemPositioned = if (isZenRailGlide) {
                                     { itemCoordinates ->
@@ -687,7 +729,11 @@ fun SettingsScreen(
                         onNavigateToManageProfiles = onNavigateToManageProfiles,
                         onNavigateToAddons = onNavigateToAddons,
                         onNavigateToPlugins = onNavigateToPlugins,
-                        onNavigateToAuthQrSignIn = onNavigateToAuthQrSignIn,
+                        onNavigateToAuthSignIn = onNavigateToAuthSignIn,
+                        onNavigateToCreateAccount = onNavigateToCreateAccount,
+                        onNavigateToSyncGenerate = onNavigateToSyncGenerate,
+                        onNavigateToSyncClaim = onNavigateToSyncClaim,
+                        onNavigateToQrSignIn = onNavigateToQrSignIn,
                         onNavigateToSupportersContributors = onNavigateToSupportersContributors,
                         onNavigateToLicensesAttributions = onNavigateToLicensesAttributions
                     )
@@ -715,7 +761,11 @@ private fun SettingsDetailPane(
     onNavigateToManageProfiles: () -> Unit,
     onNavigateToAddons: () -> Unit,
     onNavigateToPlugins: () -> Unit,
-    onNavigateToAuthQrSignIn: () -> Unit,
+    onNavigateToAuthSignIn: () -> Unit,
+    onNavigateToCreateAccount: () -> Unit,
+    onNavigateToSyncGenerate: () -> Unit,
+    onNavigateToSyncClaim: () -> Unit,
+    onNavigateToQrSignIn: () -> Unit,
     onNavigateToSupportersContributors: () -> Unit,
     onNavigateToLicensesAttributions: () -> Unit
 ) {
@@ -822,7 +872,11 @@ private fun SettingsDetailPane(
             }
         )
         SettingsCategory.ACCOUNT -> AccountSettingsInline(
-            onNavigateToAuthQrSignIn = onNavigateToAuthQrSignIn,
+            onNavigateToAuthSignIn = onNavigateToAuthSignIn,
+            onNavigateToCreateAccount = onNavigateToCreateAccount,
+            onNavigateToSyncGenerate = onNavigateToSyncGenerate,
+            onNavigateToSyncClaim = onNavigateToSyncClaim,
+            onNavigateToQrSignIn = onNavigateToQrSignIn,
             initialFocusRequester = if (allowDetailAutofocus) {
                 contentFocusRequesters[SettingsCategory.ACCOUNT]
             } else {
@@ -914,7 +968,11 @@ private fun EssentialAdvancedSettingsContent(
 
 @Composable
 private fun AccountSettingsInline(
-    onNavigateToAuthQrSignIn: () -> Unit,
+    onNavigateToAuthSignIn: () -> Unit,
+    onNavigateToCreateAccount: () -> Unit,
+    onNavigateToSyncGenerate: () -> Unit,
+    onNavigateToSyncClaim: () -> Unit,
+    onNavigateToQrSignIn: () -> Unit,
     initialFocusRequester: FocusRequester?
 ) {
     val accountViewModel: com.nuvio.tv.ui.screens.account.AccountViewModel = hiltViewModel()
@@ -936,7 +994,11 @@ private fun AccountSettingsInline(
             com.nuvio.tv.ui.screens.account.AccountSettingsContent(
                 uiState = accountUiState,
                 viewModel = accountViewModel,
-                onNavigateToAuthQrSignIn = onNavigateToAuthQrSignIn,
+                onNavigateToAuthSignIn = onNavigateToAuthSignIn,
+                onNavigateToCreateAccount = onNavigateToCreateAccount,
+                onNavigateToSyncGenerate = onNavigateToSyncGenerate,
+                onNavigateToSyncClaim = onNavigateToSyncClaim,
+                onNavigateToQrSignIn = onNavigateToQrSignIn,
                 initialFocusRequester = initialFocusRequester
             )
         }

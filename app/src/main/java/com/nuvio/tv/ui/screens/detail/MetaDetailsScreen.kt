@@ -1664,7 +1664,9 @@ private fun MetaDetailsContent(
                         onToggleMovieWatched = onToggleMovieWatched,
                         mdbListRatings = mdbListRatings,
                         hideMetaInfoImdb = showMdbListImdb,
-                        tmdbRating = if (mdbListRatings?.isEmpty() != false) tmdbRating else null,
+                        // Keep TMDB when MDBList has no TMDB score (addon IMDb often null).
+                        // Only hide when MDBList already shows its own TMDB chip.
+                        tmdbRating = if (mdbListRatings?.tmdb == null) tmdbRating else null,
                         showFullReleaseDate = showFullReleaseDate,
                         trailerAvailable = trailerButtonEnabled && !trailerUrl.isNullOrBlank(),
                         onTrailerClick = onTrailerButtonClick,
@@ -2408,6 +2410,7 @@ private fun BackdropLayer(
             seekRequestToken = if (showTrailerControls) trailerSeekToken else 0,
             seekDeltaMs = if (showTrailerControls) trailerSeekDeltaMs else 0L,
             onRemoteKey = onTrailerControlKey,
+            playerFocusable = true,
             onProgressChanged = onTrailerProgressChanged,
             onEnded = onTrailerEnded,
             modifier = Modifier.fillMaxSize()

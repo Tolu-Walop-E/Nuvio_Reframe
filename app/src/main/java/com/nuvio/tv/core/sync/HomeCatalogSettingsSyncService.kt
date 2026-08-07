@@ -34,6 +34,25 @@ private const val PAYLOAD_SAMPLE_LIMIT = 5
 private const val HIDE_UNRELEASED_CONTENT_KEY = "hide_unreleased_content"
 private val HOME_CATALOG_LEGACY_SYNC_PLATFORMS = listOf(TV_LEGACY_SETTINGS_SYNC_PLATFORM, "mobile")
 
+internal const val GENRE_ROW_TARGET_CATALOG = "catalog"
+internal const val GENRE_ROW_TARGET_COLLECTION_FOLDER = "collection_folder"
+
+@Serializable
+data class SyncGenreRowTarget(
+    val kind: String,
+    @SerialName("addon_id") val addonId: String = "",
+    val type: String = "",
+    @SerialName("catalog_id") val catalogId: String = "",
+    @SerialName("collection_id") val collectionId: String = "",
+    @SerialName("folder_id") val folderId: String = ""
+) {
+    fun isValid(): Boolean = when (kind) {
+        GENRE_ROW_TARGET_CATALOG -> addonId.isNotBlank() && type.isNotBlank() && catalogId.isNotBlank()
+        GENRE_ROW_TARGET_COLLECTION_FOLDER -> collectionId.isNotBlank() && folderId.isNotBlank()
+        else -> false
+    }
+}
+
 @Serializable
 data class SyncCatalogItem(
     @SerialName("addon_id") val addonId: String,
@@ -50,6 +69,7 @@ data class SyncCatalogItem(
 data class SyncHomeCatalogPayload(
     @SerialName("hide_unreleased_content") val hideUnreleasedContent: Boolean = false,
     val items: List<SyncCatalogItem> = emptyList(),
+    @SerialName("genre_targets") val genreTargets: Map<String, SyncGenreRowTarget> = emptyMap(),
 )
 
 private data class RemoteHomeCatalogSettings(

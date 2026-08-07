@@ -128,6 +128,11 @@ android {
         buildConfigField("boolean", "DOVI_NATIVE_ENABLED", enableDoviNative.toString())
         buildConfigField("boolean", "DOVI_EXTRACTOR_HOOK_READY", doviExtractorHookReady.toString())
         buildConfigField("boolean", "SELF_HOSTED", selfHosted.toString())
+        buildConfigField("boolean", "FEATURE_EMAIL_PASSWORD_AUTH_ENABLED", "true")
+        // Device linking (sync codes) is on by default so self-hosted / DIY builds can
+        // link TVs. Override to false in a flavor if you ship a hosted-only release.
+        buildConfigField("boolean", "FEATURE_DEVICE_LINKING_ENABLED", "true")
+        buildConfigField("boolean", "FEATURE_TV_LOGIN_ENABLED", "false")
         if (enableDoviNative) {
             externalNativeBuild {
                 cmake {
@@ -185,17 +190,26 @@ android {
 
     signingConfigs {
         create("release") {
-            keyAlias = releaseKeyAliasValue
-            keyPassword = releaseKeyPasswordValue
-            storeFile = releaseStoreFilePath?.let(::file) ?: file("../nuviotv.jks")
-            storePassword = releaseStorePasswordValue
+            val keystoreFile = releaseStoreFilePath?.takeIf { it.isNotBlank() }?.let(::file) ?: rootProject.file("nuviotv.jks")
+            if (keystoreFile.exists() && keystoreFile.isFile) {
+                keyAlias = releaseKeyAliasValue
+                keyPassword = releaseKeyPasswordValue
+                storeFile = keystoreFile
+                storePassword = releaseStorePasswordValue
+            } else {
+                val debugConfig = getByName("debug")
+                keyAlias = debugConfig.keyAlias
+                keyPassword = debugConfig.keyPassword
+                storeFile = debugConfig.storeFile
+                storePassword = debugConfig.storePassword
+            }
         }
     }
 
     buildTypes {
         debug {
-            signingConfig = signingConfigs.getByName("release")
-            isDebuggable = false
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
+            isDebuggable = true
             isMinifyEnabled = false
 
             buildConfigField("boolean", "IS_DEBUG_BUILD", "true")
@@ -206,6 +220,8 @@ android {
             buildConfigField("String", "SUPABASE_ANON_KEY", buildConfigString(resolveProperty(devProperties, localProperties, "NUVIO_SUPABASE_ANON_KEY")))
             buildConfigField("String", "SUPABASE_FALLBACK_URL", buildConfigString(resolveProperty(devProperties, localProperties, "NUVIO_SUPABASE_FALLBACK_URL")))
             buildConfigField("String", "TV_LOGIN_WEB_BASE_URL", "\"${devProperties.getProperty("TV_LOGIN_WEB_BASE_URL", "https://nuvio.tv/tv-login")}\"")
+            buildConfigField("boolean", "FEATURE_DEVICE_LINKING_ENABLED", "true")
+            buildConfigField("boolean", "FEATURE_TV_LOGIN_ENABLED", "true")
             buildConfigField("String", "PARENTAL_GUIDE_API_URL", "\"${devProperties.getProperty("PARENTAL_GUIDE_API_URL", "")}\"")
             buildConfigField("String", "INTRODB_API_URL", "\"${devProperties.getProperty("INTRODB_API_URL", "")}\"")
             buildConfigField("String", "TRAILER_API_URL", "\"${devProperties.getProperty("TRAILER_API_URL", "")}\"")
@@ -229,7 +245,7 @@ android {
             signingConfig = if (useDebugReleaseSigning) {
                 signingConfigs.getByName("debug")
             } else {
-                signingConfigs.getByName("release")
+                signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
             }
 
             buildConfigField("boolean", "IS_DEBUG_BUILD", "false")

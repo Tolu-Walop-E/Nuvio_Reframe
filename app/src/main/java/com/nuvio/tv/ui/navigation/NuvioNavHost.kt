@@ -222,6 +222,16 @@ fun NuvioNavHost(
                 onNavigateToCatalogSeeAll = { catalogId, addonId, type ->
                     navController.navigate(Screen.CatalogSeeAll.createRoute(catalogId, addonId, type))
                 },
+                onNavigateToGenre = { catalogId, addonId, type, genre ->
+                    navController.navigate(
+                        Screen.CatalogSeeAll.createRoute(
+                            catalogId = catalogId,
+                            addonId = addonId,
+                            type = type,
+                            genre = genre
+                        )
+                    )
+                },
                 onNavigateToFolderDetail = { collectionId, folderId ->
                     navController.navigate(Screen.FolderDetail.createRoute(collectionId, folderId))
                 }
@@ -993,26 +1003,31 @@ fun NuvioNavHost(
         composable(Screen.Search.route) { backStackEntry ->
             val searchViewModel: com.nuvio.tv.ui.screens.search.SearchViewModel =
                 androidx.hilt.navigation.compose.hiltViewModel(backStackEntry)
-            SearchScreen(
-                viewModel = searchViewModel,
-                onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
-                    val heroBackdrop = HeroBackdropState.consumeAndClear()
-                    navController.navigate(
-                        Screen.Detail.createRoute(
-                            itemId = itemId,
-                            itemType = itemType,
-                            addonBaseUrl = addonBaseUrl,
-                            heroBackdropUrl = heroBackdrop
+            com.nuvio.tv.ui.screens.home.netflix.NetflixOffHomeChrome(
+                destination = com.nuvio.tv.ui.screens.home.netflix.NetflixShellDestination.Search,
+                backdropUrl = HeroBackdropState.lastDisplayedUrl
+            ) {
+                SearchScreen(
+                    viewModel = searchViewModel,
+                    onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
+                        val heroBackdrop = HeroBackdropState.consumeAndClear()
+                        navController.navigate(
+                            Screen.Detail.createRoute(
+                                itemId = itemId,
+                                itemType = itemType,
+                                addonBaseUrl = addonBaseUrl,
+                                heroBackdropUrl = heroBackdrop
+                            )
                         )
-                    )
-                },
-                onNavigateToSeeAll = { catalogId, addonId, type ->
-                    navController.navigate(
-                        Screen.CatalogSeeAll.createRoute(catalogId, addonId, type, fromSearch = true)
-                    )
-                },
-                onOpenDiscover = { navController.navigate(Screen.Discover.route) }
-            )
+                    },
+                    onNavigateToSeeAll = { catalogId, addonId, type ->
+                        navController.navigate(
+                            Screen.CatalogSeeAll.createRoute(catalogId, addonId, type, fromSearch = true)
+                        )
+                    },
+                    onOpenDiscover = { navController.navigate(Screen.Discover.route) }
+                )
+            }
         }
 
         composable(Screen.Discover.route) {
@@ -1033,52 +1048,76 @@ fun NuvioNavHost(
         }
 
         composable(Screen.Library.route) {
-            LibraryScreen(
-                showBuiltInHeader = !hideBuiltInHeaders,
-                onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
-                    navController.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl))
-                },
-                onCloudPlaybackResolved = { info ->
-                    val filename = info.filename ?: info.file.name
-                    navController.navigate(
-                        Screen.Player.createRoute(
-                            streamUrl = info.url,
-                            title = filename,
-                            streamName = filename,
-                            contentType = "cloud",
-                            contentName = info.item.name,
-                            videoId = "${info.item.stableKey}:${info.file.stableKey}",
-                            filename = filename,
-                            videoSize = info.videoSizeBytes,
-                            addonName = info.item.providerName,
-                            streamDescription = info.item.name
+            com.nuvio.tv.ui.screens.home.netflix.NetflixOffHomeChrome(
+                destination = com.nuvio.tv.ui.screens.home.netflix.NetflixShellDestination.Library,
+                backdropUrl = HeroBackdropState.lastDisplayedUrl
+            ) {
+                LibraryScreen(
+                    showBuiltInHeader = !hideBuiltInHeaders &&
+                        !com.nuvio.tv.ui.screens.home.netflix.NetflixHomeFeature.ENABLED,
+                    onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
+                        navController.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl))
+                    },
+                    onCloudPlaybackResolved = { info ->
+                        val filename = info.filename ?: info.file.name
+                        navController.navigate(
+                            Screen.Player.createRoute(
+                                streamUrl = info.url,
+                                title = filename,
+                                streamName = filename,
+                                contentType = "cloud",
+                                contentName = info.item.name,
+                                videoId = "${info.item.stableKey}:${info.file.stableKey}",
+                                filename = filename,
+                                videoSize = info.videoSizeBytes,
+                                addonName = info.item.providerName,
+                                streamDescription = info.item.name
+                            )
                         )
-                    )
-                }
-            )
+                    }
+                )
+            }
         }
 
         composable(Screen.Settings.route) {
-            SettingsScreen(
-                showBuiltInHeader = !hideBuiltInHeaders,
-                onNavigateToTracking = { navController.navigate(Screen.Tracking.route) },
-                onNavigateToAddons = { navController.navigate(Screen.AddonManager.route) },
-                onNavigateToPlugins = { navController.navigate(Screen.Plugins.route) },
-                onNavigateToAuthQrSignIn = { navController.navigate(Screen.AuthQrSignIn.route) },
-                onNavigateToManageProfiles = { navController.navigate(Screen.ManageProfiles.route) },
-                onNavigateToSupportersContributors = {
-                    navController.navigate(Screen.SupportersContributors.route)
-                },
-                onNavigateToLicensesAttributions = {
-                    navController.navigate(Screen.LicensesAttributions.route)
-                }
-            )
+            com.nuvio.tv.ui.screens.home.netflix.NetflixOffHomeChrome(
+                destination = com.nuvio.tv.ui.screens.home.netflix.NetflixShellDestination.Settings,
+                backdropUrl = HeroBackdropState.lastDisplayedUrl
+            ) {
+                SettingsScreen(
+                    showBuiltInHeader = !hideBuiltInHeaders &&
+                        !com.nuvio.tv.ui.screens.home.netflix.NetflixHomeFeature.ENABLED,
+                    onNavigateToTracking = { navController.navigate(Screen.Tracking.route) },
+                    onNavigateToAddons = { navController.navigate(Screen.AddonManager.route) },
+                    onNavigateToPlugins = { navController.navigate(Screen.Plugins.route) },
+                    onNavigateToAuthSignIn = { navController.navigate(Screen.AuthSignIn.route) },
+                    onNavigateToCreateAccount = { navController.navigate(Screen.AuthCreateAccount.route) },
+                    onNavigateToSyncGenerate = { navController.navigate(Screen.SyncCodeGenerate.route) },
+                    onNavigateToSyncClaim = { navController.navigate(Screen.SyncCodeClaim.route) },
+                    onNavigateToQrSignIn = { navController.navigate(Screen.AuthQrSignIn.route) },
+                    onNavigateToManageProfiles = { navController.navigate(Screen.ManageProfiles.route) },
+                    onNavigateToSupportersContributors = {
+                        navController.navigate(Screen.SupportersContributors.route)
+                    },
+                    onNavigateToLicensesAttributions = {
+                        navController.navigate(Screen.LicensesAttributions.route)
+                    }
+                )
+            }
         }
 
         composable(Screen.ManageProfiles.route) {
             ProfileSelectionScreen(
                 onProfileSelected = {},
                 screenMode = ProfileSelectionMode.Management,
+                onBackPress = { navController.popBackStack() }
+            )
+        }
+
+        composable(Screen.ProfileSelection.route) {
+            ProfileSelectionScreen(
+                onProfileSelected = { navController.popBackStack() },
+                screenMode = ProfileSelectionMode.Selection,
                 onBackPress = { navController.popBackStack() }
             )
         }
@@ -1177,12 +1216,27 @@ fun NuvioNavHost(
                 navArgument("folderId") { type = NavType.StringType }
             )
         ) {
+            val homeBackStackEntry = androidx.compose.runtime.remember {
+                try { navController.getBackStackEntry(Screen.Home.route) } catch (_: Exception) { null }
+            }
+            val homeViewModel: com.nuvio.tv.ui.screens.home.HomeViewModel? =
+                if (homeBackStackEntry != null) {
+                    androidx.hilt.navigation.compose.hiltViewModel(homeBackStackEntry)
+                } else {
+                    null
+                }
             com.nuvio.tv.ui.screens.collection.FolderDetailScreen(
                 onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
                     val heroBackdrop = HeroBackdropState.consumeAndClear()
                     navController.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl, heroBackdropUrl = heroBackdrop))
                 },
-                onBack = { navController.popBackStack() }
+                onBack = {
+                    // Don't force focus to the genre strip here: the home
+                    // screen restores the exact rail/card the user left from
+                    // via its saved focus state (works for genre chips and
+                    // collection rails alike).
+                    navController.popBackStack()
+                }
             )
         }
 
@@ -1195,27 +1249,47 @@ fun NuvioNavHost(
         }
 
         composable(Screen.Account.route) {
+            AuthSignInScreen(
+                onBackPress = { navController.popBackStack() },
+                onSuccess = { navController.popBackStack() },
+                onNavigateToQrSignIn = { navController.navigate(Screen.AuthQrSignIn.route) },
+                onNavigateToSyncClaim = { navController.navigate(Screen.SyncCodeClaim.route) }
+            )
+        }
+
+        composable(Screen.AuthSignIn.route) {
+            AuthSignInScreen(
+                onBackPress = { navController.popBackStack() },
+                onSuccess = { navController.popBackStack() },
+                onNavigateToQrSignIn = { navController.navigate(Screen.AuthQrSignIn.route) },
+                onNavigateToSyncClaim = { navController.navigate(Screen.SyncCodeClaim.route) }
+            )
+        }
+
+        composable(Screen.AuthCreateAccount.route) {
+            AuthSignInScreen(
+                onBackPress = { navController.popBackStack() },
+                initialMode = com.nuvio.tv.ui.screens.account.EmailAuthMode.CreateAccount,
+                onSuccess = { navController.popBackStack() },
+                onNavigateToQrSignIn = { navController.navigate(Screen.AuthQrSignIn.route) },
+                onNavigateToSyncClaim = { navController.navigate(Screen.SyncCodeClaim.route) }
+            )
+        }
+
+        composable(Screen.AuthQrSignIn.route) {
             AuthQrSignInScreen(
                 onBackPress = { navController.popBackStack() }
             )
         }
 
-        composable(Screen.AuthSignIn.route) {
-            if (BuildConfig.SELF_HOSTED) {
-                AuthQrSignInScreen(
-                    onBackPress = { navController.popBackStack() }
-                )
-            } else {
-                AuthSignInScreen(
-                    onBackPress = { navController.popBackStack() },
-                    onNavigateToQrSignIn = { navController.navigate(Screen.AuthQrSignIn.route) },
-                    onSuccess = { navController.popBackStack() }
-                )
-            }
+        composable(Screen.SyncCodeGenerate.route) {
+            com.nuvio.tv.ui.screens.account.SyncCodeGenerateScreen(
+                onBackPress = { navController.popBackStack() }
+            )
         }
 
-        composable(Screen.AuthQrSignIn.route) {
-            AuthQrSignInScreen(
+        composable(Screen.SyncCodeClaim.route) {
+            com.nuvio.tv.ui.screens.account.SyncCodeClaimScreen(
                 onBackPress = { navController.popBackStack() }
             )
         }
@@ -1235,6 +1309,11 @@ fun NuvioNavHost(
                 navArgument("fromSearch") {
                     type = NavType.BoolType
                     defaultValue = false
+                },
+                navArgument("genre") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
                 }
             )
         ) { backStackEntry ->
@@ -1242,6 +1321,7 @@ fun NuvioNavHost(
             val addonId = backStackEntry.arguments?.getString("addonId") ?: ""
             val type = backStackEntry.arguments?.getString("type") ?: ""
             val fromSearch = backStackEntry.arguments?.getBoolean("fromSearch") ?: false
+            val genre = backStackEntry.arguments?.getString("genre")?.takeIf { it.isNotBlank() }
 
             // When coming from search, get the SearchViewModel from the Search back stack entry
             // so we share the same data (existing results + pagination)
@@ -1268,6 +1348,7 @@ fun NuvioNavHost(
                 catalogId = catalogId,
                 addonId = addonId,
                 type = type,
+                genre = genre,
                 searchViewModel = searchViewModel,
                 viewModel = homeViewModel,
                 onNavigateToDetail = { itemId, itemType, addonBaseUrl ->

@@ -230,6 +230,9 @@ fun CollectionManagementScreen(
                 NuvioButton(onClick = { viewModel.showImportDialog() }) {
                     Text(stringResource(R.string.collections_import))
                 }
+                NuvioButton(onClick = { viewModel.importBundledXperienceAnime() }) {
+                    Text(stringResource(R.string.collections_import_bundled_xperience))
+                }
                 NuvioButton(
                     onClick = {
                         lastFocusedId = null

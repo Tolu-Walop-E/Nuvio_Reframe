@@ -435,6 +435,42 @@ internal fun buildContinueWatchingItem(
     )
 }
 
+internal fun heroPreviewFromMeta(
+    item: MetaPreview,
+    useLandscapePosters: Boolean = true,
+    strTypeMovie: String = "",
+    strTypeSeries: String = ""
+): HeroPreview {
+    return HeroPreview(
+        title = item.name,
+        logo = item.logo,
+        description = item.description,
+        contentTypeText = when (item.apiType.lowercase()) {
+            "movie" -> strTypeMovie.ifBlank { item.apiType.replaceFirstChar { ch -> ch.uppercase() } }
+            "series" -> strTypeSeries.ifBlank { item.apiType.replaceFirstChar { ch -> ch.uppercase() } }
+            else -> item.apiType.replaceFirstChar { ch -> ch.uppercase() }
+        },
+        isSeries = isSeriesType(item.apiType),
+        yearText = extractYearText(item.type, item.releaseInfo, item.released, showFullDate = true),
+        runtimeText = formatHeroRuntime(item.runtime),
+        imdbText = item.imdbRating?.let { String.format("%.1f", it) },
+        ageRatingText = item.ageRating,
+        statusText = item.status,
+        countryText = item.country,
+        languageText = item.language?.uppercase(),
+        genres = item.genres.take(3).asStable(),
+        poster = item.poster,
+        backdrop = item.backdropUrl,
+        imageUrl = if (useLandscapePosters) {
+            item.backdropUrl ?: item.poster
+        } else {
+            item.poster ?: item.backdropUrl
+        },
+        frozenBackdropUrl = item.backdropUrl,
+        frozenLogoUrl = item.logo
+    )
+}
+
 internal fun buildCatalogItem(
     item: MetaPreview,
     row: CatalogRow,

@@ -1237,10 +1237,13 @@ class MetaDetailsViewModel @Inject constructor(
                 }
 
                 val tmdbLookupType = tmdbContentType.toApiString()
+                val imdbId = extractImdbId(meta.id)
+                    ?: extractImdbId(itemId)
+                    ?: extractImdbId(meta.imdbId)
                 val tmdbIdString = tmdbService.ensureTmdbId(meta.id, tmdbLookupType)
                     ?: tmdbService.ensureTmdbId(itemId, itemType)
+                    ?: imdbId?.let { tmdbService.ensureTmdbId(it, tmdbLookupType) }
                 val tmdbId = tmdbIdString?.toIntOrNull()
-                val imdbId = extractImdbId(meta.id) ?: extractImdbId(itemId)
 
                 if (tmdbId == null && imdbId == null) {
                     _uiState.update { state ->
@@ -1257,6 +1260,10 @@ class MetaDetailsViewModel @Inject constructor(
                     return@launch
                 }
 
+                Log.i(
+                    TAG,
+                    "Loading episode ratings for ${meta.id} imdbId=$imdbId tmdbId=$tmdbId"
+                )
                 val ratings = imdbEpisodeRatingsRepository.getEpisodeRatings(
                     imdbId = imdbId,
                     tmdbId = tmdbId
@@ -1269,7 +1276,11 @@ class MetaDetailsViewModel @Inject constructor(
                         state.copy(
                             episodeImdbRatings = ratings,
                             isEpisodeRatingsLoading = false,
-                            episodeRatingsError = null
+                            episodeRatingsError = if (ratings.isEmpty()) {
+                                localizedContext.getString(R.string.ratings_unavailable)
+                            } else {
+                                null
+                            }
                         )
                     }
                 }

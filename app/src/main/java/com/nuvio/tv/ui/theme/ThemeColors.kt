@@ -88,6 +88,52 @@ object ThemeColors {
         backgroundCard = NuvioPrimitives.neutral850
     )
 
+    val Slate = ThemeColorPalette(
+        secondary = NuvioPrimitives.slate500,
+        secondaryVariant = NuvioPrimitives.slate700,
+        focusRing = NuvioPrimitives.slate300,
+        focusBackground = Color(0xFF1A222C),
+        background = Color(0xFF0B0E12),
+        backgroundElevated = Color(0xFF151A21),
+        backgroundCard = Color(0xFF1A222C)
+    )
+
+    val Cyan = ThemeColorPalette(
+        secondary = NuvioPrimitives.cyan500,
+        secondaryVariant = NuvioPrimitives.cyan700,
+        focusRing = NuvioPrimitives.cyan300,
+        focusBackground = Color(0xFF0F2A30),
+        backgroundCard = Color(0xFF142428)
+    )
+
+    val Gold = ThemeColorPalette(
+        secondary = NuvioPrimitives.gold500,
+        secondaryVariant = NuvioPrimitives.gold700,
+        onSecondary = NuvioPrimitives.neutral925,
+        onSecondaryVariant = NuvioPrimitives.neutral925,
+        focusRing = NuvioPrimitives.gold300,
+        focusBackground = Color(0xFF2E2410),
+        backgroundCard = Color(0xFF242014)
+    )
+
+    val Magenta = ThemeColorPalette(
+        secondary = NuvioPrimitives.magenta500,
+        secondaryVariant = NuvioPrimitives.magenta700,
+        focusRing = NuvioPrimitives.magenta300,
+        focusBackground = Color(0xFF2C1020),
+        backgroundCard = Color(0xFF24141C)
+    )
+
+    val Graphite = ThemeColorPalette(
+        secondary = NuvioPrimitives.graphite500,
+        secondaryVariant = NuvioPrimitives.graphite700,
+        focusRing = NuvioPrimitives.graphite300,
+        focusBackground = Color(0xFF262626),
+        background = Color(0xFF0A0A0A),
+        backgroundElevated = Color(0xFF161616),
+        backgroundCard = Color(0xFF1C1C1C)
+    )
+
     fun getColorPalette(theme: AppTheme): ThemeColorPalette {
         return when (theme) {
             AppTheme.CRIMSON -> Crimson
@@ -97,6 +143,11 @@ object ThemeColors {
             AppTheme.AMBER -> Amber
             AppTheme.ROSE -> Rose
             AppTheme.WHITE -> White
+            AppTheme.SLATE -> Slate
+            AppTheme.CYAN -> Cyan
+            AppTheme.GOLD -> Gold
+            AppTheme.MAGENTA -> Magenta
+            AppTheme.GRAPHITE -> Graphite
         }
     }
 }

@@ -33,6 +33,7 @@ object DeepLinkParser {
                 if (type.isBlank() || id.isBlank()) null else AppDeepLink.Meta(type = type, id = id)
             }
             "imdb", "tmdb" -> parseProviderMetaDeepLink(host, pathSegments, parsedUrl)
+            "viewpack", "view-pack" -> parseViewPackInstall(parsedUrl)
             "auth" -> null
             else -> {
                 if (looksLikeAddonHost(host)) {
@@ -42,6 +43,15 @@ object DeepLinkParser {
                 }
             }
         }
+    }
+
+    private fun parseViewPackInstall(parsedUrl: URI): AppDeepLink.ViewPackInstall? {
+        val packUrl = firstParameter(queryParameters(parsedUrl), "url")?.trim().orEmpty()
+        if (packUrl.isBlank()) return null
+        val lower = packUrl.lowercase()
+        // Production install links are HTTPS; reject other schemes in the deep link.
+        if (!lower.startsWith("https://")) return null
+        return AppDeepLink.ViewPackInstall(packUrl = packUrl)
     }
 
     private fun parseMetaFromParameters(parsedUrl: URI): AppDeepLink.Meta? {

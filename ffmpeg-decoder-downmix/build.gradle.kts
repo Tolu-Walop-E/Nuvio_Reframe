@@ -16,8 +16,20 @@ fun localPath(name: String): String? {
         ?: localProperties.getProperty(name)
 }
 
+fun truthy(value: String?): Boolean {
+    return value.equals("true", ignoreCase = true) ||
+        value.equals("1", ignoreCase = true) ||
+        value.equals("yes", ignoreCase = true)
+}
+
+val useLocalFfmpegDecoder = truthy(
+    providers.gradleProperty("useLocalFfmpegDecoder").orNull
+        ?: localPath("USE_LOCAL_FFMPEG_DECODER")
+)
+
 val ffmpegSourceDir = localPath("FFMPEG_SOURCE_DIR")
 val ffmpegBuildDir = localPath("FFMPEG_BUILD_DIR")
+val canBuildNative = useLocalFfmpegDecoder && !ffmpegSourceDir.isNullOrBlank() && !ffmpegBuildDir.isNullOrBlank()
 
 android {
     namespace = "androidx.media3.decoder.ffmpeg"
@@ -29,7 +41,7 @@ android {
 
         externalNativeBuild {
             cmake {
-                if (!ffmpegSourceDir.isNullOrBlank() && !ffmpegBuildDir.isNullOrBlank()) {
+                if (canBuildNative) {
                     arguments += listOf(
                         "-DFFMPEG_SOURCE_DIR=$ffmpegSourceDir",
                         "-DFFMPEG_BUILD_DIR=$ffmpegBuildDir"
@@ -48,10 +60,12 @@ android {
         buildConfig = false
     }
 
-    externalNativeBuild {
-        cmake {
-            path = file("src/main/jni/CMakeLists.txt")
-            version = "3.22.1"
+    if (canBuildNative) {
+        externalNativeBuild {
+            cmake {
+                path = file("src/main/jni/CMakeLists.txt")
+                version = "3.22.1"
+            }
         }
     }
 }

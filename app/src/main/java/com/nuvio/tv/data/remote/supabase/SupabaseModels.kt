@@ -189,6 +189,13 @@ data class SupabaseCollectionBlob(
 )
 
 @Serializable
+data class SupabaseViewPackBlob(
+    @SerialName("profile_id") val profileId: Int = 1,
+    @SerialName("pack_json") val packJson: JsonObject = buildJsonObject { },
+    @SerialName("updated_at") val updatedAt: String? = null
+)
+
+@Serializable
 data class SupabaseHomeCatalogSettingsBlob(
     @SerialName("profile_id") val profileId: Int = 1,
     @SerialName("settings_json") val settingsJson: JsonObject = buildJsonObject { },

@@ -11,6 +11,11 @@ import com.nuvio.tv.core.tmdb.TmdbCollectionSourceResolver
 import com.nuvio.tv.core.util.hasNoReleaseInfo
 import com.nuvio.tv.core.util.isUnreleased
 import com.nuvio.tv.core.trakt.TraktPublicListSourceResolver
+import com.nuvio.tv.core.viewpack.OPEN_STYLE_GRID
+import com.nuvio.tv.core.viewpack.OPEN_STYLE_REFRAME
+import com.nuvio.tv.core.viewpack.OPEN_STYLE_ROWS
+import com.nuvio.tv.core.viewpack.parseViewPackJson
+import com.nuvio.tv.core.viewpack.resolveCollectionOpenStyle
 import com.nuvio.tv.data.trailer.TrailerService
 import com.nuvio.tv.data.local.CollectionsDataStore
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
@@ -80,7 +85,9 @@ data class FolderDetailUiState(
     val selectedTabIndex: Int = 0,
     val isLoading: Boolean = true,
     val followLayoutHomeState: HomeUiState? = null,
-    val movieWatchedStatus: Map<String, Boolean> = emptyMap()
+    val movieWatchedStatus: Map<String, Boolean> = emptyMap(),
+    /** Pack opened this collection in Reframe view and wants focused poster info. */
+    val packFocusedPosterInfo: Boolean = false
 )
 
 data class FolderTab(
@@ -209,6 +216,40 @@ class FolderDetailViewModel @Inject constructor(
             return state.tabs.firstOrNull()?.isAllTab == true && folder.sources.size >= 2
         }
 
+    private data class PackOpenPrefs(
+        val viewMode: FolderViewMode,
+        /** Pack asked for the Netflix-style focused poster footer. */
+        val focusedPosterInfo: Boolean
+    )
+
+    /**
+     * Studio pack override for how this collection's folders open.
+     * Falls back to the collection's own view mode when the pack says nothing.
+     */
+    private suspend fun resolvePackOpenPrefs(
+        collection: com.nuvio.tv.domain.model.Collection?
+    ): PackOpenPrefs {
+        val ownMode = collection?.viewMode ?: FolderViewMode.TABBED_GRID
+        val fallback = PackOpenPrefs(ownMode, false)
+        val id = collection?.id ?: return fallback
+        val packJson = runCatching { layoutPreferenceDataStore.activeViewPackJson.first() }
+            .getOrNull()
+            ?.takeIf { it.isNotBlank() }
+            ?: return fallback
+        val pack = runCatching { parseViewPackJson(packJson) }.getOrNull() ?: return fallback
+        val style = resolveCollectionOpenStyle(pack, id) ?: return fallback
+        val viewMode = when (style) {
+            OPEN_STYLE_REFRAME -> FolderViewMode.FOLLOW_LAYOUT
+            OPEN_STYLE_GRID -> FolderViewMode.TABBED_GRID
+            OPEN_STYLE_ROWS -> FolderViewMode.ROWS
+            else -> ownMode
+        }
+        return PackOpenPrefs(
+            viewMode = viewMode,
+            focusedPosterInfo = style == OPEN_STYLE_REFRAME && pack.showFocusedPosterInfo
+        )
+    }
+
     private fun loadFolder() {
         viewModelScope.launch {
             val collections = collectionsDataStore.collections.first()
@@ -216,11 +257,13 @@ class FolderDetailViewModel @Inject constructor(
             val folder = collection?.folders?.find { it.id == folderId }
 
             if (folder == null || folder.sources.isEmpty()) {
+                val emptyPrefs = resolvePackOpenPrefs(collection)
                 _uiState.update {
                     it.copy(
                         folder = folder,
                         collectionTitle = collection?.title ?: "",
-                        viewMode = collection?.viewMode ?: FolderViewMode.TABBED_GRID,
+                        viewMode = emptyPrefs.viewMode,
+                        packFocusedPosterInfo = emptyPrefs.focusedPosterInfo,
                         isLoading = false
                     )
                 }
@@ -247,7 +290,8 @@ class FolderDetailViewModel @Inject constructor(
             val posterCardCornerRadiusDp = layoutPreferenceDataStore.posterCardCornerRadiusDp.first()
             val showAll = (collection?.showAllTab ?: true) && folder.sources.size >= 2
 
-            val viewMode = collection?.viewMode ?: FolderViewMode.TABBED_GRID
+            val packOpenPrefs = resolvePackOpenPrefs(collection)
+            val viewMode = packOpenPrefs.viewMode
             val useShimmerPlaceholders = viewMode == FolderViewMode.FOLLOW_LAYOUT &&
                 (homeLayout == HomeLayout.MODERN || homeLayout == HomeLayout.CLASSIC)
 
@@ -326,6 +370,7 @@ class FolderDetailViewModel @Inject constructor(
                     collectionTitle = collection?.title ?: "",
                     viewMode = viewMode,
                     homeLayout = homeLayout,
+                    packFocusedPosterInfo = packOpenPrefs.focusedPosterInfo,
                     posterLabelsEnabled = posterLabelsEnabled,
                     catalogAddonNameEnabled = catalogAddonNameEnabled,
                     catalogTypeSuffixEnabled = catalogTypeSuffixEnabled,
@@ -539,7 +584,11 @@ class FolderDetailViewModel @Inject constructor(
                         heroSectionEnabled = false,
                         isLoading = anyLoading,
                         homeLayout = s.homeLayout,
-                        posterLabelsEnabled = if (s.homeLayout == HomeLayout.MODERN) false else s.posterLabelsEnabled,
+                        posterLabelsEnabled = if (s.homeLayout == HomeLayout.MODERN) {
+                            s.packFocusedPosterInfo
+                        } else {
+                            s.posterLabelsEnabled
+                        },
                         modernLandscapePostersEnabled = s.modernLandscapePostersEnabled,
                         modernHeroFullScreenBackdropEnabled = s.modernHeroFullScreenBackdropEnabled,
                         catalogAddonNameEnabled = s.catalogAddonNameEnabled,

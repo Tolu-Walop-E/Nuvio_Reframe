@@ -8,6 +8,7 @@
 /.idea/workspace.xml
 /.idea/navEditor.xml
 /.idea/assetWizardSettings.xml
+/.idea/planningMode.xml
 .DS_Store
 __pycache__/
 *.py[cod]
@@ -22,6 +23,10 @@ local.properties
 libass-android
 Stremio addons refer
 nuviotv.jks
+/dist
+# Ad-hoc debugging artifacts dropped at the repo root (adb screencaps, pulled prefs)
+/*.png
+/tmp_*
 CLAUDE.md
 build_and_install.sh
 android-tv-samples
@@ -50,7 +55,6 @@ scripts/*
 !scripts/release_beta.py
 !scripts/tests/
 !scripts/tests/*.py
-/supabase
 tv-samples
 HOME_UI_OPTIMIZATION_NOTES.local.md
 .kotlin/
@@ -60,3 +64,7 @@ logs
 AGENTS.md
 docs/
 status-page/
+
+# Baked TV login page (regen locally; contains public anon key)
+supabase/web/hosted/
+
