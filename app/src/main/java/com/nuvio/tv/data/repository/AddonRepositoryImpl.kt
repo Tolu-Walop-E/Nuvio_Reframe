@@ -44,8 +44,10 @@ class AddonRepositoryImpl @Inject constructor(
     companion object {
         private const val TAG = "AddonRepository"
         private const val MANIFEST_CACHE_PREFS = "addon_manifest_cache"
-        private const val MANIFEST_CACHE_KEY = "manifests_v2"
-        private const val LEGACY_MANIFEST_CACHE_KEY = "manifests"
+        /** Bumped so upgrades discard stale catalog titles (e.g. BingeCat BYW seed names). */
+        private const val MANIFEST_CACHE_KEY = "manifests_v3"
+        private const val LEGACY_MANIFEST_CACHE_KEY_V1 = "manifests"
+        private const val LEGACY_MANIFEST_CACHE_KEY_V2 = "manifests_v2"
         private const val MANIFEST_SUFFIX = "/manifest.json"
         // Dynamic catalog titles (BingeCat BYW seeds, etc.) change without a new addon URL.
         // Keep the in-app TTL short so home rails pick up renamed catalogs without a cache wipe.
@@ -98,6 +100,9 @@ class AddonRepositoryImpl @Inject constructor(
     @Volatile
     private var lastManifestRefreshTime = 0L
     private var manifestRefreshJob: Job? = null
+    /** One forced network refresh per process so upgrades can't keep painting stale titles. */
+    @Volatile
+    private var coldStartManifestRefreshPending = true
 
     init {
         syncScope.launch { loadManifestCacheFromDisk() }
@@ -106,8 +111,8 @@ class AddonRepositoryImpl @Inject constructor(
     private fun isCacheStale(): Boolean =
         System.currentTimeMillis() - lastManifestRefreshTime > MANIFEST_CACHE_TTL_MS
 
-    private fun scheduleManifestRefresh(urls: List<String>) {
-        if (!isCacheStale()) return
+    private fun scheduleManifestRefresh(urls: List<String>, force: Boolean = false) {
+        if (!force && !isCacheStale()) return
         if (manifestRefreshJob?.isActive == true) return
         if (urls.isEmpty()) return
         manifestRefreshJob = syncScope.launch {
@@ -119,7 +124,8 @@ class AddonRepositoryImpl @Inject constructor(
             val anyUpdated = refreshed.any { it is NetworkResult.Success }
             if (anyUpdated) {
                 lastManifestRefreshTime = System.currentTimeMillis()
-                Log.d(TAG, "Background manifest refresh completed")
+                coldStartManifestRefreshPending = false
+                Log.d(TAG, "Background manifest refresh completed force=$force")
             }
         }
     }
@@ -127,17 +133,39 @@ class AddonRepositoryImpl @Inject constructor(
     private suspend fun loadManifestCacheFromDisk() = kotlinx.coroutines.withContext(Dispatchers.IO) {
         try {
             val prefs = context.getSharedPreferences(MANIFEST_CACHE_PREFS, Context.MODE_PRIVATE)
-            if (prefs.contains(LEGACY_MANIFEST_CACHE_KEY)) {
-                prefs.edit().remove(LEGACY_MANIFEST_CACHE_KEY).apply()
+            // Drop older schemas so APK updates can't resurrect stale catalog titles
+            // (BingeCat "Because you watched Ready Player One" vs live "Because you watched...").
+            val legacyEditor = prefs.edit()
+            var removedLegacy = false
+            if (prefs.contains(LEGACY_MANIFEST_CACHE_KEY_V1)) {
+                legacyEditor.remove(LEGACY_MANIFEST_CACHE_KEY_V1)
+                removedLegacy = true
+            }
+            if (prefs.contains(LEGACY_MANIFEST_CACHE_KEY_V2)) {
+                legacyEditor.remove(LEGACY_MANIFEST_CACHE_KEY_V2)
+                removedLegacy = true
+            }
+            if (removedLegacy) {
+                legacyEditor.apply()
+                Log.i(TAG, "Cleared legacy addon manifest disk cache")
             }
             val json = prefs.getString(MANIFEST_CACHE_KEY, null) ?: return@withContext
             val type = object : TypeToken<Map<String, Addon>>() {}.type
             val cached: Map<String, Addon> = gson.fromJson(json, type) ?: return@withContext
+            var added = 0
             synchronized(manifestCacheLock) {
-                manifestCache.putAll(cached)
+                // Never clobber fresher in-memory manifests that won the race against disk IO.
+                cached.forEach { (url, addon) ->
+                    if (!manifestCache.containsKey(url)) {
+                        manifestCache[url] = addon
+                        added++
+                    }
+                }
             }
-            bumpManifestCacheRevision()
-            Log.d(TAG, "Loaded ${cached.size} cached manifests from disk")
+            if (added > 0) {
+                bumpManifestCacheRevision()
+                Log.d(TAG, "Loaded $added cached manifests from disk (${cached.size} on disk)")
+            }
         } catch (e: Exception) {
             Log.w(TAG, "Failed to load manifest cache from disk", e)
         }
@@ -212,12 +240,14 @@ class AddonRepositoryImpl @Inject constructor(
                     // don't immediately schedule a duplicate background refresh.
                     if (fresh.isNotEmpty()) {
                         lastManifestRefreshTime = System.currentTimeMillis()
+                        coldStartManifestRefreshPending = false
                     }
                 } else {
-                    // Served from cache: refresh in background when TTL elapsed so
-                    // renamed catalogs (BingeCat BYW, etc.) land without a cache wipe.
+                    // Served from cache: always network-refresh once per process start
+                    // (APK update keeps SharedPreferences), then throttle by TTL.
                     scheduleManifestRefresh(
-                        urls.filter { url -> enabledByUrl[canonicalizeUrl(url)] ?: true }
+                        urls = urls.filter { url -> enabledByUrl[canonicalizeUrl(url)] ?: true },
+                        force = coldStartManifestRefreshPending
                     )
                 }
             }.flowOn(Dispatchers.IO)
