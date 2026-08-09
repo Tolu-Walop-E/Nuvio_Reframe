@@ -42,6 +42,14 @@
 -keep class com.nuvio.tv.data.remote.dto.** { *; }
 -keep class com.nuvio.tv.domain.model.** { *; }
 
+# ── Reframe Studio view packs + account sync payloads ─────────────────────────
+# Gson binds these by field name and constructs them reflectively, which R8
+# cannot see. Renaming the fields leaves every one null, and the non-null field
+# analysis (which only observes the export path) has already dropped the null
+# checks, so a pulled pack dies with an NPE instead of using its defaults.
+-keep class com.nuvio.tv.core.viewpack.** { *; }
+-keep class com.nuvio.tv.core.sync.** { *; }
+
 # ── Kotlin ─────────────────────────────────────────────────────────────────────
 -keepattributes *Annotation*
 -keepattributes InnerClasses

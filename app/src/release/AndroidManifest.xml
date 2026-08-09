@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+      Release builds ship as "NuvioSplice". A literal beats @string/app_name in
+      every locale; the translated app_name entries in main all say "Nuvio".
+    -->
+    <application
+        android:label="NuvioSplice"
+        tools:replace="android:label" />
+</manifest>

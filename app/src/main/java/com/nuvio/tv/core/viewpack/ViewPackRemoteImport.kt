@@ -79,7 +79,7 @@ object ViewPackRemoteImport {
     }
 
     /**
-     * Resolve clipboard/deep-link text, fetch if needed, parse + rotate, return serialized pack JSON
+     * Resolve clipboard/deep-link text, fetch if needed, parse, return serialized pack JSON
      * ready for [com.nuvio.tv.data.local.LayoutPreferenceDataStore.setActiveViewPackJson].
      */
     suspend fun loadAndSerialize(text: String): Pair<String, String> {
@@ -90,8 +90,7 @@ object ViewPackRemoteImport {
             is PackPayload.RemoteUrl -> fetchPackJson(payload.url)
         }
         val pack = parseViewPackJson(json)
-        val rotated = applyUnlockedRotation(pack)
-        return rotated.pack.name to serializeViewPackJson(rotated.pack)
+        return pack.name to serializeViewPackJson(pack)
     }
 
     private fun queryParameters(parsedUrl: URI): Map<String, String> {

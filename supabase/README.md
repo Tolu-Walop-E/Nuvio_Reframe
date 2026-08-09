@@ -1,6 +1,6 @@
 # Nuvio TV Supabase Backend
 
-This directory contains the Nuvio TV Supabase backend used by the Android cloud fork: profiles/addons/plugins, collections and home-catalog settings, profile settings blobs, library / watch-progress / watched-items sync, profile PINs, sync-code device linking, and TV QR login (SQL + `tv-logins-exchange` Edge Function). Provider credential persistence and branded avatar asset packs remain optional follow-ups.
+This directory contains the Nuvio TV Supabase backend used by the Android cloud fork: profiles/addons/plugins, collections and home-catalog settings, profile settings blobs, library / watch-progress / watched-items sync, provider credentials, profile PINs, sync-code device linking, and TV QR login (SQL + `tv-logins-exchange` Edge Function). Branded avatar asset packs remain an optional follow-up.
 
 ## Prerequisites
 
@@ -111,7 +111,6 @@ An Android TV device or emulator cannot usually reach the host through `127.0.0.
 
 ## Not Implemented
 
-- Provider credential persistence.
 - Realtime subscriptions/publications.
 - Supabase Storage for non-avatar media (avatar bucket is documented under Avatars above).
 - Hosted approve-web UI for TV login (`supabase/web/tv-login.html`). Do not host this on Supabase Storage or Edge Functions — both rewrite `text/html` to `text/plain` with `nosniff`, so phones show raw HTML source. Bake URL+anon into the page, serve it from any normal HTTPS static host, and point `TV_LOGIN_WEB_BASE_URL` at it. Quick local test: `.\supabase\scripts\serve-tv-login.ps1`.
@@ -140,6 +139,15 @@ Migration `20260803160000_profile_settings_blob.sql` adds:
 
 - Table `profile_settings_blobs` (per user/profile/platform)
 - `sync_push_profile_settings_blob` / `sync_pull_profile_settings_blob` for `ProfileSettingsSyncService`
+
+## Provider Credentials
+
+Migration `20260807220000_provider_credentials.sql` adds:
+
+- Table `provider_credentials` (per user/profile/provider), keyed `debrid:<id>`, `mdblist`, `animeskip`
+- `sync_push_provider_credentials` / `sync_seed_provider_credentials` / `sync_pull_provider_credentials` for `ProviderCredentialSyncService`
+
+Push is a full snapshot: providers absent from the payload are deleted. Seed only fills gaps — it inserts providers the account has never stored and replaces blank values, so a device that has not yet pulled cannot overwrite a real key with an empty one.
 
 ## PIN, Sync Codes, TV Login
 

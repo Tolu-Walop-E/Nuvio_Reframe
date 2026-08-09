@@ -38,6 +38,7 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import okhttp3.Cache
+import okhttp3.CacheControl
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -118,11 +119,17 @@ object NetworkModule {
             .readTimeout(60, TimeUnit.SECONDS)
             .addInterceptor { chain ->
                 val version = BuildConfig.VERSION_NAME.ifBlank { "dev" }
-                val request = chain.request().newBuilder()
+                val original = chain.request()
+                val builder = original.newBuilder()
                     .header("User-Agent", "Nuvio/$version")
                     .header("Accept-Language", buildAcceptLanguageHeader())
-                    .build()
-                chain.proceed(request)
+                // Addon manifests hold mutable catalog titles (e.g. BingeCat BYW). Never serve
+                // those from OkHttp's disk cache or rail labels can freeze for hours.
+                val path = original.url.encodedPath
+                if (path.endsWith("/manifest.json") || path.endsWith("manifest.json")) {
+                    builder.cacheControl(CacheControl.FORCE_NETWORK)
+                }
+                chain.proceed(builder.build())
             }
             .addInterceptor(SentryNetworkBreadcrumbInterceptor())
             // Prevent OkHttp from caching error responses (4xx/5xx).

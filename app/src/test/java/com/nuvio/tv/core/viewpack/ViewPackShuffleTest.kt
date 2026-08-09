@@ -50,17 +50,42 @@ class ViewPackShuffleTest {
         val pack = ViewPack(
             blocks = listOf(rail("a", 0, false), rail("b", 100, false), rail("c", 200, false)),
             rotateUnlocked = true,
-            rotateIntervalHours = 12,
-            lastShuffleAt = 1_000L,
-            shuffleSeed = "first"
+            rotateIntervalHours = 12
         )
-        val within = applyUnlockedRotation(pack, nowMs = 1_000L + 11 * 60 * 60 * 1000L)
-        assertFalse(within.didShuffle)
-        assertEquals("first", within.seed)
+        val state = ViewPackRotationState(seed = "first", lastShuffleAt = 1_000L)
 
-        val after = applyUnlockedRotation(pack, nowMs = 1_000L + 13 * 60 * 60 * 1000L)
+        val within = rotateUnlockedBlocks(pack, state, nowMs = 1_000L + 11 * 60 * 60 * 1000L)
+        assertFalse(within.didShuffle)
+        assertEquals(state, within.state)
+
+        val after = rotateUnlockedBlocks(pack, state, nowMs = 1_000L + 13 * 60 * 60 * 1000L)
         assertTrue(after.didShuffle)
-        assertNotEquals("first", after.seed)
+        assertNotEquals("first", after.state.seed)
+    }
+
+    @Test
+    fun rotationLeavesPackUntouchedSoSyncCannotRevertIt() {
+        val blocks = listOf(rail("a", 0, false), rail("b", 100, false), rail("c", 200, false))
+        val pack = ViewPack(blocks = blocks, rotateUnlocked = true, rotateIntervalHours = 12)
+        val json = serializeViewPackJson(pack)
+
+        val rotated = rotateUnlockedBlocks(pack, ViewPackRotationState(), nowMs = 5_000L)
+        assertTrue(rotated.didShuffle)
+        assertEquals(json, serializeViewPackJson(pack))
+        assertEquals(blocks, pack.blocks)
+    }
+
+    @Test
+    fun sameStateRendersSameOrderAcrossReloads() {
+        val pack = ViewPack(
+            blocks = listOf(rail("a", 0, false), rail("b", 100, false), rail("c", 200, false)),
+            rotateUnlocked = true,
+            rotateIntervalHours = 12
+        )
+        val state = ViewPackRotationState(seed = "stable", lastShuffleAt = 1_000L)
+        val first = rotateUnlockedBlocks(pack, state, nowMs = 2_000L).blocks.map { it.id }
+        val second = rotateUnlockedBlocks(pack, state, nowMs = 3_000L).blocks.map { it.id }
+        assertEquals(first, second)
     }
 
     @Test

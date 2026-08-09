@@ -95,46 +95,40 @@ fun newShuffleSeed(nowMs: Long = System.currentTimeMillis()): String {
 }
 
 /**
- * Apply rotation if enabled and the interval has elapsed (or force=true).
- * Persists `lastShuffleAt` + `shuffleSeed` on the pack.
+ * Derive the rail order for [pack] from [state], rolling a new seed when the
+ * rotation interval has elapsed (or when [force] is set).
+ *
+ * The pack itself is never modified: callers render [ViewPackRotationResult.blocks]
+ * and persist [ViewPackRotationResult.state] separately, which keeps the synced
+ * pack document byte-identical across devices.
  */
-fun applyUnlockedRotation(
+fun rotateUnlockedBlocks(
     pack: ViewPack,
+    state: ViewPackRotationState,
     nowMs: Long = System.currentTimeMillis(),
     force: Boolean = false
-): ViewPackShuffleResult {
+): ViewPackRotationResult {
     if (!pack.rotateUnlocked) {
-        return ViewPackShuffleResult(pack = pack, didShuffle = false, seed = pack.shuffleSeed.orEmpty())
+        return ViewPackRotationResult(blocks = pack.blocks, state = state, didShuffle = false)
     }
 
     val intervalMs = normalizeRotateIntervalHours(pack.rotateIntervalHours) * 60L * 60L * 1000L
-    val last = pack.lastShuffleAt ?: 0L
+    val last = state.lastShuffleAt ?: 0L
     val due = force || last <= 0L || nowMs - last >= intervalMs
 
     if (!due) {
-        val seed = pack.shuffleSeed ?: newShuffleSeed(nowMs)
-        val blocks = shuffleUnlockedBlocks(pack.blocks, seed)
-        return ViewPackShuffleResult(
-            pack = pack.copy(
-                blocks = blocks,
-                shuffleSeed = seed,
-                rotateIntervalHours = normalizeRotateIntervalHours(pack.rotateIntervalHours)
-            ),
-            didShuffle = false,
-            seed = seed
+        val seed = state.seed ?: newShuffleSeed(nowMs)
+        return ViewPackRotationResult(
+            blocks = shuffleUnlockedBlocks(pack.blocks, seed),
+            state = state.copy(seed = seed),
+            didShuffle = false
         )
     }
 
     val seed = newShuffleSeed(nowMs)
-    val blocks = shuffleUnlockedBlocks(pack.blocks, seed)
-    return ViewPackShuffleResult(
-        pack = pack.copy(
-            blocks = blocks,
-            shuffleSeed = seed,
-            lastShuffleAt = nowMs,
-            rotateIntervalHours = normalizeRotateIntervalHours(pack.rotateIntervalHours)
-        ),
-        didShuffle = true,
-        seed = seed
+    return ViewPackRotationResult(
+        blocks = shuffleUnlockedBlocks(pack.blocks, seed),
+        state = ViewPackRotationState(seed = seed, lastShuffleAt = nowMs),
+        didShuffle = true
     )
 }

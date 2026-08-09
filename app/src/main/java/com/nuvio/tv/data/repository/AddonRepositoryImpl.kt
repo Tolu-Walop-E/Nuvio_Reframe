@@ -47,7 +47,9 @@ class AddonRepositoryImpl @Inject constructor(
         private const val MANIFEST_CACHE_KEY = "manifests_v2"
         private const val LEGACY_MANIFEST_CACHE_KEY = "manifests"
         private const val MANIFEST_SUFFIX = "/manifest.json"
-        private const val MANIFEST_CACHE_TTL_MS = 6 * 60 * 60 * 1000L 
+        // Dynamic catalog titles (BingeCat BYW seeds, etc.) change without a new addon URL.
+        // Keep the in-app TTL short so home rails pick up renamed catalogs without a cache wipe.
+        private const val MANIFEST_CACHE_TTL_MS = 30 * 60 * 1000L
     }
 
     private val syncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -105,7 +107,9 @@ class AddonRepositoryImpl @Inject constructor(
         System.currentTimeMillis() - lastManifestRefreshTime > MANIFEST_CACHE_TTL_MS
 
     private fun scheduleManifestRefresh(urls: List<String>) {
+        if (!isCacheStale()) return
         if (manifestRefreshJob?.isActive == true) return
+        if (urls.isEmpty()) return
         manifestRefreshJob = syncScope.launch {
             val refreshed = urls.map { url ->
                 async {
@@ -204,7 +208,14 @@ class AddonRepositoryImpl @Inject constructor(
                     if (fresh != cached) {
                         emit(applyDisplayNames(fresh, userNames, enabledByUrl))
                     }
-                } else if (isCacheStale() && urls.isNotEmpty()) {
+                    // Miss path already hit the network; start the TTL window so we
+                    // don't immediately schedule a duplicate background refresh.
+                    if (fresh.isNotEmpty()) {
+                        lastManifestRefreshTime = System.currentTimeMillis()
+                    }
+                } else {
+                    // Served from cache: refresh in background when TTL elapsed so
+                    // renamed catalogs (BingeCat BYW, etc.) land without a cache wipe.
                     scheduleManifestRefresh(
                         urls.filter { url -> enabledByUrl[canonicalizeUrl(url)] ?: true }
                     )

@@ -1,5 +1,8 @@
 package com.nuvio.tv.ui.screens.home.netflix
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import com.nuvio.tv.domain.model.HomeLayout
 import com.nuvio.tv.ui.navigation.Screen
 
@@ -13,9 +16,14 @@ internal object NetflixHomeFeature {
     /**
      * True while the active profile's home layout is Netflix.
      * Updated from MainActivity when layout prefs change.
+     *
+     * Snapshot state, not a plain field: the sidebar scaffolds read this during
+     * composition to decide whether Netflix's top nav replaces the side drawer.
+     * A plain field gives Compose nothing to observe, so switching to a profile
+     * that does not use Netflix left the drawer hidden until the next unrelated
+     * recomposition.
      */
-    @Volatile
-    var active: Boolean = false
+    var active: Boolean by mutableStateOf(false)
         private set
 
     /** @deprecated Use [AVAILABLE] / [active]. Kept so existing call sites compile. */

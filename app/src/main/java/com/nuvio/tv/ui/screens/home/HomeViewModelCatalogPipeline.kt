@@ -82,7 +82,10 @@ internal fun HomeViewModel.loadFollowAddonsOrderPipeline() {
 internal fun HomeViewModel.loadActiveViewPackPipeline() {
     viewModelScope.launch {
         maybeImportPendingViewPackFile()
-        layoutPreferenceDataStore.activeViewPackJson.collectLatest { json ->
+        combine(
+            layoutPreferenceDataStore.activeViewPackJson,
+            layoutPreferenceDataStore.viewPackRotationState
+        ) { json, rotationState -> json to rotationState }.collectLatest { (json, rotationState) ->
             if (json.isNullOrBlank()) {
                 activeViewPackOrderKeys = null
                 activeViewPackRowScales = emptyMap()
@@ -125,27 +128,23 @@ internal fun HomeViewModel.loadActiveViewPackPipeline() {
             }
             try {
                 val parsed = com.nuvio.tv.core.viewpack.parseViewPackJson(json)
-                val rotated = com.nuvio.tv.core.viewpack.applyUnlockedRotation(parsed)
-                if (rotated.didShuffle || rotated.pack.shuffleSeed != parsed.shuffleSeed ||
-                    rotated.pack.lastShuffleAt != parsed.lastShuffleAt
-                ) {
-                    layoutPreferenceDataStore.setActiveViewPackJson(
-                        com.nuvio.tv.core.viewpack.serializeViewPackJson(rotated.pack)
-                    )
-                    // setActiveViewPackJson will re-emit; skip applying twice from this emission
-                    return@collectLatest
+                val rotation = com.nuvio.tv.core.viewpack.rotateUnlockedBlocks(parsed, rotationState)
+                if (rotation.state != rotationState) {
+                    // Persisting re-emits and this block runs again with the settled state.
+                    layoutPreferenceDataStore.setViewPackRotationState(rotation.state)
                 }
-                activeViewPackOrderKeys = com.nuvio.tv.core.viewpack.homeOrderKeysFromPack(rotated.pack)
-                activeViewPackRowScales = com.nuvio.tv.core.viewpack.homeRowScalesFromPack(rotated.pack)
-                activeViewPackRowShowLabels = com.nuvio.tv.core.viewpack.homeRowShowLabelsFromPack(rotated.pack)
-                activeViewPackRowTrailers = com.nuvio.tv.core.viewpack.homeRowTrailersFromPack(rotated.pack)
-                activeViewPackRowPosterGrow = com.nuvio.tv.core.viewpack.homeRowPosterGrowFromPack(rotated.pack)
-                activeViewPackCatalogRefs = com.nuvio.tv.core.viewpack.packCatalogRefs(rotated.pack)
-                activeViewPackHeroDataSource = com.nuvio.tv.core.viewpack.packHeroDataSource(rotated.pack)
+                val rotated = parsed.copy(blocks = rotation.blocks)
+                activeViewPackOrderKeys = com.nuvio.tv.core.viewpack.homeOrderKeysFromPack(rotated)
+                activeViewPackRowScales = com.nuvio.tv.core.viewpack.homeRowScalesFromPack(rotated)
+                activeViewPackRowShowLabels = com.nuvio.tv.core.viewpack.homeRowShowLabelsFromPack(rotated)
+                activeViewPackRowTrailers = com.nuvio.tv.core.viewpack.homeRowTrailersFromPack(rotated)
+                activeViewPackRowPosterGrow = com.nuvio.tv.core.viewpack.homeRowPosterGrowFromPack(rotated)
+                activeViewPackCatalogRefs = com.nuvio.tv.core.viewpack.packCatalogRefs(rotated)
+                activeViewPackHeroDataSource = com.nuvio.tv.core.viewpack.packHeroDataSource(rotated)
                 // Expanded folder / catalog rails need their backing catalogs fetched
                 // even when those catalogs are not in the default home set.
                 val folderRefs = com.nuvio.tv.core.viewpack.packFolderCatalogRefs(
-                    pack = rotated.pack,
+                    pack = rotated,
                     collectionsById = collectionsCache.associateBy { it.id }
                 )
                 folderRefs.values.forEach { ref ->
@@ -156,26 +155,26 @@ internal fun HomeViewModel.loadActiveViewPackPipeline() {
                 }
                 _uiState.update { state ->
                     state.copy(
-                        activeViewPackName = rotated.pack.name,
-                        activeViewPackRotateEnabled = rotated.pack.rotateUnlocked,
+                        activeViewPackName = rotated.name,
+                        activeViewPackRotateEnabled = rotated.rotateUnlocked,
                         viewPackRowScales = activeViewPackRowScales,
                         viewPackRowShowLabels = activeViewPackRowShowLabels,
                         viewPackRowTrailers = activeViewPackRowTrailers,
                         viewPackRowPosterGrow = activeViewPackRowPosterGrow,
                         viewPackCatalogPosterScale =
                             com.nuvio.tv.core.viewpack.normalizePackCardScale(
-                                rotated.pack.catalogPosterScale
+                                rotated.catalogPosterScale
                             ),
                         viewPackCollectionLandscapeScale =
                             com.nuvio.tv.core.viewpack.normalizePackCardScale(
-                                rotated.pack.collectionLandscapeScale
+                                rotated.collectionLandscapeScale
                             ),
-                        viewPackHeroEnabled = com.nuvio.tv.core.viewpack.packHasHero(rotated.pack),
+                        viewPackHeroEnabled = com.nuvio.tv.core.viewpack.packHasHero(rotated),
                         viewPackHeroTrailerEnabled =
-                            com.nuvio.tv.core.viewpack.packHeroTrailerEnabled(rotated.pack),
-                        viewPackHeroLabel = com.nuvio.tv.core.viewpack.packHeroLabel(rotated.pack),
+                            com.nuvio.tv.core.viewpack.packHeroTrailerEnabled(rotated),
+                        viewPackHeroLabel = com.nuvio.tv.core.viewpack.packHeroLabel(rotated),
                         viewPackHeroDataSource = activeViewPackHeroDataSource,
-                        viewPackFeaturedHeightPx = com.nuvio.tv.core.viewpack.packHeroHeightPx(rotated.pack)
+                        viewPackFeaturedHeightPx = com.nuvio.tv.core.viewpack.packHeroHeightPx(rotated)
                     )
                 }
             } catch (e: Exception) {
@@ -226,16 +225,15 @@ private suspend fun HomeViewModel.maybeImportPendingViewPackFile() {
         val text = file.readText().trim()
         if (text.isEmpty()) return
         val pack = com.nuvio.tv.core.viewpack.parseViewPackJson(text)
-        val rotated = com.nuvio.tv.core.viewpack.applyUnlockedRotation(pack)
         layoutPreferenceDataStore.setActiveViewPackJson(
-            com.nuvio.tv.core.viewpack.serializeViewPackJson(rotated.pack)
+            com.nuvio.tv.core.viewpack.serializeViewPackJson(pack)
         )
         val done = java.io.File(dir, "${file.name}.imported")
         if (done.exists()) done.delete()
         if (!file.renameTo(done)) {
             file.delete()
         }
-        android.util.Log.i("HomeViewModel", "Imported view pack from ${file.name}: ${rotated.pack.name}")
+        android.util.Log.i("HomeViewModel", "Imported view pack from ${file.name}: ${pack.name}")
     } catch (e: Exception) {
         android.util.Log.w("HomeViewModel", "Failed to import pending view pack file", e)
     }

@@ -3,8 +3,8 @@ package com.nuvio.tv.core.sync
 import android.util.Log
 import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.profile.ProfileManager
-import com.nuvio.tv.core.viewpack.applyUnlockedRotation
 import com.nuvio.tv.core.viewpack.parseViewPackJson
+import com.nuvio.tv.core.viewpack.rotateUnlockedBlocks
 import com.nuvio.tv.core.viewpack.serializeViewPackJson
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
 import com.nuvio.tv.data.remote.supabase.SupabaseViewPackBlob
@@ -91,6 +91,35 @@ class ViewPackSyncService @Inject constructor(
     private fun stopPolling() {
         pollJob?.cancel()
         pollJob = null
+    }
+
+    /**
+     * Re-check rail rotation when the app returns to the foreground.
+     *
+     * The home pipeline only evaluates rotation when it first collects the pack,
+     * which ties a time-based feature to ViewModel construction: someone who always
+     * leaves via the Home button rather than Back keeps one arrangement until the
+     * process happens to be reclaimed. onStart only fires after the app has been
+     * away, so this cannot reorder rails while they are being browsed.
+     */
+    fun requestForegroundRotation() {
+        scope.launch { rotateActivePackIfDue() }
+    }
+
+    private suspend fun rotateActivePackIfDue() {
+        try {
+            val json = layoutPreferenceDataStore.activeViewPackJson.first()
+            if (json.isNullOrBlank()) return
+            val pack = parseViewPackJson(json)
+            if (!pack.rotateUnlocked) return
+            val state = layoutPreferenceDataStore.getViewPackRotationState()
+            val rotation = rotateUnlockedBlocks(pack, state)
+            if (!rotation.didShuffle) return
+            layoutPreferenceDataStore.setViewPackRotationState(rotation.state)
+            Log.i(TAG, "Rotated unlocked rails for “${pack.name}”")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to rotate view pack on foreground", e)
+        }
     }
 
     private suspend fun <T> withJwtRefreshRetry(block: suspend () -> T): T {
@@ -249,10 +278,11 @@ class ViewPackSyncService @Inject constructor(
         if (remoteObject.isEmpty()) return null
         val remoteText = remoteObject.toString()
         val pack = parseViewPackJson(remoteText)
-        val rotated = applyUnlockedRotation(pack)
-        val serialized = serializeViewPackJson(rotated.pack)
+        // Re-serialize (not rotate) so the comparison against the local copy is a
+        // stable, normalized string rather than whatever key order Supabase returned.
+        val serialized = serializeViewPackJson(pack)
         return PendingViewPackOffer(
-            packName = rotated.pack.name,
+            packName = pack.name,
             serializedJson = serialized,
             updatedAt = blob.updatedAt,
             profileId = profileId

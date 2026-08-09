@@ -7,10 +7,14 @@ import com.nuvio.tv.data.remote.dto.StreamResponseDto
 import com.nuvio.tv.data.remote.dto.SubtitleResponseDto
 import retrofit2.Response
 import retrofit2.http.GET
+import retrofit2.http.Headers
 import retrofit2.http.Url
 
 interface AddonApi {
 
+    // Bypass OkHttp disk cache: catalog names (e.g. BingeCat "Because you watched...")
+    // can change without a new addon URL, and a cached manifest freezes rail titles.
+    @Headers("Cache-Control: no-cache")
     @GET
     suspend fun getManifest(@Url manifestUrl: String): Response<AddonManifestDto>
 

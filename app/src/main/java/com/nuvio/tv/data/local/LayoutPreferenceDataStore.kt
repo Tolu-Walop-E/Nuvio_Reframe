@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
@@ -16,6 +17,7 @@ import com.nuvio.tv.core.sync.SyncHomeCatalogPayload
 import com.nuvio.tv.core.sync.buildHomeCatalogSyncPayload
 import com.nuvio.tv.core.sync.homeCatalogKey
 import com.nuvio.tv.core.sync.homeCollectionKey
+import com.nuvio.tv.core.viewpack.ViewPackRotationState
 import com.nuvio.tv.domain.model.Addon
 import com.nuvio.tv.domain.model.CardDepthStyle
 import com.nuvio.tv.domain.model.CardDepthSurface
@@ -29,6 +31,7 @@ import com.nuvio.tv.domain.model.DiscoverLocation
 import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
 import com.nuvio.tv.domain.model.HomeLayout
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
@@ -110,6 +113,8 @@ class LayoutPreferenceDataStore @Inject constructor(
     private val followAddonsOrderKey = booleanPreferencesKey("follow_addons_order")
     private val composeHighlighterEnabledKey = booleanPreferencesKey("compose_highlighter_enabled")
     private val activeViewPackJsonKey = stringPreferencesKey("active_view_pack_json")
+    private val viewPackShuffleSeedKey = stringPreferencesKey("view_pack_shuffle_seed")
+    private val viewPackLastShuffleAtKey = longPreferencesKey("view_pack_last_shuffle_at")
 
     private fun <T> profileFlow(extract: (prefs: androidx.datastore.preferences.core.Preferences) -> T): Flow<T> =
         profileManager.activeProfileId.flatMapLatest { pid ->
@@ -393,6 +398,32 @@ class LayoutPreferenceDataStore @Inject constructor(
     /** Raw Studio `.view.json` for the active home pack, or null when unset. */
     val activeViewPackJson: Flow<String?> = profileFlow { prefs ->
         prefs[activeViewPackJsonKey]?.trim()?.takeIf { it.isNotEmpty() }
+    }.distinctUntilChanged()
+
+    /** Rail rotation bookkeeping, kept out of the pack so sync cannot revert it. */
+    val viewPackRotationState: Flow<ViewPackRotationState> = profileFlow { prefs ->
+        readViewPackRotationState(prefs)
+    }.distinctUntilChanged()
+
+    private fun readViewPackRotationState(prefs: Preferences) = ViewPackRotationState(
+        seed = prefs[viewPackShuffleSeedKey]?.takeIf { it.isNotBlank() },
+        lastShuffleAt = prefs[viewPackLastShuffleAtKey]
+    )
+
+    suspend fun getViewPackRotationState(): ViewPackRotationState =
+        readViewPackRotationState(store().data.first())
+
+    suspend fun setViewPackRotationState(state: ViewPackRotationState) {
+        store().edit { prefs ->
+            val seed = state.seed?.takeIf { it.isNotBlank() }
+            if (seed == null) prefs.remove(viewPackShuffleSeedKey) else prefs[viewPackShuffleSeedKey] = seed
+            val lastShuffleAt = state.lastShuffleAt
+            if (lastShuffleAt == null) {
+                prefs.remove(viewPackLastShuffleAtKey)
+            } else {
+                prefs[viewPackLastShuffleAtKey] = lastShuffleAt
+            }
+        }
     }
 
     suspend fun setMemoryOnlyVerticalScroll(enabled: Boolean) {
@@ -428,6 +459,12 @@ class LayoutPreferenceDataStore @Inject constructor(
     suspend fun setActiveViewPackJson(json: String?) {
         val trimmed = json?.trim()?.takeIf { it.isNotEmpty() }
         store().edit { prefs ->
+            val current = prefs[activeViewPackJsonKey]?.trim()?.takeIf { it.isNotEmpty() }
+            if (current != trimmed) {
+                // A different pack starts its own rotation cycle.
+                prefs.remove(viewPackShuffleSeedKey)
+                prefs.remove(viewPackLastShuffleAtKey)
+            }
             if (trimmed == null) {
                 prefs.remove(activeViewPackJsonKey)
             } else {

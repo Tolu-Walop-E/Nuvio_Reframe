@@ -74,8 +74,20 @@ const val OPEN_STYLE_ROWS = "rows"
 
 const val MIN_ROTATE_INTERVAL_HOURS = 12
 
-data class ViewPackShuffleResult(
-    val pack: ViewPack,
-    val didShuffle: Boolean,
-    val seed: String
+/**
+ * Rotation bookkeeping, held outside the pack document.
+ *
+ * The pack JSON is the synced artefact and account sync compares it verbatim, so
+ * writing rotation results back into it made every rotated device look like it had
+ * a different pack and get reverted on the next pull.
+ */
+data class ViewPackRotationState(
+    val seed: String? = null,
+    val lastShuffleAt: Long? = null
+)
+
+data class ViewPackRotationResult(
+    val blocks: List<ViewBlock>,
+    val state: ViewPackRotationState,
+    val didShuffle: Boolean
 )

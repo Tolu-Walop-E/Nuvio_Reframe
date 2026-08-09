@@ -515,10 +515,12 @@ class LayoutSettingsViewModel @Inject constructor(
                     }
                     return@launch
                 }
-                val rotated = com.nuvio.tv.core.viewpack.applyUnlockedRotation(pack, force = true)
-                layoutPreferenceDataStore.setActiveViewPackJson(
-                    com.nuvio.tv.core.viewpack.serializeViewPackJson(rotated.pack)
+                val rotation = com.nuvio.tv.core.viewpack.rotateUnlockedBlocks(
+                    pack = pack,
+                    state = layoutPreferenceDataStore.getViewPackRotationState(),
+                    force = true
                 )
+                layoutPreferenceDataStore.setViewPackRotationState(rotation.state)
                 updateUiStateIfChanged {
                     it.copy(viewPackMessage = context.getString(R.string.layout_view_pack_reshuffled))
                 }

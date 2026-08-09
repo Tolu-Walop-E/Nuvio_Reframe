@@ -1139,6 +1139,7 @@ class MainActivity : ComponentActivity() {
             externalPlaybackTracker.get().raiseAutoNextOverlayOnReturn()
             startupSyncService.get().startPeriodicSurfacePulls()
             profileSettingsSyncService.get().requestForegroundPull()
+            viewPackSyncService.get().requestForegroundRotation()
             androidTvChannelSyncService.get().onForegroundChanged(true)
         }
     }

@@ -109,8 +109,8 @@ android {
         applicationId = "com.nuvio.tv"
         minSdk = 24
         targetSdk = 36
-        versionCode = 1043
-        versionName = "0.8.2-beta"
+        versionCode = 1044
+        versionName = "0.8.3-reframe"
 
         buildConfigField("String", "PARENTAL_GUIDE_API_URL", "\"${localProperties.getProperty("PARENTAL_GUIDE_API_URL", "")}\"")
         buildConfigField("String", "INTRODB_API_URL", "\"${localProperties.getProperty("INTRODB_API_URL", "")}\"")
@@ -154,9 +154,9 @@ android {
         buildConfigField("String", "SPONSOR_NAMES", buildConfigString(sponsorNames))
         buildConfigField("String", "SENTRY_DSN", buildConfigString(sentryDsn))
 
-        // In-app updater (GitHub Releases)
-        buildConfigField("String", "GITHUB_OWNER", "\"tapframe\"")
-        buildConfigField("String", "GITHUB_REPO", "\"NuvioTV\"")
+        // In-app updater (GitHub Releases) — Reframe fork releases
+        buildConfigField("String", "GITHUB_OWNER", "\"Tolu-Walop-E\"")
+        buildConfigField("String", "GITHUB_REPO", "\"Nuvio_Reframe\"")
     }
 
     flavorDimensions += "distribution"
