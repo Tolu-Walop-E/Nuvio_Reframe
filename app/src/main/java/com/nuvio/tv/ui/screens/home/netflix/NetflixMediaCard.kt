@@ -79,10 +79,14 @@ internal fun NetflixMediaCard(
     onFocus: () -> Unit = {},
     onMoveUp: () -> Boolean = { false },
     onMoveDown: () -> Boolean = { false },
+    onMoveLeft: () -> Boolean = { false },
+    onMoveRight: () -> Boolean = { false },
     /** When true, Left is consumed so focus cannot escape the rail. */
     trapLeft: Boolean = false,
     /** When true, Right is consumed so focus cannot escape the rail. */
     trapRight: Boolean = false,
+    /** When false, a rail-level pivot frame draws the white selector instead. */
+    showFocusBorder: Boolean = true,
     onLongClick: (() -> Unit)? = null
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -141,10 +145,8 @@ internal fun NetflixMediaCard(
                             onMoveDown()
                             true
                         }
-                        // At the ends of a rail, default focus search can jump into the
-                        // absolute top nav and strand the cursor. Consume those edges.
-                        Key.DirectionLeft -> trapLeft
-                        Key.DirectionRight -> trapRight
+                        Key.DirectionLeft -> onMoveLeft() || trapLeft
+                        Key.DirectionRight -> onMoveRight() || trapRight
                         else -> false
                     }
                 }
@@ -170,8 +172,8 @@ internal fun NetflixMediaCard(
             .clip(shape)
             .background(NetflixThemeChrome.surface)
             .border(
-                width = if (focused) NetflixHomeTokens.FocusBorder else 1.dp,
-                color = if (focused) NetflixThemeChrome.focus else Color.Transparent,
+                width = if (showFocusBorder && focused) NetflixHomeTokens.FocusBorder else 1.dp,
+                color = if (showFocusBorder && focused) NetflixThemeChrome.focus else Color.Transparent,
                 shape = shape
             ),
         contentAlignment = Alignment.BottomStart

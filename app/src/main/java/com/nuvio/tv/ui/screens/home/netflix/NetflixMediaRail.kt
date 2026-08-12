@@ -5,6 +5,7 @@ package com.nuvio.tv.ui.screens.home.netflix
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -21,6 +22,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -30,13 +32,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import coil3.imageLoader
@@ -91,43 +96,51 @@ internal fun NetflixContinueWatchingRail(
         onPendingFocusConsumed = onPendingFocusConsumed,
         onFirstCardRequesterReady = onFirstCardRequesterReady,
         modifier = modifier
-    ) { rowState, focusedIndex, onCardFocused ->
-        LazyRow(
-            state = rowState,
-            horizontalArrangement = Arrangement.spacedBy(NetflixHomeSpacing.railHorizontalGap(density)),
-            contentPadding = PaddingValues(
-                horizontal = NetflixHomeTokens.PageHorizontalPadding,
-                vertical = NetflixHomeSpacing.RailFocusPadding
-            )
-        ) {
-            itemsIndexed(items, key = { _, item -> item.netflixKey() }) { index, item ->
-                val card = item.toNetflixCard(useEpisodeThumbnails = useEpisodeThumbnails)
-                val itemKey = item.netflixKey()
-                NetflixMediaCard(
-                    mediaKey = itemKey,
-                    title = card.title,
-                    subtitle = card.subtitle,
-                    imageUrl = card.imageUrl,
-                    width = NetflixHomeTokens.ContinueCardWidth,
-                    height = NetflixHomeTokens.ContinueCardHeight,
-                    progress = card.progress,
-                    showLabels = false,
-                    showFallbackTitleWhenArtworkMissing = false,
-                    focusRequester = itemRequesters[index],
-                    onClick = { onItemClick(item) },
-                    onLongClick = { onItemLongClick(item) },
-                    onFocus = {
-                        onCardFocused(index)
-                        focusedItem = item
-                        onFocusedItemChanged(index, itemKey)
-                        onItemFocused(item)
-                    },
-                    onMoveUp = onMoveUp,
-                    onMoveDown = onMoveDown,
-                    trapLeft = index == 0,
-                    trapRight = index == items.lastIndex
+    ) { rowState, focusedIndex, onCardFocused, onMoveLeft, onMoveRight, railHasFocus ->
+        Box {
+            LazyRow(
+                state = rowState,
+                horizontalArrangement = Arrangement.spacedBy(NetflixHomeSpacing.railHorizontalGap(density)),
+                contentPadding = PaddingValues(
+                    horizontal = NetflixHomeTokens.PageHorizontalPadding,
+                    vertical = NetflixHomeSpacing.RailFocusPadding
                 )
+            ) {
+                itemsIndexed(items, key = { _, item -> item.netflixKey() }) { index, item ->
+                    val card = item.toNetflixCard(useEpisodeThumbnails = useEpisodeThumbnails)
+                    val itemKey = item.netflixKey()
+                    NetflixMediaCard(
+                        mediaKey = itemKey,
+                        title = card.title,
+                        subtitle = card.subtitle,
+                        imageUrl = card.imageUrl,
+                        width = NetflixHomeTokens.ContinueCardWidth,
+                        height = NetflixHomeTokens.ContinueCardHeight,
+                        progress = card.progress,
+                        showLabels = false,
+                        showFallbackTitleWhenArtworkMissing = false,
+                        focusRequester = itemRequesters[index],
+                        onClick = { onItemClick(item) },
+                        onLongClick = { onItemLongClick(item) },
+                        onFocus = {
+                            onCardFocused(index)
+                            focusedItem = item
+                            onFocusedItemChanged(index, itemKey)
+                            onItemFocused(item)
+                        },
+                        onMoveUp = onMoveUp,
+                        onMoveDown = onMoveDown,
+                        onMoveLeft = onMoveLeft,
+                        onMoveRight = onMoveRight,
+                        showFocusBorder = false
+                    )
+                }
             }
+            NetflixPivotSelector(
+                visible = railHasFocus,
+                width = NetflixHomeTokens.ContinueCardWidth,
+                height = NetflixHomeTokens.ContinueCardHeight
+            )
         }
         Box(
             modifier = Modifier
@@ -212,7 +225,7 @@ internal fun NetflixCatalogRail(
         onPendingFocusConsumed = onPendingFocusConsumed,
         onFirstCardRequesterReady = onFirstCardRequesterReady,
         modifier = modifier
-    ) { rowState, focusedIndex, onCardFocused ->
+    ) { rowState, focusedIndex, onCardFocused, onMoveLeft, onMoveRight, railHasFocus ->
         val context = LocalContext.current
         val imageLoader = context.imageLoader
         // Warm landscape/backdrop bitmaps for the focused card and neighbors so
@@ -338,12 +351,18 @@ internal fun NetflixCatalogRail(
                         },
                         onMoveUp = onMoveUp,
                         onMoveDown = onMoveDown,
-                        trapLeft = index == 0,
-                        trapRight = index == row.items.lastIndex,
+                        onMoveLeft = onMoveLeft,
+                        onMoveRight = onMoveRight,
+                        showFocusBorder = false,
                         onLongClick = { onItemLongClick(item, row.addonBaseUrl) }
                     )
                 }
             }
+            NetflixPivotSelector(
+                visible = railHasFocus,
+                width = if (posterGrow) geometry.focusedWidth else geometry.portraitWidth,
+                height = geometry.railHeight
+            )
         }
         if (showFocusedMetadata) {
             Box(
@@ -383,7 +402,14 @@ internal fun NetflixRailScaffold(
     onPendingFocusConsumed: () -> Unit,
     onFirstCardRequesterReady: (FocusRequester) -> Unit,
     modifier: Modifier = Modifier,
-    content: @Composable (LazyListState, Int, (Int) -> Unit) -> Unit
+    content: @Composable (
+        LazyListState,
+        Int,
+        (Int) -> Unit,
+        () -> Boolean,
+        () -> Boolean,
+        Boolean
+    ) -> Unit
 ) {
     val safeLastFocusedIndex = if (itemRequesters.isEmpty()) {
         0
@@ -393,12 +419,26 @@ internal fun NetflixRailScaffold(
     var focusedIndex by remember(railKey, itemRequesters.size) {
         mutableStateOf(safeLastFocusedIndex)
     }
+    var railHasFocus by remember(railKey) { mutableStateOf(false) }
     val horizontalListState = rememberLazyListState(
         initialFirstVisibleItemIndex = safeLastFocusedIndex
     )
 
     LaunchedEffect(itemRequesters) {
         itemRequesters.firstOrNull()?.let(onFirstCardRequesterReady)
+    }
+
+    LaunchedEffect(focusedIndex, itemRequesters.size) {
+        if (itemRequesters.isEmpty()) return@LaunchedEffect
+        val idx = focusedIndex.coerceIn(0, itemRequesters.lastIndex)
+        val aligned = horizontalListState.firstVisibleItemIndex == idx &&
+            horizontalListState.firstVisibleItemScrollOffset == 0
+        if (!aligned) {
+            horizontalListState.animateScrollToItem(idx)
+        }
+        if (railHasFocus) {
+            itemRequesters[idx].requestFocus()
+        }
     }
 
     LaunchedEffect(pendingFocusRailKey, itemRequesters.size, lastFocusedIndex) {
@@ -416,9 +456,23 @@ internal fun NetflixRailScaffold(
         }
     }
 
+    val moveLeft = {
+        if (itemRequesters.isNotEmpty()) {
+            focusedIndex = (focusedIndex - 1).coerceAtLeast(0)
+        }
+        true
+    }
+    val moveRight = {
+        if (itemRequesters.isNotEmpty()) {
+            focusedIndex = (focusedIndex + 1).coerceAtMost(itemRequesters.lastIndex)
+        }
+        true
+    }
+
     Column(
         modifier = modifier
             .padding(top = NetflixHomeSpacing.RailTopPadding)
+            .onFocusChanged { railHasFocus = it.hasFocus }
     ) {
         Row(
             modifier = Modifier
@@ -444,8 +498,40 @@ internal fun NetflixRailScaffold(
             }
         }
         Spacer(modifier = Modifier.height(6.dp))
-        content(horizontalListState, focusedIndex) { index -> focusedIndex = index }
+        content(
+            horizontalListState,
+            focusedIndex,
+            { index -> focusedIndex = index },
+            moveLeft,
+            moveRight,
+            railHasFocus
+        )
     }
+}
+
+@Composable
+internal fun NetflixPivotSelector(
+    visible: Boolean,
+    width: Dp,
+    height: Dp,
+    modifier: Modifier = Modifier
+) {
+    if (!visible) return
+    Box(
+        modifier = modifier
+            .padding(
+                start = NetflixHomeTokens.PageHorizontalPadding,
+                top = NetflixHomeSpacing.RailFocusPadding
+            )
+            .width(width)
+            .height(height)
+            .zIndex(1f)
+            .border(
+                width = NetflixHomeTokens.FocusBorder,
+                color = NetflixThemeChrome.focus,
+                shape = RoundedCornerShape(NetflixHomeTokens.CardCornerRadius)
+            )
+    )
 }
 
 @Composable

@@ -3,6 +3,7 @@
 package com.nuvio.tv.ui.screens.home.netflix
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -48,50 +49,58 @@ internal fun NetflixCollectionRail(
         onPendingFocusConsumed = onPendingFocusConsumed,
         onFirstCardRequesterReady = onFirstCardRequesterReady,
         modifier = modifier
-    ) { rowState, focusedIndex, onCardFocused ->
-        LazyRow(
-            state = rowState,
-            horizontalArrangement = Arrangement.spacedBy(NetflixHomeSpacing.railHorizontalGap(density)),
-            contentPadding = PaddingValues(
-                horizontal = NetflixHomeTokens.PageHorizontalPadding,
-                vertical = NetflixHomeSpacing.RailFocusPadding
-            )
-        ) {
-            itemsIndexed(
-                items = collection.folders,
-                key = { _, folder -> folder.id }
-            ) { index, folder ->
-                val itemKey = "collection|${collection.id}|${folder.id}"
-                val focused = index == focusedIndex
-                NetflixMediaCard(
-                    mediaKey = itemKey,
-                    title = folder.title,
-                    subtitle = null,
-                    imageUrl = collectionFolderCardImageUrl(folder, focused),
-                    width = if (focused) {
-                        NetflixHomeTokens.FocusedLandscapeCardWidth * scale
-                    } else {
-                        NetflixHomeTokens.LandscapeCardWidth * scale
-                    },
-                    height = if (focused) {
-                        NetflixHomeTokens.FocusedLandscapeCardHeight * scale
-                    } else {
-                        NetflixHomeTokens.LandscapeCardHeight * scale
-                    },
-                    showLabels = !folder.hideTitle,
-                    showFallbackTitleWhenArtworkMissing = true,
-                    focusRequester = itemRequesters[index],
-                    onClick = { onFolderClick(collection.id, folder.id) },
-                    onFocus = {
-                        onCardFocused(index)
-                        onFocusedItemChanged(index, itemKey)
-                    },
-                    onMoveUp = onMoveUp,
-                    onMoveDown = onMoveDown,
-                    trapLeft = index == 0,
-                    trapRight = index == collection.folders.lastIndex
+    ) { rowState, focusedIndex, onCardFocused, onMoveLeft, onMoveRight, railHasFocus ->
+        Box {
+            LazyRow(
+                state = rowState,
+                horizontalArrangement = Arrangement.spacedBy(NetflixHomeSpacing.railHorizontalGap(density)),
+                contentPadding = PaddingValues(
+                    horizontal = NetflixHomeTokens.PageHorizontalPadding,
+                    vertical = NetflixHomeSpacing.RailFocusPadding
                 )
+            ) {
+                itemsIndexed(
+                    items = collection.folders,
+                    key = { _, folder -> folder.id }
+                ) { index, folder ->
+                    val itemKey = "collection|${collection.id}|${folder.id}"
+                    val focused = index == focusedIndex
+                    NetflixMediaCard(
+                        mediaKey = itemKey,
+                        title = folder.title,
+                        subtitle = null,
+                        imageUrl = collectionFolderCardImageUrl(folder, focused),
+                        width = if (focused) {
+                            NetflixHomeTokens.FocusedLandscapeCardWidth * scale
+                        } else {
+                            NetflixHomeTokens.LandscapeCardWidth * scale
+                        },
+                        height = if (focused) {
+                            NetflixHomeTokens.FocusedLandscapeCardHeight * scale
+                        } else {
+                            NetflixHomeTokens.LandscapeCardHeight * scale
+                        },
+                        showLabels = !folder.hideTitle,
+                        showFallbackTitleWhenArtworkMissing = true,
+                        focusRequester = itemRequesters[index],
+                        onClick = { onFolderClick(collection.id, folder.id) },
+                        onFocus = {
+                            onCardFocused(index)
+                            onFocusedItemChanged(index, itemKey)
+                        },
+                        onMoveUp = onMoveUp,
+                        onMoveDown = onMoveDown,
+                        onMoveLeft = onMoveLeft,
+                        onMoveRight = onMoveRight,
+                        showFocusBorder = false
+                    )
+                }
             }
+            NetflixPivotSelector(
+                visible = railHasFocus,
+                width = NetflixHomeTokens.FocusedLandscapeCardWidth * scale,
+                height = NetflixHomeTokens.FocusedLandscapeCardHeight * scale
+            )
         }
     }
 }
