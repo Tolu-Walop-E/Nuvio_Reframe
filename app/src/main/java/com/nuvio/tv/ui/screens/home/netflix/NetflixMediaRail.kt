@@ -32,18 +32,23 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import coil3.imageLoader
+import coil3.request.ImageRequest
 import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.PosterShape
 import com.nuvio.tv.ui.screens.detail.requestFocusAfterFrames
 import com.nuvio.tv.ui.screens.home.ContinueWatchingItem
 import kotlin.math.floor
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
 internal fun NetflixContinueWatchingRail(
@@ -208,6 +213,32 @@ internal fun NetflixCatalogRail(
         onFirstCardRequesterReady = onFirstCardRequesterReady,
         modifier = modifier
     ) { rowState, focusedIndex, onCardFocused ->
+        val context = LocalContext.current
+        val imageLoader = context.imageLoader
+        // Warm landscape/backdrop bitmaps for the focused card and neighbors so
+        // D-pad moves don't wait on a cold Coil fetch when the URL switches.
+        LaunchedEffect(focusedIndex, row.items, useLandscapeCards) {
+            withContext(Dispatchers.IO) {
+                val lastIndex = row.items.lastIndex
+                if (lastIndex < 0) return@withContext
+                val center = focusedIndex.coerceIn(0, lastIndex)
+                for (offset in -2..2) {
+                    val index = center + offset
+                    if (index !in 0..lastIndex) continue
+                    val item = row.items[index]
+                    val landscape = useLandscapeCards || item.posterShape == PosterShape.LANDSCAPE
+                    val url = item.netflixCatalogueArtwork(
+                        focused = true,
+                        preferLandscapeWhenUnfocused = landscape
+                    ) ?: continue
+                    imageLoader.enqueue(
+                        ImageRequest.Builder(context)
+                            .data(url)
+                            .build()
+                    )
+                }
+            }
+        }
         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
             val usableWidth = (maxWidth - (NetflixHomeTokens.PageHorizontalPadding * 2))
                 .coerceAtLeast(0.dp)
@@ -245,7 +276,15 @@ internal fun NetflixCatalogRail(
                     val landscape = useLandscapeCards || item.posterShape == PosterShape.LANDSCAPE
                     val focused = index == focusedIndex
                     val itemKey = item.netflixCatalogItemKey(row, index)
-                    val artwork = item.netflixCatalogueArtwork(focused = focused, preferLandscapeWhenUnfocused = landscape)
+                    val portraitArtwork = item.netflixCatalogueArtwork(
+                        focused = false,
+                        preferLandscapeWhenUnfocused = landscape
+                    )
+                    val focusArtwork = item.netflixCatalogueArtwork(
+                        focused = true,
+                        preferLandscapeWhenUnfocused = landscape
+                    )
+                    val artwork = if (focused) focusArtwork else portraitArtwork
                     val trailerUrl = trailerPreviewUrls[item.id]
                     // Do not gate on rail focusedIndex — every visible rail keeps a
                     // "focused" index, which would start multiple TrailerPlayers and
@@ -265,6 +304,11 @@ internal fun NetflixCatalogRail(
                         title = item.name,
                         subtitle = item.releaseInfo,
                         imageUrl = artwork,
+                        holdUntilReadyImageUrl = if (focused && focusArtwork != portraitArtwork) {
+                            portraitArtwork
+                        } else {
+                            null
+                        },
                         width = if (focused && posterGrow) {
                             geometry.focusedWidth
                         } else {

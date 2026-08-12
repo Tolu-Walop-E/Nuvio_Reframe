@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,6 +47,8 @@ import androidx.compose.ui.unit.dp
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
+import coil3.compose.rememberAsyncImagePainter
 import com.nuvio.tv.ui.components.TrailerPlayer
 import kotlinx.coroutines.delay
 
@@ -55,6 +58,11 @@ internal fun NetflixMediaCard(
     title: String,
     subtitle: String?,
     imageUrl: String?,
+    /**
+     * When [imageUrl] is a different landscape/backdrop URL, keep showing this
+     * (usually the portrait) until Coil has successfully loaded [imageUrl].
+     */
+    holdUntilReadyImageUrl: String? = null,
     width: Dp,
     height: Dp,
     progress: Float? = null,
@@ -86,10 +94,21 @@ internal fun NetflixMediaCard(
         label = "netflixCardWidth"
     )
     val shape = RoundedCornerShape(NetflixHomeTokens.CardCornerRadius)
-    val artwork = remember(mediaKey, imageUrl) {
-        NetflixCardArtwork(key = "$mediaKey|${imageUrl.orEmpty()}", imageUrl = imageUrl)
+    val shouldHoldPortrait = !imageUrl.isNullOrBlank() &&
+        !holdUntilReadyImageUrl.isNullOrBlank() &&
+        imageUrl != holdUntilReadyImageUrl
+    val desiredPainter = rememberAsyncImagePainter(model = imageUrl)
+    val desiredState by desiredPainter.state.collectAsState()
+    val desiredReady = desiredState is AsyncImagePainter.State.Success
+    val displayedImageUrl = if (shouldHoldPortrait && !desiredReady) {
+        holdUntilReadyImageUrl
+    } else {
+        imageUrl
     }
-    val showFallbackTitle = showFallbackTitleWhenArtworkMissing && imageUrl.isNullOrBlank()
+    val artwork = remember(mediaKey, displayedImageUrl) {
+        NetflixCardArtwork(key = "$mediaKey|${displayedImageUrl.orEmpty()}", imageUrl = displayedImageUrl)
+    }
+    val showFallbackTitle = showFallbackTitleWhenArtworkMissing && displayedImageUrl.isNullOrBlank()
     val showText = showLabels || showFallbackTitle
 
     // Arm on focus settle only. Do NOT restart when the URL arrives later — that
@@ -160,6 +179,8 @@ internal fun NetflixMediaCard(
         Box(modifier = Modifier.fillMaxSize()) {
             // Keep poster under the player always. TrailerPlayer fades in on first
             // frame (alpha 0→1); removing artwork earlier caused a surface flash.
+            // While focus swaps portrait→landscape, hold the portrait until the
+            // landscape Coil request succeeds so the card never looks empty.
             Crossfade(
                 targetState = artwork,
                 animationSpec = tween(durationMillis = NetflixHomeMotion.ArtworkCrossfadeDurationMs),
