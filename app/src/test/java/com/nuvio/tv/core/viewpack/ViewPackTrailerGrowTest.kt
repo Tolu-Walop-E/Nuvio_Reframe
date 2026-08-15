@@ -51,4 +51,35 @@ class ViewPackTrailerGrowTest {
         assertFalse(homeRowPosterGrowFromPack(pack)["addon_movie_top"]!!)
         assertTrue(homeRowPosterGrowFromPack(pack)["addon_series_pop"]!!)
     }
+
+    @Test
+    fun rowMapsFollowRemappedAddonIds() {
+        val pack = ViewPack(
+            schemaVersion = 1,
+            id = "bola",
+            name = "Bola Save",
+            showFocusedPosterInfo = true,
+            blocks = listOf(
+                ViewBlock(
+                    id = "rail",
+                    type = "mediaRail",
+                    dataSource = "catalog:app.xperience.old:movie:trending_most_popular_top20_movies",
+                    trailer = true,
+                    posterGrow = true
+                )
+            )
+        )
+        val refs = packCatalogRefs(pack)
+        val installed = listOf(
+            Triple(
+                "app.xperience.bola",
+                "movie",
+                "trending_most_popular_top20_movies"
+            )
+        )
+        val labels = remapPackKeyedMap(homeRowShowLabelsFromPack(pack), refs, installed)
+        assertTrue(labels["app.xperience.bola_movie_trending_most_popular_top20_movies"] == true)
+        val grow = remapPackKeyedMap(homeRowPosterGrowFromPack(pack), refs, installed)
+        assertTrue(grow["app.xperience.bola_movie_trending_most_popular_top20_movies"] == true)
+    }
 }

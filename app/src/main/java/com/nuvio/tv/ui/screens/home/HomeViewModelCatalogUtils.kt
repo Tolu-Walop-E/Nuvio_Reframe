@@ -9,6 +9,7 @@ import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.HomeLayout
 import com.nuvio.tv.domain.model.MetaPreview
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.update
 
 internal fun HomeViewModel.catalogKey(addonId: String, type: String, catalogId: String): String {
     return "${addonId}_${type}_${catalogId}"
@@ -394,6 +395,34 @@ private fun HomeViewModel.applyActiveViewPackOrderIfNeeded(allAvailable: Set<Str
     val remappedKeys = packKeys.map { key ->
         val ref = activeViewPackCatalogRefs[key] ?: return@map key
         com.nuvio.tv.core.viewpack.remapPackCatalogRef(ref, installed).orderKey
+    }
+    activeViewPackRowScales = com.nuvio.tv.core.viewpack.remapPackKeyedMap(
+        activeViewPackRowScales,
+        activeViewPackCatalogRefs,
+        installed
+    )
+    activeViewPackRowShowLabels = com.nuvio.tv.core.viewpack.remapPackKeyedMap(
+        activeViewPackRowShowLabels,
+        activeViewPackCatalogRefs,
+        installed
+    )
+    activeViewPackRowTrailers = com.nuvio.tv.core.viewpack.remapPackKeyedMap(
+        activeViewPackRowTrailers,
+        activeViewPackCatalogRefs,
+        installed
+    )
+    activeViewPackRowPosterGrow = com.nuvio.tv.core.viewpack.remapPackKeyedMap(
+        activeViewPackRowPosterGrow,
+        activeViewPackCatalogRefs,
+        installed
+    )
+    _uiState.update { state ->
+        state.copy(
+            viewPackRowScales = activeViewPackRowScales,
+            viewPackRowShowLabels = activeViewPackRowShowLabels,
+            viewPackRowTrailers = activeViewPackRowTrailers,
+            viewPackRowPosterGrow = activeViewPackRowPosterGrow
+        )
     }
     val available = buildSet {
         addAll(allAvailable)

@@ -402,6 +402,26 @@ fun remapPackCatalogRef(
     )
 }
 
+/**
+ * Re-key pack row maps (footer / grow / trailers / scale) onto installed addon ids.
+ * Catalog rails on TV use the remapped order key; leaving Studio's original addon UUID
+ * as the map key dropped the Netflix footer on the other profile.
+ */
+fun <T> remapPackKeyedMap(
+    map: Map<String, T>,
+    catalogRefs: Map<String, PackCatalogRef>,
+    installed: List<Triple<String, String, String>>
+): Map<String, T> {
+    if (map.isEmpty() || catalogRefs.isEmpty()) return map
+    val out = LinkedHashMap<String, T>()
+    for ((key, value) in map) {
+        val remapped = catalogRefs[key]?.let { remapPackCatalogRef(it, installed).orderKey } ?: key
+        if (remapped !in out) out[remapped] = value
+        if (key !in out) out[key] = value
+    }
+    return out
+}
+
 fun packCatalogRefs(pack: ViewPack): Map<String, PackCatalogRef> {
     val out = LinkedHashMap<String, PackCatalogRef>()
     for (block in pack.blocks.sortedWith(compareBy({ it.y }, { it.x }, { it.id }))) {
