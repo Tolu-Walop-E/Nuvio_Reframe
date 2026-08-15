@@ -159,11 +159,12 @@ internal fun HomeViewModel.loadActiveViewPackPipeline() {
                     )
                 }
                 activeViewPackCatalogRefs.values.forEach { ref ->
+                    val resolved = resolvedPackCatalogForOrderKey(ref.orderKey) ?: ref
                     ensureCatalogLoaded(
-                        ref.addonId,
-                        ref.type,
-                        ref.catalogId,
-                        extraArgs = genreExtraForCatalogId(ref.catalogId)
+                        resolved.addonId,
+                        resolved.type,
+                        resolved.catalogId,
+                        extraArgs = genreExtraForCatalogId(resolved.catalogId)
                     )
                 }
                 _uiState.update { state ->
@@ -984,7 +985,7 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                 }
             } else {
                     val folderRef = packFolderRefs[key]
-                    val packCatalog = if (packActive) activeViewPackCatalogRefs[key] else null
+                    val packCatalog = if (packActive) resolvedPackCatalogForOrderKey(key) else null
                     val catalogLookupKey = folderRef?.catalogOrderKey ?: key
                     val packRailTitle = folderRef?.folderTitle?.takeIf { it.isNotBlank() }
                         ?: packCatalog?.label

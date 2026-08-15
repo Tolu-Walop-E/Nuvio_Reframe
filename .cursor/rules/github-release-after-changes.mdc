@@ -1,0 +1,16 @@
+---
+description: After Nuvio TV app changes, bump version, push, and publish a GitHub Release
+alwaysApply: true
+---
+
+# GitHub Release after Nuvio changes
+
+When you change the Nuvio TV app (`NuvioTV` / Reframe) in a way the user would install on a device:
+
+1. Bump `versionCode` by 1 and `versionName` (e.g. `0.8.8-reframe` → `0.8.9-reframe`) in `app/build.gradle.kts`.
+2. Commit the app changes and version bump (PowerShell-safe commit message; no bash heredoc).
+3. Push to remote `reframe` (`https://github.com/Tolu-Walop-E/Nuvio_Reframe.git`) on the current feature branch.
+4. `.\gradlew.bat :app:assembleFullRelease`
+5. Publish with `gh release create` on repo `Tolu-Walop-E/Nuvio_Reframe`, tag = `versionName`, attach APKs from `app/build/outputs/apk/full/release`, `--target` = commit SHA. Shield users need `app-full-arm64-v8a-release.apk`.
+
+Do this without waiting to be asked. Skip only for docs-only, comments-only, or when the user says not to ship.

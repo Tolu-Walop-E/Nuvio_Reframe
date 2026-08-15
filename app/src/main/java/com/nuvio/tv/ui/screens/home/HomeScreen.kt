@@ -656,7 +656,8 @@ private fun ModernHomeRoute(
     }
     val useNetflixPresentation =
         NetflixHomeFeature.AVAILABLE &&
-            (uiState.homeLayout == HomeLayout.NETFLIX || !uiState.activeViewPackName.isNullOrBlank())
+            (uiState.homeLayout == HomeLayout.NETFLIX ||
+                (uiState.homeLayout == HomeLayout.MODERN && !uiState.activeViewPackName.isNullOrBlank()))
     if (useNetflixPresentation) {
         NetflixHomeContent(
             uiState = uiState,

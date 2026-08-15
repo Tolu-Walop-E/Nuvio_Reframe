@@ -223,6 +223,9 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
                     )
                 }
                 if (shouldRefreshCatalogPresentation) {
+                    if (previousState.homeLayout != prefs.layout) {
+                        rebuildCatalogOrder(addonsCache)
+                    }
                     // When switching to GRID layout, load all pending lazy catalogs
                     // since grid doesn't support placeholder shimmer rows.
                     if (prefs.layout == HomeLayout.GRID) {

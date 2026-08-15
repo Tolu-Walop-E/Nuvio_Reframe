@@ -39,6 +39,23 @@ class ViewPackExpandedRailsTest {
     }
 
     @Test
+    fun remapPackCatalogRef_matchesInstalledAddonByCatalogId() {
+        val ref = PackCatalogRef(
+            orderKey = "app.xperience.old_movie_anime_trending_movies",
+            addonId = "app.xperience.old",
+            type = "movie",
+            catalogId = "anime_trending_movies",
+            label = "Trending Anime Movies"
+        )
+        val remapped = remapPackCatalogRef(
+            ref,
+            listOf(Triple("app.xperience.new", "movie", "anime_trending_movies"))
+        )
+        assertEquals("app.xperience.new", remapped.addonId)
+        assertEquals("app.xperience.new_movie_anime_trending_movies", remapped.orderKey)
+    }
+
+    @Test
     fun applyStrictPackOrder_keepsFolderAndCatalogKeysWhenUnioned() {
         val packKeys = listOf(
             PACK_GENRES_ROW_KEY,

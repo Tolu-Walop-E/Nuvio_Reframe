@@ -6,6 +6,7 @@ import com.nuvio.tv.domain.model.Addon
 import com.nuvio.tv.domain.model.AddonCatalogCollectionSource
 import com.nuvio.tv.domain.model.CatalogDescriptor
 import com.nuvio.tv.domain.model.CatalogRow
+import com.nuvio.tv.domain.model.HomeLayout
 import com.nuvio.tv.domain.model.MetaPreview
 import kotlinx.coroutines.Job
 
@@ -305,6 +306,22 @@ internal fun HomeViewModel.rebuildCatalogOrder(addons: List<Addon>) {
  * Resolve `addonId_type_catalogId` against installed addons, or by splitting on a
  * known content-type segment when the catalog is missing from the manifest.
  */
+internal fun HomeViewModel.resolvedPackCatalogForOrderKey(key: String): com.nuvio.tv.core.viewpack.PackCatalogRef? {
+    val installed = addonsCache.flatMap { addon ->
+        addon.catalogs.map { catalog -> Triple(addon.id, catalog.apiType, catalog.id) }
+    }
+    activeViewPackCatalogRefs[key]?.let {
+        return com.nuvio.tv.core.viewpack.remapPackCatalogRef(it, installed)
+    }
+    return activeViewPackCatalogRefs.values
+        .map { com.nuvio.tv.core.viewpack.remapPackCatalogRef(it, installed) }
+        .firstOrNull { it.orderKey == key }
+}
+
+/**
+ * Resolve `addonId_type_catalogId` against installed addons, or by splitting on a
+ * known content-type segment when the catalog is missing from the manifest.
+ */
 internal fun HomeViewModel.resolveAddonCatalogForHomeKey(
     key: String
 ): Triple<String, String, String>? {
@@ -335,18 +352,26 @@ internal fun HomeViewModel.resolveAddonCatalogForHomeKey(
 
 private fun HomeViewModel.applyActiveViewPackOrderIfNeeded(allAvailable: Set<String>) {
     val packKeys = activeViewPackOrderKeys ?: return
-    // Pack is the allow-list. Union pack keys into "available" so expanded Studio
-    // rails (folder_* / catalog rails not in the default home set) are kept.
+    val layout = _uiState.value.homeLayout
+    if (layout == HomeLayout.GRID || layout == HomeLayout.CLASSIC) {
+        return
+    }
+    val installed = addonsCache.flatMap { addon ->
+        addon.catalogs.map { catalog -> Triple(addon.id, catalog.apiType, catalog.id) }
+    }
+    val remappedKeys = packKeys.map { key ->
+        val ref = activeViewPackCatalogRefs[key] ?: return@map key
+        com.nuvio.tv.core.viewpack.remapPackCatalogRef(ref, installed).orderKey
+    }
     val available = buildSet {
         addAll(allAvailable)
-        addAll(packKeys)
+        addAll(remappedKeys)
         if (com.nuvio.tv.core.viewpack.PACK_GENRES_ROW_KEY in packKeys) {
             add(com.nuvio.tv.core.viewpack.PACK_GENRES_ROW_KEY)
         }
     }
-    // Pack is the explicit allow-list — do not also filter by disabled prefs.
     val ordered = com.nuvio.tv.core.viewpack.applyStrictPackOrder(
-        packKeys = packKeys,
+        packKeys = remappedKeys,
         availableKeys = available
     )
     synchronized(catalogStateLock) {

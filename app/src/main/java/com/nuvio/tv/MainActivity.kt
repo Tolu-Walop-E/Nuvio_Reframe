@@ -559,10 +559,8 @@ class MainActivity : ComponentActivity() {
                 layoutPreferenceDataStore.migrateForcedNetflixLayoutIfNeeded()
             }
             LaunchedEffect(mainUiPrefs.homeLayout, mainUiPrefs.hasActiveViewPack) {
-                // View packs bind to Netflix presentation even when layout prefs stay MODERN.
-                NetflixHomeFeature.setActiveFromLayout(
-                    if (mainUiPrefs.hasActiveViewPack) HomeLayout.NETFLIX else mainUiPrefs.homeLayout
-                )
+                // Packs style Netflix home; Grid/Classic keep their own chrome (sidebar).
+                NetflixHomeFeature.setActiveFromLayout(mainUiPrefs.homeLayout)
             }
 
             NuvioTheme(

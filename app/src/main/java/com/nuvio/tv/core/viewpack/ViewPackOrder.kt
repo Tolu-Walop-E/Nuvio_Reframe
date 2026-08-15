@@ -381,6 +381,27 @@ data class PackCollectionHubRef(
 /**
  * Map pack `catalog:…` dataSources → load refs (first occurrence wins).
  */
+fun remapPackCatalogRef(
+    ref: PackCatalogRef,
+    installed: List<Triple<String, String, String>>
+): PackCatalogRef {
+    val exact = installed.any { (addonId, type, catalogId) ->
+        addonId == ref.addonId &&
+            type.equals(ref.type, ignoreCase = true) &&
+            catalogId == ref.catalogId
+    }
+    if (exact) return ref
+    val hit = installed.firstOrNull { (_, type, catalogId) ->
+        type.equals(ref.type, ignoreCase = true) && catalogId == ref.catalogId
+    } ?: installed.firstOrNull { (_, _, catalogId) -> catalogId == ref.catalogId }
+        ?: return ref
+    return ref.copy(
+        addonId = hit.first,
+        type = hit.second,
+        orderKey = "${hit.first}_${hit.second}_${hit.third}"
+    )
+}
+
 fun packCatalogRefs(pack: ViewPack): Map<String, PackCatalogRef> {
     val out = LinkedHashMap<String, PackCatalogRef>()
     for (block in pack.blocks.sortedWith(compareBy({ it.y }, { it.x }, { it.id }))) {
