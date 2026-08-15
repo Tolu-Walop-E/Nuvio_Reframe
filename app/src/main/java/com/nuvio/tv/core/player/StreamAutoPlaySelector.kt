@@ -24,10 +24,16 @@ object StreamAutoPlaySelector {
         val (directDebridEntries, remainingEntries) = streams.partition {
             it.streams.any { stream -> stream.isDirectDebrid() }
         }
-        if (installedOrder.isEmpty()) return directDebridEntries + remainingEntries
+        if (installedOrder.isEmpty()) {
+            return directDebridEntries + remainingEntries.sortedWith(preferredAddonComparator { it.addonName })
+        }
         val (addonEntries, pluginEntries) = remainingEntries.partition { it.addonName in addonRankByName }
-        val orderedAddons = addonEntries.sortedBy { addonRankByName.getValue(it.addonName) }
-        return directDebridEntries + orderedAddons + pluginEntries
+        val orderedAddons = addonEntries.sortedWith(
+            compareBy<AddonStreams> { preferredAddonRank(it.addonName) }
+                .thenBy { addonRankByName.getValue(it.addonName) }
+        )
+        return directDebridEntries + orderedAddons +
+            pluginEntries.sortedWith(preferredAddonComparator { it.addonName })
     }
 
     private fun isPlayable(stream: Stream): Boolean {
@@ -43,6 +49,32 @@ object StreamAutoPlaySelector {
         return stream.getStreamUrl() != null || stream.isTorrent() || stream.isDirectDebrid()
     }
 
+    internal fun preferredAddonRank(addonName: String): Int {
+        val normalized = addonName.lowercase().replace(" ", "")
+        return when {
+            "duckstream" in normalized -> 0
+            "penguplay" in normalized || normalized == "pengu" -> 1
+            else -> 2
+        }
+    }
+
+    private fun <T> preferredAddonComparator(name: (T) -> String): Comparator<T> {
+        return compareBy { preferredAddonRank(name(it)) }
+    }
+
+    private fun shouldWaitForDuckstreams(
+        installedAddonNames: Set<String>,
+        selectedAddons: Set<String>,
+        arrivedAddonNames: Set<String>
+    ): Boolean {
+        val expected = if (selectedAddons.isEmpty()) installedAddonNames else selectedAddons
+        val duckstreams = expected.filter { preferredAddonRank(it) == 0 }
+        if (duckstreams.isEmpty()) return false
+        return duckstreams.none { name ->
+            arrivedAddonNames.any { arrived -> arrived.equals(name, ignoreCase = true) }
+        }
+    }
+
 
 
     fun selectAutoPlayStream(
@@ -55,7 +87,9 @@ object StreamAutoPlaySelector {
         selectedPlugins: Set<String>,
         preferredBingeGroup: String? = null,
         preferBingeGroupInSelection: Boolean = false,
-        bingeGroupOnly: Boolean = false
+        bingeGroupOnly: Boolean = false,
+        arrivedAddonNames: Set<String> = emptySet(),
+        waitForPreferredAddons: Boolean = false
     ): Stream? {
         if (streams.isEmpty()) return null
 
@@ -80,11 +114,28 @@ object StreamAutoPlaySelector {
         }
         if (candidateStreams.isEmpty()) return null
 
+        if (waitForPreferredAddons &&
+            shouldWaitForDuckstreams(
+                installedAddonNames = installedAddonNames,
+                selectedAddons = selectedAddons,
+                arrivedAddonNames = arrivedAddonNames
+            )
+        ) {
+            return null
+        }
+
+        val rankedCandidates = candidateStreams.withIndex()
+            .sortedWith(
+                compareBy<IndexedValue<Stream>> { preferredAddonRank(it.value.addonName) }
+                    .thenBy { it.index }
+            )
+            .map { it.value }
+
         // Binge group matching takes priority over mode — even in MANUAL mode,
         // a persisted binge group should auto-play without showing the picker.
         val targetBingeGroup = preferredBingeGroup?.trim().orEmpty()
         if (preferBingeGroupInSelection && targetBingeGroup.isNotEmpty()) {
-            val bingeGroupMatch = candidateStreams.firstOrNull { stream ->
+            val bingeGroupMatch = rankedCandidates.firstOrNull { stream ->
                 stream.behaviorHints?.bingeGroup == targetBingeGroup && isPlayable(stream)
             }
             if (bingeGroupMatch != null) return bingeGroupMatch
@@ -98,7 +149,7 @@ object StreamAutoPlaySelector {
 
         return when (mode) {
             StreamAutoPlayMode.MANUAL -> null
-            StreamAutoPlayMode.FIRST_STREAM -> candidateStreams.firstOrNull { isPlayable(it) }
+            StreamAutoPlayMode.FIRST_STREAM -> rankedCandidates.firstOrNull { isPlayable(it) }
             StreamAutoPlayMode.REGEX_MATCH -> {
                 val pattern = regexPattern.trim()
  
@@ -120,7 +171,7 @@ object StreamAutoPlaySelector {
                 } else null
 
                 // 1. Build list of ALL regex‑matching streams
-                val matchingStreams = candidateStreams.filter { stream ->
+                val matchingStreams = rankedCandidates.filter { stream ->
                     if (!isPlayable(stream)) return@filter false
 
                     val searchableText = buildString {

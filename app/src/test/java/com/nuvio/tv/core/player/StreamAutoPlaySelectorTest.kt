@@ -268,6 +268,120 @@ class StreamAutoPlaySelectorTest {
         assertEquals(listOf(regular, cachedDebrid), ordered)
     }
 
+    @Test
+    fun `prefers Duckstreams over PenguPlay even when PenguPlay arrived first`() {
+        val pengu = stream(
+            addonName = "PenguPlay",
+            url = "https://example.com/pengu.m3u8",
+            name = "1080p"
+        )
+        val duck = stream(
+            addonName = "Duckstreams",
+            url = "https://example.com/duck.m3u8",
+            name = "720p"
+        )
+
+        val selected = StreamAutoPlaySelector.selectAutoPlayStream(
+            streams = listOf(pengu, duck),
+            mode = StreamAutoPlayMode.FIRST_STREAM,
+            regexPattern = "",
+            source = StreamAutoPlaySource.ALL_SOURCES,
+            installedAddonNames = setOf("Duckstreams", "PenguPlay"),
+            selectedAddons = emptySet(),
+            selectedPlugins = emptySet()
+        )
+
+        assertEquals(duck, selected)
+    }
+
+    @Test
+    fun `falls back to PenguPlay when Duckstreams has no playable stream`() {
+        val duck = stream(
+            addonName = "Duckstreams",
+            name = "broken",
+            url = null
+        )
+        val pengu = stream(
+            addonName = "PenguPlay",
+            url = "https://example.com/pengu.m3u8",
+            name = "1080p"
+        )
+
+        val selected = StreamAutoPlaySelector.selectAutoPlayStream(
+            streams = listOf(duck, pengu),
+            mode = StreamAutoPlayMode.FIRST_STREAM,
+            regexPattern = "",
+            source = StreamAutoPlaySource.ALL_SOURCES,
+            installedAddonNames = setOf("Duckstreams", "PenguPlay"),
+            selectedAddons = emptySet(),
+            selectedPlugins = emptySet()
+        )
+
+        assertEquals(pengu, selected)
+    }
+
+    @Test
+    fun `waits for Duckstreams instead of auto-picking PenguPlay`() {
+        val pengu = stream(
+            addonName = "PenguPlay",
+            url = "https://example.com/pengu.m3u8"
+        )
+
+        val selected = StreamAutoPlaySelector.selectAutoPlayStream(
+            streams = listOf(pengu),
+            mode = StreamAutoPlayMode.FIRST_STREAM,
+            regexPattern = "",
+            source = StreamAutoPlaySource.ALL_SOURCES,
+            installedAddonNames = setOf("Duckstreams", "PenguPlay"),
+            selectedAddons = emptySet(),
+            selectedPlugins = emptySet(),
+            arrivedAddonNames = setOf("PenguPlay"),
+            waitForPreferredAddons = true
+        )
+
+        assertNull(selected)
+    }
+
+    @Test
+    fun `regex still prefers a Duckstreams match over a later PenguPlay match`() {
+        val pengu = stream(
+            addonName = "PenguPlay",
+            url = "https://example.com/pengu.m3u8",
+            name = "2160p"
+        )
+        val duck = stream(
+            addonName = "Duckstreams",
+            url = "https://example.com/duck.m3u8",
+            name = "2160p HDR"
+        )
+
+        val selected = StreamAutoPlaySelector.selectAutoPlayStream(
+            streams = listOf(pengu, duck),
+            mode = StreamAutoPlayMode.REGEX_MATCH,
+            regexPattern = "2160p",
+            source = StreamAutoPlaySource.ALL_SOURCES,
+            installedAddonNames = setOf("Duckstreams", "PenguPlay"),
+            selectedAddons = emptySet(),
+            selectedPlugins = emptySet()
+        )
+
+        assertEquals(duck, selected)
+    }
+
+    @Test
+    fun `orderAddonStreams pins Duckstreams ahead of PenguPlay`() {
+        val pengu = addonStreams("PenguPlay")
+        val duck = addonStreams("Duckstreams")
+        val other = addonStreams("Torrentio")
+
+        val ordered = StreamAutoPlaySelector.orderAddonStreams(
+            streams = listOf(pengu, other, duck),
+            installedOrder = listOf("Torrentio", "PenguPlay", "Duckstreams")
+        )
+
+        assertEquals(listOf(duck, pengu, other), ordered)
+    }
+
     private fun stream(
         addonName: String,
         url: String? = null,

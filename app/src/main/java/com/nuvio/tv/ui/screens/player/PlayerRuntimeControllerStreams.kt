@@ -1585,7 +1585,10 @@ internal fun PlayerRuntimeController.playNextEpisode(userInitiated: Boolean = fa
             // finishes, so the waiting code below resumes without polling.
             val searchSettled = CompletableDeferred<Unit>()
 
-            fun trySelectStream(data: List<AddonStreams>): Stream? {
+            fun trySelectStream(
+                data: List<AddonStreams>,
+                waitForPreferredAddons: Boolean = !timeoutElapsed
+            ): Stream? {
                 val orderedStreams = StreamAutoPlaySelector.orderAddonStreams(data, installedAddonOrder)
                 val allStreams = orderedStreams.flatMap { it.streams }
                 return StreamAutoPlaySelector.selectAutoPlayStream(
@@ -1602,7 +1605,9 @@ internal fun PlayerRuntimeController.playNextEpisode(userInitiated: Boolean = fa
                         null
                     },
                     preferBingeGroupInSelection = playerSettings.streamAutoPlayPreferBingeGroupForNextEpisode,
-                    bingeGroupOnly = bingeGroupOnlyManualMode
+                    bingeGroupOnly = bingeGroupOnlyManualMode,
+                    arrivedAddonNames = data.map { it.addonName }.toSet(),
+                    waitForPreferredAddons = waitForPreferredAddons
                 )
             }
 
@@ -1659,7 +1664,9 @@ internal fun PlayerRuntimeController.playNextEpisode(userInitiated: Boolean = fa
                 // Every addon has responded: take whatever matched, then settle so
                 // the waiting code below resumes even if nothing was selected.
                 if (!autoSelectTriggered) {
-                    lastSuccessData?.let { data -> trySelectStream(data)?.let { recordSelection(it) } }
+                    lastSuccessData?.let { data ->
+                        trySelectStream(data, waitForPreferredAddons = false)?.let { recordSelection(it) }
+                    }
                 }
                 searchSettled.complete(Unit)
             }
