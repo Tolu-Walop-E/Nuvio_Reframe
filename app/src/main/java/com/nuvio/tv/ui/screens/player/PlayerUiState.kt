@@ -29,31 +29,38 @@ enum class PlaybackIssueReportStatus {
 }
 
 sealed interface PostPlayMode {
-    val nextEpisode: NextEpisodeInfo
-
     data class AutoPlay(
-        override val nextEpisode: NextEpisodeInfo,
+        val nextEpisode: NextEpisodeInfo,
         val searching: Boolean = false,
         val sourceName: String? = null,
         val countdownSec: Int? = null,
     ) : PostPlayMode
 
     data class StillWatching(
-        override val nextEpisode: NextEpisodeInfo,
+        val nextEpisode: NextEpisodeInfo,
         val countdownSec: Int? = null,
     ) : PostPlayMode
 
+    /** Shown after a movie or season/series finale finishes. Blocks player exit until rated or skipped. */
+    data class RatePrompt(
+        val title: String,
+        val artworkUrl: String?,
+        val subtitle: String? = null,
+        val selectedRating: Int = 8,
+    ) : PostPlayMode
+
     fun copyWithNextEpisode(nextEpisode: NextEpisodeInfo): PostPlayMode {
-        if (nextEpisode == this.nextEpisode) return this
         return when (this) {
-            is AutoPlay -> copy(nextEpisode = nextEpisode)
-            is StillWatching -> copy(nextEpisode = nextEpisode)
+            is AutoPlay -> if (nextEpisode == this.nextEpisode) this else copy(nextEpisode = nextEpisode)
+            is StillWatching -> if (nextEpisode == this.nextEpisode) this else copy(nextEpisode = nextEpisode)
+            is RatePrompt -> this
         }
     }
 
     fun blocksNaturalCompletion(): Boolean = when (this) {
         is StillWatching -> true
         is AutoPlay -> searching || countdownSec != null
+        is RatePrompt -> true
     }
 }
 
@@ -318,6 +325,9 @@ sealed class PlayerEvent {
     data object OnDismissNextEpisodeCard : PlayerEvent()
     data object OnStillWatchingContinue : PlayerEvent()
     data object OnDismissStillWatchingPrompt : PlayerEvent()
+    data class OnRatePromptSelect(val rating: Int) : PlayerEvent()
+    data object OnRatePromptSubmit : PlayerEvent()
+    data object OnRatePromptSkip : PlayerEvent()
 
     // Subtitle style events (for in-player style tab)
     data class OnSetSubtitleSize(val size: Int) : PlayerEvent()

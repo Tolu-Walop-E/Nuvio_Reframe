@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -31,6 +32,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.runtime.Composable
@@ -74,12 +76,16 @@ fun PostPlayOverlay(
     onPlayNext: () -> Unit,
     onContinueStillWatching: () -> Unit,
     onDismissStillWatching: () -> Unit,
+    onRateSelect: (Int) -> Unit = {},
+    onRateSubmit: () -> Unit = {},
+    onRateSkip: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val isAutoPlay = mode is PostPlayMode.AutoPlay
+    val isRatePrompt = mode is PostPlayMode.RatePrompt
     val isAutoPlayPlayable = (mode as? PostPlayMode.AutoPlay)?.nextEpisode?.hasAired == true
 
-    var placedFocused by remember(isAutoPlay, controlsVisible) { mutableStateOf(false) }
+    var placedFocused by remember(isAutoPlay, isRatePrompt, controlsVisible) { mutableStateOf(false) }
 
     val transition = updateTransition(targetState = mode, label = "PostPlayMode")
 
@@ -109,13 +115,16 @@ fun PostPlayOverlay(
                     shape = RoundedCornerShape(14.dp),
                 ),
                 focusedBorder = Border(
-                    border = BorderStroke(NuvioTheme.spacing.xxs, NuvioTheme.colors.FocusRing),
+                    border = BorderStroke(
+                        if (isRatePrompt) NuvioTheme.spacing.hairline else NuvioTheme.spacing.xxs,
+                        if (isRatePrompt) Color.White.copy(alpha = 0.16f) else NuvioTheme.colors.FocusRing,
+                    ),
                     shape = RoundedCornerShape(14.dp),
                 ),
             ),
             scale = CardDefaults.scale(focusedScale = 1f),
             modifier = Modifier
-                .width(420.dp)
+                .width(if (isRatePrompt) 520.dp else 420.dp)
                 .focusRequester(nextEpisodeFocusRequester)
                 .onPlaced {
                     if (isAutoPlay && !controlsVisible && !placedFocused) {
@@ -124,7 +133,7 @@ fun PostPlayOverlay(
                     }
                 }
                 .then(
-                    if (progressBarFocusRequester != null || leftFocusRequester != null) {
+                    if (!isRatePrompt && (progressBarFocusRequester != null || leftFocusRequester != null)) {
                         Modifier.focusProperties {
                             progressBarFocusRequester?.let { down = it }
                             leftFocusRequester?.let { left = it }
@@ -147,6 +156,12 @@ fun PostPlayOverlay(
                         mode = current,
                         onContinue = onContinueStillWatching,
                         onDismiss = onDismissStillWatching,
+                    )
+                    is PostPlayMode.RatePrompt -> RatePromptBody(
+                        mode = current,
+                        onSelect = onRateSelect,
+                        onSubmit = onRateSubmit,
+                        onSkip = onRateSkip,
                     )
                     null -> Unit
                 }
@@ -225,6 +240,159 @@ private fun AutoPlayBody(mode: PostPlayMode.AutoPlay) {
                 color = if (isPlayable) Color.White else Color.White.copy(alpha = 0.72f),
                 fontSize = 12.sp,
                 modifier = Modifier.padding(start = 3.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun RatePromptBody(
+    mode: PostPlayMode.RatePrompt,
+    onSelect: (Int) -> Unit,
+    onSubmit: () -> Unit,
+    onSkip: () -> Unit,
+) {
+    val scoreFocusRequesters = remember { List(10) { FocusRequester() } }
+    val submitFocusRequester = remember { FocusRequester() }
+    val skipFocusRequester = remember { FocusRequester() }
+    var placedFocused by remember { mutableStateOf(false) }
+    val selected = mode.selectedRating.coerceIn(1, 10)
+
+    Column(
+        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            NextEpisodeThumbnail(
+                thumbnail = mode.artworkUrl,
+                contentDescription = mode.title,
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.rate_after_watching_title),
+                    color = Color.White.copy(alpha = 0.78f),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+                Spacer(modifier = Modifier.height(NuvioTheme.spacing.xxs))
+                Text(
+                    text = mode.title,
+                    color = Color.White,
+                    fontSize = 16.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                if (!mode.subtitle.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.height(NuvioTheme.spacing.xxs))
+                    Text(
+                        text = mode.subtitle,
+                        color = Color.White.copy(alpha = 0.7f),
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            (1..10).forEach { score ->
+                val index = score - 1
+                val selectedScore = score == selected
+                Card(
+                    onClick = { onSelect(score) },
+                    shape = CardDefaults.shape(shape = RoundedCornerShape(10.dp)),
+                    colors = CardDefaults.colors(
+                        containerColor = if (selectedScore) {
+                            Color.White.copy(alpha = 0.22f)
+                        } else {
+                            Color.White.copy(alpha = 0.06f)
+                        },
+                        focusedContainerColor = Color.White.copy(alpha = 0.28f),
+                    ),
+                    border = CardDefaults.border(
+                        border = Border(
+                            border = BorderStroke(
+                                NuvioTheme.spacing.hairline,
+                                if (selectedScore) Color.White.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.12f),
+                            ),
+                            shape = RoundedCornerShape(10.dp),
+                        ),
+                        focusedBorder = Border(
+                            border = BorderStroke(NuvioTheme.spacing.xxs, NuvioTheme.colors.FocusRing),
+                            shape = RoundedCornerShape(10.dp),
+                        ),
+                    ),
+                    scale = CardDefaults.scale(focusedScale = 1.06f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(40.dp)
+                        .focusRequester(scoreFocusRequesters[index])
+                        .onPlaced {
+                            if (selectedScore && !placedFocused) {
+                                placedFocused = true
+                                runCatching { scoreFocusRequesters[index].requestFocus() }
+                            }
+                        }
+                        .focusProperties {
+                            down = submitFocusRequester
+                            if (index > 0) left = scoreFocusRequesters[index - 1]
+                            if (index < 9) right = scoreFocusRequesters[index + 1]
+                        },
+                ) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = score.toString(),
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            fontWeight = if (selectedScore) FontWeight.Bold else FontWeight.Medium,
+                        )
+                    }
+                }
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            PostPlayPillButton(
+                icon = Icons.Default.Check,
+                iconTint = Color.White,
+                label = stringResource(R.string.rate_after_watching_submit, selected),
+                textColor = Color.White,
+                onClick = onSubmit,
+                focusRequester = submitFocusRequester,
+                modifier = Modifier
+                    .focusProperties {
+                        up = scoreFocusRequesters[selected - 1]
+                        right = skipFocusRequester
+                    },
+            )
+            PostPlayPillButton(
+                icon = Icons.Default.Close,
+                iconTint = Color.White.copy(alpha = 0.65f),
+                label = stringResource(R.string.rate_after_watching_skip),
+                textColor = Color.White.copy(alpha = 0.72f),
+                onClick = onSkip,
+                focusRequester = skipFocusRequester,
+                modifier = Modifier.focusProperties {
+                    up = scoreFocusRequesters[selected - 1]
+                    left = submitFocusRequester
+                },
+            )
+            Spacer(modifier = Modifier.weight(1f))
+            Text(
+                text = stringResource(R.string.rate_after_watching_hint),
+                color = Color.White.copy(alpha = 0.55f),
+                fontSize = 11.sp,
             )
         }
     }

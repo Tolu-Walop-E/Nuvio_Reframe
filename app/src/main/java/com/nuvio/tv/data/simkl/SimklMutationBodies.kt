@@ -54,6 +54,27 @@ fun buildSimklHistoryRemovalBody(
     )
 )
 
+fun buildSimklRatingsBody(
+    media: TrackingMediaReference,
+    rating: Int,
+    json: Json = SimklMutationJson
+): String {
+    val item = SimklRatingItemDto(
+        rating = rating.coerceIn(1, 10),
+        title = media.title.nonBlankOrNull(),
+        year = media.year,
+        ids = media.ids.toSimklJsonObjectOrNull()
+    )
+    // Rate the parent title (movie / show / anime), never an episode row.
+    return json.encodeToString(
+        SimklRatingsMutationRequestDto(
+            movies = listOf(item).takeIf { media.kind == TrackingMediaKind.MOVIE }.orEmpty(),
+            shows = listOf(item).takeIf { media.kind == TrackingMediaKind.SHOW }.orEmpty(),
+            anime = listOf(item).takeIf { media.kind == TrackingMediaKind.ANIME }.orEmpty()
+        )
+    )
+}
+
 fun buildSimklScrobbleBody(
     event: TrackingScrobbleEvent,
     json: Json = SimklMutationJson
@@ -270,6 +291,21 @@ private data class SimklEpisodeMutationDto(
     val season: Int? = null,
     val number: Int,
     @SerialName("watched_at") val watchedAt: String? = null
+)
+
+@Serializable
+private data class SimklRatingsMutationRequestDto(
+    val movies: List<SimklRatingItemDto> = emptyList(),
+    val shows: List<SimklRatingItemDto> = emptyList(),
+    val anime: List<SimklRatingItemDto> = emptyList()
+)
+
+@Serializable
+private data class SimklRatingItemDto(
+    val rating: Int,
+    val title: String? = null,
+    val year: Int? = null,
+    val ids: JsonObject? = null
 )
 
 @Serializable

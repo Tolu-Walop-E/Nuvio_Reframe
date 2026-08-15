@@ -3,9 +3,13 @@
 package com.nuvio.tv.ui.screens.home.netflix
 
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.gestures.BringIntoViewSpec
+import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -13,33 +17,49 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.relocation.BringIntoViewResponder
+import androidx.compose.foundation.relocation.bringIntoViewResponder
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.tv.material3.MaterialTheme
@@ -74,7 +94,6 @@ internal fun NetflixContinueWatchingRail(
     modifier: Modifier = Modifier
 ) {
     if (items.isEmpty()) return
-    val density = LocalDensity.current
     val itemRequesters = remember(railKey, items.size) { List(items.size) { FocusRequester() } }
     var focusedItem by remember(items) { mutableStateOf(items.getOrNull(lastFocusedIndex.coerceIn(0, items.lastIndex))) }
     var settledItem by remember(items) { mutableStateOf(focusedItem) }
@@ -97,15 +116,12 @@ internal fun NetflixContinueWatchingRail(
         onFirstCardRequesterReady = onFirstCardRequesterReady,
         modifier = modifier
     ) { rowState, focusedIndex, onCardFocused, onMoveLeft, onMoveRight, railHasFocus ->
-        Box {
-            LazyRow(
-                state = rowState,
-                horizontalArrangement = Arrangement.spacedBy(NetflixHomeSpacing.railHorizontalGap(density)),
-                contentPadding = PaddingValues(
-                    horizontal = NetflixHomeTokens.PageHorizontalPadding,
-                    vertical = NetflixHomeSpacing.RailFocusPadding
-                )
-            ) {
+        NetflixPivotLazyRow(
+            state = rowState,
+            selectorVisible = railHasFocus,
+            selectorWidth = NetflixHomeTokens.ContinueCardWidth,
+            selectorHeight = NetflixHomeTokens.ContinueCardHeight
+        ) {
                 itemsIndexed(items, key = { _, item -> item.netflixKey() }) { index, item ->
                     val card = item.toNetflixCard(useEpisodeThumbnails = useEpisodeThumbnails)
                     val itemKey = item.netflixKey()
@@ -135,12 +151,6 @@ internal fun NetflixContinueWatchingRail(
                         showFocusBorder = false
                     )
                 }
-            }
-            NetflixPivotSelector(
-                visible = railHasFocus,
-                width = NetflixHomeTokens.ContinueCardWidth,
-                height = NetflixHomeTokens.ContinueCardHeight
-            )
         }
         Box(
             modifier = Modifier
@@ -277,13 +287,11 @@ internal fun NetflixCatalogRail(
                     maxAbsoluteRailHeight = maxPosterHeight
                 )
             }
-            LazyRow(
+            NetflixPivotLazyRow(
                 state = rowState,
-                horizontalArrangement = Arrangement.spacedBy(NetflixHomeSpacing.railHorizontalGap(density)),
-                contentPadding = PaddingValues(
-                    horizontal = NetflixHomeTokens.PageHorizontalPadding,
-                    vertical = NetflixHomeSpacing.RailFocusPadding
-                )
+                selectorVisible = railHasFocus,
+                selectorWidth = if (posterGrow) geometry.focusedWidth else geometry.portraitWidth,
+                selectorHeight = geometry.railHeight
             ) {
                 itemsIndexed(row.items, key = { index, item -> item.netflixCatalogItemKey(row, index) }) { index, item ->
                     val landscape = useLandscapeCards || item.posterShape == PosterShape.LANDSCAPE
@@ -358,11 +366,6 @@ internal fun NetflixCatalogRail(
                     )
                 }
             }
-            NetflixPivotSelector(
-                visible = railHasFocus,
-                width = if (posterGrow) geometry.focusedWidth else geometry.portraitWidth,
-                height = geometry.railHeight
-            )
         }
         if (showFocusedMetadata) {
             Box(
@@ -419,6 +422,7 @@ internal fun NetflixRailScaffold(
     var focusedIndex by remember(railKey, itemRequesters.size) {
         mutableStateOf(safeLastFocusedIndex)
     }
+    var pendingIndex by remember(railKey) { mutableStateOf<Int?>(null) }
     var railHasFocus by remember(railKey) { mutableStateOf(false) }
     val horizontalListState = rememberLazyListState(
         initialFirstVisibleItemIndex = safeLastFocusedIndex
@@ -428,16 +432,25 @@ internal fun NetflixRailScaffold(
         itemRequesters.firstOrNull()?.let(onFirstCardRequesterReady)
     }
 
-    LaunchedEffect(focusedIndex, itemRequesters.size) {
+    LaunchedEffect(pendingIndex, itemRequesters.size) {
+        val idx = pendingIndex ?: return@LaunchedEffect
         if (itemRequesters.isEmpty()) return@LaunchedEffect
-        val idx = focusedIndex.coerceIn(0, itemRequesters.lastIndex)
-        val aligned = horizontalListState.firstVisibleItemIndex == idx &&
-            horizontalListState.firstVisibleItemScrollOffset == 0
-        if (!aligned) {
-            horizontalListState.animateScrollToItem(idx)
+        val target = idx.coerceIn(0, itemRequesters.lastIndex)
+        val visible = horizontalListState.layoutInfo.visibleItemsInfo.any { it.index == target }
+        if (!visible) {
+            runCatching { horizontalListState.scrollToItem(target) }
         }
-        if (railHasFocus) {
-            itemRequesters[idx].requestFocus()
+        val focused = itemRequesters[target].requestFocusAfterFrames(1)
+        if (!focused) {
+            runCatching { horizontalListState.scrollToItem(target) }
+            if (!itemRequesters[target].requestFocusAfterFrames(2)) {
+                val fallback = focusedIndex.coerceIn(0, itemRequesters.lastIndex)
+                if (fallback != target) {
+                    runCatching { horizontalListState.scrollToItem(fallback) }
+                    itemRequesters[fallback].requestFocusAfterFrames(1)
+                }
+                pendingIndex = null
+            }
         }
     }
 
@@ -447,6 +460,7 @@ internal fun NetflixRailScaffold(
         }
         val targetIndex = lastFocusedIndex.coerceIn(0, itemRequesters.lastIndex)
         focusedIndex = targetIndex
+        pendingIndex = null
         if (horizontalListState.firstVisibleItemIndex != targetIndex) {
             runCatching { horizontalListState.scrollToItem(targetIndex) }
         }
@@ -458,13 +472,21 @@ internal fun NetflixRailScaffold(
 
     val moveLeft = {
         if (itemRequesters.isNotEmpty()) {
-            focusedIndex = (focusedIndex - 1).coerceAtLeast(0)
+            val from = pendingIndex ?: focusedIndex
+            val next = (from - 1).coerceAtLeast(0)
+            if (next != from) {
+                pendingIndex = next
+            }
         }
         true
     }
     val moveRight = {
         if (itemRequesters.isNotEmpty()) {
-            focusedIndex = (focusedIndex + 1).coerceAtMost(itemRequesters.lastIndex)
+            val from = pendingIndex ?: focusedIndex
+            val next = (from + 1).coerceAtMost(itemRequesters.lastIndex)
+            if (next != from) {
+                pendingIndex = next
+            }
         }
         true
     }
@@ -472,13 +494,24 @@ internal fun NetflixRailScaffold(
     Column(
         modifier = modifier
             .padding(top = NetflixHomeSpacing.RailTopPadding)
+            .onPreviewKeyEvent { keyEvent ->
+                if (keyEvent.type != KeyEventType.KeyDown) {
+                    false
+                } else {
+                    when (keyEvent.key) {
+                        Key.DirectionLeft -> moveLeft()
+                        Key.DirectionRight -> moveRight()
+                        else -> false
+                    }
+                }
+            }
             .onFocusChanged { railHasFocus = it.hasFocus }
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = NetflixHomeTokens.PageHorizontalPadding),
-            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Column {
                 Text(
@@ -501,11 +534,115 @@ internal fun NetflixRailScaffold(
         content(
             horizontalListState,
             focusedIndex,
-            { index -> focusedIndex = index },
+            { index ->
+                focusedIndex = index
+                if (pendingIndex == index) {
+                    pendingIndex = null
+                }
+            },
             moveLeft,
             moveRight,
             railHasFocus
         )
+    }
+}
+
+@Composable
+internal fun rememberNetflixPivotBringIntoViewSpec(): BringIntoViewSpec {
+    val defaultBringIntoViewSpec = LocalBringIntoViewSpec.current
+    return remember(defaultBringIntoViewSpec) {
+        @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
+        object : BringIntoViewSpec {
+            override val scrollAnimationSpec: AnimationSpec<Float> =
+                defaultBringIntoViewSpec.scrollAnimationSpec
+            override fun calculateScrollDistance(
+                offset: Float,
+                size: Float,
+                containerSize: Float
+            ): Float {
+                // Pin the focused child's leading edge to the start of the
+                // clipped row viewport so previous posters cannot peek.
+                return offset
+            }
+        }
+    }
+}
+
+@Composable
+internal fun NetflixPivotBringIntoView(content: @Composable () -> Unit) {
+    val spec = rememberNetflixPivotBringIntoViewSpec()
+    CompositionLocalProvider(LocalBringIntoViewSpec provides spec, content = content)
+}
+
+@Composable
+internal fun NetflixPivotLazyRow(
+    state: LazyListState,
+    selectorVisible: Boolean,
+    selectorWidth: Dp,
+    selectorHeight: Dp,
+    content: LazyListScope.() -> Unit
+) {
+    val density = LocalDensity.current
+    val rowHeight = selectorHeight + (NetflixHomeSpacing.RailFocusPadding * 2)
+    val rowSize = remember { mutableStateOf(IntSize.Zero) }
+    val parentBringIntoViewResponder = remember {
+        object : BringIntoViewResponder {
+            override fun calculateRectForParent(localRect: Rect): Rect {
+                val size = rowSize.value
+                if (size.width <= 0 || size.height <= 0) return localRect
+                return Rect(0f, 0f, size.width.toFloat(), size.height.toFloat())
+            }
+
+            override suspend fun bringChildIntoView(localRect: () -> Rect?) {
+                // Horizontal pinning is handled by LocalBringIntoViewSpec.
+            }
+        }
+    }
+    NetflixPivotBringIntoView {
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            // Enough trailing space that the last title can still sit in the
+            // left pivot slot instead of the selector walking to the right.
+            val endPadding = (maxWidth - NetflixHomeTokens.PageHorizontalPadding - selectorWidth)
+                .coerceAtLeast(NetflixHomeTokens.PageHorizontalPadding)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(rowHeight)
+                    .onSizeChanged { rowSize.value = it }
+                    .bringIntoViewResponder(parentBringIntoViewResponder)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .padding(start = NetflixHomeTokens.PageHorizontalPadding)
+                        .fillMaxSize()
+                        .clipToBounds()
+                ) {
+                    LazyRow(
+                        state = state,
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .focusGroup()
+                            .focusProperties { canFocus = false },
+                        verticalAlignment = Alignment.Top,
+                        horizontalArrangement = Arrangement.spacedBy(
+                            NetflixHomeSpacing.railHorizontalGap(density)
+                        ),
+                        contentPadding = PaddingValues(
+                            start = 0.dp,
+                            end = endPadding,
+                            top = NetflixHomeSpacing.RailFocusPadding,
+                            bottom = NetflixHomeSpacing.RailFocusPadding
+                        ),
+                        content = content
+                    )
+                }
+                NetflixPivotSelector(
+                    visible = selectorVisible,
+                    width = selectorWidth,
+                    height = selectorHeight
+                )
+            }
+        }
     }
 }
 

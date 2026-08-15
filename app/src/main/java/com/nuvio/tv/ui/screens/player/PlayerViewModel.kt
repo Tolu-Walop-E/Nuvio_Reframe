@@ -51,6 +51,10 @@ class PlayerViewModel @Inject constructor(
     private val streamLinkCacheDataStore: StreamLinkCacheDataStore,
     private val streamBadgeSettingsDataStore: StreamBadgeSettingsDataStore,
     private val bingeGroupCacheDataStore: com.nuvio.tv.data.local.BingeGroupCacheDataStore,
+    private val userRatingsDataStore: com.nuvio.tv.data.local.UserRatingsDataStore,
+    private val simklMutationService: com.nuvio.tv.data.simkl.SimklMutationService,
+    private val simklAuthRepository: com.nuvio.tv.data.simkl.SimklAuthRepository,
+    private val simklSyncRepository: com.nuvio.tv.data.simkl.SimklSyncRepository,
     private val layoutPreferenceDataStore: com.nuvio.tv.data.local.LayoutPreferenceDataStore,
     private val watchedItemsPreferences: com.nuvio.tv.data.local.WatchedItemsPreferences,
     private val trackPreferenceDataStore: com.nuvio.tv.data.local.TrackPreferenceDataStore,
@@ -93,6 +97,10 @@ class PlayerViewModel @Inject constructor(
         streamLinkCacheDataStore = streamLinkCacheDataStore,
         streamBadgeSettingsDataStore = streamBadgeSettingsDataStore,
         bingeGroupCacheDataStore = bingeGroupCacheDataStore,
+        userRatingsDataStore = userRatingsDataStore,
+        simklMutationService = simklMutationService,
+        simklAuthRepository = simklAuthRepository,
+        simklSyncRepository = simklSyncRepository,
         layoutPreferenceDataStore = layoutPreferenceDataStore,
         watchedItemsPreferences = watchedItemsPreferences,
         trackPreferenceDataStore = trackPreferenceDataStore,
@@ -161,6 +169,11 @@ class PlayerViewModel @Inject constructor(
 
     fun onEvent(event: PlayerEvent) {
         controller.onEvent(event)
+    }
+
+    /** Returns true when a rate card is shown and exit should wait. */
+    fun requestRatePromptBeforeExit(positionMs: Long, durationMs: Long): Boolean {
+        return controller.requestRatePromptBeforeExit(positionMs, durationMs)
     }
 
     fun consumePendingExitReason() {

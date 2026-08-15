@@ -360,6 +360,7 @@ internal fun PlayerRuntimeController.observeSubtitleSettings() {
             nextEpisodeThresholdMinutesBeforeEndSetting = settings.nextEpisodeThresholdMinutesBeforeEnd
             stillWatchingEnabledSetting = settings.stillWatchingEnabled
             stillWatchingEpisodeThresholdSetting = settings.stillWatchingEpisodeThreshold
+            rateAfterWatchingEnabledSetting = settings.rateAfterWatchingEnabled
 
             // VOD cache config is gated by the "Custom Playback Buffers" master.
             // When the master is off the cache is disabled at player build time, so

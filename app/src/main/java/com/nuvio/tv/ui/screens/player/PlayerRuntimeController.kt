@@ -75,6 +75,10 @@ class PlayerRuntimeController(
     internal val streamLinkCacheDataStore: StreamLinkCacheDataStore,
     internal val streamBadgeSettingsDataStore: StreamBadgeSettingsDataStore,
     internal val bingeGroupCacheDataStore: BingeGroupCacheDataStore,
+    internal val userRatingsDataStore: com.nuvio.tv.data.local.UserRatingsDataStore,
+    internal val simklMutationService: com.nuvio.tv.data.simkl.SimklMutationService,
+    internal val simklAuthRepository: com.nuvio.tv.data.simkl.SimklAuthRepository,
+    internal val simklSyncRepository: com.nuvio.tv.data.simkl.SimklSyncRepository,
     internal val layoutPreferenceDataStore: com.nuvio.tv.data.local.LayoutPreferenceDataStore,
     internal val watchedItemsPreferences: com.nuvio.tv.data.local.WatchedItemsPreferences,
     internal val trackPreferenceDataStore: com.nuvio.tv.data.local.TrackPreferenceDataStore,
@@ -400,6 +404,7 @@ class PlayerRuntimeController(
     internal var stillWatchingEnabledSetting: Boolean = false
     internal var stillWatchingEpisodeThresholdSetting: Int =
         PlayerSettings.DEFAULT_STILL_WATCHING_EPISODE_THRESHOLD
+    internal var rateAfterWatchingEnabledSetting: Boolean = true
     internal var mpvHardwareDecodeModeSetting: MpvHardwareDecodeMode = MpvHardwareDecodeMode.AUTO_SAFE
     internal var mpvPreferredAudioLanguages: List<String> = emptyList()
     internal var currentStreamBingeGroup: String? = navigationArgs.bingeGroup

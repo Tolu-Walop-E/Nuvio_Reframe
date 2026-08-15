@@ -130,6 +130,28 @@ class SimklMutationService internal constructor(
         return response.toSimklScrobbleResult(action, event, json)
     }
 
+    /**
+     * Apply a user rating (1–10) to a movie / show / anime on Simkl.
+     * Episode coordinates are ignored — finales rate the parent title.
+     */
+    suspend fun rate(media: TrackingMediaReference, rating: Int): TrackingMutationResult {
+        val candidate = media.copy(episode = null)
+        require(candidate.hasResolvableIdentity) { "Simkl rating requires a media ID or title" }
+        val score = rating.coerceIn(1, 10)
+        val response = client.execute(
+            SimklApiRequest(
+                method = SimklHttpMethod.POST,
+                path = "/sync/ratings",
+                body = buildSimklRatingsBody(candidate, score, json),
+                retryPolicy = SimklRetryPolicy.SYNC_WRITE
+            )
+        )
+        if (response.status !in 200..299 && !response.isSoftSuccess) {
+            error("Simkl rating failed status=${response.status} body=${response.body.take(240)}")
+        }
+        return TrackingMutationResult(attemptedCount = 1)
+    }
+
     private fun Collection<TrackingMediaReference>.validated(): List<TrackingMediaReference> =
         toList().also { candidates ->
             require(candidates.all(TrackingMediaReference::hasResolvableIdentity)) {

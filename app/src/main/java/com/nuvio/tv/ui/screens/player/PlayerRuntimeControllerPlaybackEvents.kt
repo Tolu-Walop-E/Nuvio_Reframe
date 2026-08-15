@@ -225,6 +225,10 @@ internal fun PlayerRuntimeController.startProgressUpdates() {
                         durationMs = playerDuration
                     )
                     val wasEnded = _uiState.value.playbackEnded
+                    val ratePrompt = ratePromptForNaturalEndOrNull(
+                        naturalEnded = naturalEnded,
+                        wasEnded = wasEnded,
+                    )
                     _uiState.update { state ->
                         state.copy(
                             isPlaying = playingNow,
@@ -233,8 +237,13 @@ internal fun PlayerRuntimeController.startProgressUpdates() {
                             // Snap the loading-logo fill to 100% once playback is
                             // ready so the logo finishes filling on dismissal.
                             loadingProgress = if (firstFrameReady && state.loadingProgress != null) 1f else state.loadingProgress,
-                            playbackEnded = naturalEnded
+                            playbackEnded = naturalEnded,
+                            postPlayMode = ratePrompt ?: state.postPlayMode,
+                            showControls = if (ratePrompt != null) false else state.showControls,
                         )
+                    }
+                    if (ratePrompt != null) {
+                        onRatePromptArmedFromNaturalEnd()
                     }
                     updateMpvAvailableTracks()
                     updateActiveSkipInterval(pos)
@@ -646,6 +655,10 @@ internal fun PlayerRuntimeController.handleNaturalPlaybackEnded() {
 
     emitCompletionScrobbleStop(progressPercent = 99.5f)
     saveWatchProgress()
+    // Rate prompt is armed in the same UI update as playbackEnded when eligible.
+    if (_uiState.value.postPlayMode is PostPlayMode.RatePrompt) {
+        return
+    }
     resetPostPlayStateAfterPlaybackEnded()
 }
 
@@ -1594,6 +1607,9 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
         }
         PlayerEvent.OnStillWatchingContinue -> onStillWatchingContinue()
         PlayerEvent.OnDismissStillWatchingPrompt -> onDismissStillWatchingPrompt()
+        is PlayerEvent.OnRatePromptSelect -> onRatePromptSelect(event.rating)
+        PlayerEvent.OnRatePromptSubmit -> onRatePromptSubmit()
+        PlayerEvent.OnRatePromptSkip -> onRatePromptSkip()
         is PlayerEvent.OnSetSubtitleSize -> {
             scope.launch { playerSettingsDataStore.setSubtitleSize(event.size) }
         }

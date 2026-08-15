@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Tune
@@ -91,6 +92,7 @@ internal fun LazyListScope.autoPlaySettingsItems(
     onSetReuseLastLinkEnabled: (Boolean) -> Unit,
     onSetStillWatchingEnabled: (Boolean) -> Unit,
     onSetStillWatchingEpisodeThreshold: (Int) -> Unit,
+    onSetRateAfterWatchingEnabled: (Boolean) -> Unit,
     onItemFocused: () -> Unit = {}
 ) {
     val effectiveAutoPlaySource = if (
@@ -200,6 +202,17 @@ internal fun LazyListScope.autoPlaySettingsItems(
                 )
             }
         }
+    }
+
+    item(key = "rate_after_watching_enabled") {
+        ToggleSettingsItem(
+            icon = Icons.Default.Star,
+            title = stringResource(R.string.rate_after_watching_setting_title),
+            subtitle = stringResource(R.string.rate_after_watching_setting_sub),
+            isChecked = playerSettings.rateAfterWatchingEnabled,
+            onCheckedChange = onSetRateAfterWatchingEnabled,
+            onFocused = onItemFocused
+        )
     }
 
     item(key = "autoplay_next_episode_prefer_binge_group") {

@@ -1,17 +1,10 @@
-@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-
 package com.nuvio.tv.ui.screens.home.netflix
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.platform.LocalDensity
 import com.nuvio.tv.domain.model.Collection
 import com.nuvio.tv.ui.components.collectionFolderCardImageUrl
 
@@ -33,7 +26,6 @@ internal fun NetflixCollectionRail(
 ) {
     if (collection.folders.isEmpty()) return
 
-    val density = LocalDensity.current
     val scale = landscapeScale.coerceIn(0.55f, 2.5f)
     val itemRequesters = remember(railKey, collection.folders.size) {
         List(collection.folders.size) { FocusRequester() }
@@ -50,15 +42,12 @@ internal fun NetflixCollectionRail(
         onFirstCardRequesterReady = onFirstCardRequesterReady,
         modifier = modifier
     ) { rowState, focusedIndex, onCardFocused, onMoveLeft, onMoveRight, railHasFocus ->
-        Box {
-            LazyRow(
-                state = rowState,
-                horizontalArrangement = Arrangement.spacedBy(NetflixHomeSpacing.railHorizontalGap(density)),
-                contentPadding = PaddingValues(
-                    horizontal = NetflixHomeTokens.PageHorizontalPadding,
-                    vertical = NetflixHomeSpacing.RailFocusPadding
-                )
-            ) {
+        NetflixPivotLazyRow(
+            state = rowState,
+            selectorVisible = railHasFocus,
+            selectorWidth = NetflixHomeTokens.FocusedLandscapeCardWidth * scale,
+            selectorHeight = NetflixHomeTokens.FocusedLandscapeCardHeight * scale
+        ) {
                 itemsIndexed(
                     items = collection.folders,
                     key = { _, folder -> folder.id }
@@ -95,12 +84,6 @@ internal fun NetflixCollectionRail(
                         showFocusBorder = false
                     )
                 }
-            }
-            NetflixPivotSelector(
-                visible = railHasFocus,
-                width = NetflixHomeTokens.FocusedLandscapeCardWidth * scale,
-                height = NetflixHomeTokens.FocusedLandscapeCardHeight * scale
-            )
         }
     }
 }

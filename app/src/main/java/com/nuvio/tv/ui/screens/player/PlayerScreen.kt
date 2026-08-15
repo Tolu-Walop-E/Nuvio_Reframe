@@ -165,8 +165,15 @@ fun PlayerScreen(
 
     val exitPlayer: () -> Unit = exitPlayer@{
         if (exitDispatched) return@exitPlayer
-        exitDispatched = true
+        if (uiState.postPlayMode is PostPlayMode.RatePrompt) {
+            viewModel.onEvent(PlayerEvent.OnRatePromptSkip)
+            return@exitPlayer
+        }
         val timeline = viewModel.playbackTimeline.value
+        if (viewModel.requestRatePromptBeforeExit(timeline.currentPosition, timeline.duration)) {
+            return@exitPlayer
+        }
+        exitDispatched = true
         viewModel.stopAndRelease()
         val completed = timeline.duration > 0L &&
             (timeline.currentPosition.toFloat() / timeline.duration.toFloat()) >= WatchProgress.COMPLETED_THRESHOLD
@@ -277,6 +284,8 @@ fun PlayerScreen(
             viewModel.onEvent(PlayerEvent.OnDismissSkipIntro)
         } else if (uiState.postPlayMode is PostPlayMode.StillWatching) {
             viewModel.onEvent(PlayerEvent.OnDismissStillWatchingPrompt)
+        } else if (uiState.postPlayMode is PostPlayMode.RatePrompt) {
+            viewModel.onEvent(PlayerEvent.OnRatePromptSkip)
         } else if (uiState.showControls) {
             viewModel.hideControls()
         } else {
@@ -288,7 +297,7 @@ fun PlayerScreen(
         handleBackPress()
     }
 
-    LaunchedEffect(uiState.playbackEnded, uiState.error, uiState.pendingExitReason, shouldConfirmNextEpisodeOnEnd) {
+    LaunchedEffect(uiState.playbackEnded, uiState.error, uiState.pendingExitReason, uiState.postPlayMode, shouldConfirmNextEpisodeOnEnd) {
         val explicitReason = uiState.pendingExitReason
         val shouldDispatchNatural = uiState.playbackEnded &&
             uiState.error == null &&
@@ -578,7 +587,8 @@ fun PlayerScreen(
                         uiState.showSubtitleDelayOverlay || uiState.showSubtitleTimingDialog ||
                         uiState.showMoreDialog ||
                         shouldConfirmNextEpisodeOnEnd ||
-                        uiState.postPlayMode is PostPlayMode.StillWatching
+                        uiState.postPlayMode is PostPlayMode.StillWatching ||
+                        uiState.postPlayMode is PostPlayMode.RatePrompt
                 if (panelOrDialogOpen) return@onKeyEvent false
 
                 if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_UP) {
@@ -902,6 +912,9 @@ fun PlayerScreen(
             onPlayNext = { viewModel.onEvent(PlayerEvent.OnPlayNextEpisode) },
             onContinueStillWatching = { viewModel.onEvent(PlayerEvent.OnStillWatchingContinue) },
             onDismissStillWatching = { viewModel.onEvent(PlayerEvent.OnDismissStillWatchingPrompt) },
+            onRateSelect = { rating -> viewModel.onEvent(PlayerEvent.OnRatePromptSelect(rating)) },
+            onRateSubmit = { viewModel.onEvent(PlayerEvent.OnRatePromptSubmit) },
+            onRateSkip = { viewModel.onEvent(PlayerEvent.OnRatePromptSkip) },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(end = 26.dp, bottom = if (uiState.showControls) 122.dp else 30.dp)
@@ -970,7 +983,8 @@ fun PlayerScreen(
                 !uiState.showAudioOverlay &&
                 !uiState.showSubtitleOverlay &&
                 !uiState.showSpeedDialog &&
-                uiState.postPlayMode !is PostPlayMode.StillWatching,
+                uiState.postPlayMode !is PostPlayMode.StillWatching &&
+                uiState.postPlayMode !is PostPlayMode.RatePrompt,
             enter = fadeIn(animationSpec = tween(200)),
             exit = fadeOut(animationSpec = tween(200))
         ) {

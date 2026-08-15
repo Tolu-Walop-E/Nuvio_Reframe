@@ -260,6 +260,9 @@ fun PlaybackSettingsContent(
                 onSetStillWatchingEpisodeThreshold = { threshold ->
                     coroutineScope.launch { viewModel.setStillWatchingEpisodeThreshold(threshold) }
                 },
+                onSetRateAfterWatchingEnabled = { enabled ->
+                    coroutineScope.launch { viewModel.setRateAfterWatchingEnabled(enabled) }
+                },
                 onSetShowPlayerLoadingStatus = { enabled -> coroutineScope.launch { viewModel.setShowPlayerLoadingStatus(enabled) } },
                 onSetLoadingOverlayEnabled = { enabled -> coroutineScope.launch { viewModel.setLoadingOverlayEnabled(enabled) } },
                 onSetPauseOverlayEnabled = { enabled -> coroutineScope.launch { viewModel.setPauseOverlayEnabled(enabled) } },

@@ -1037,13 +1037,23 @@ internal fun PlayerRuntimeController.initializePlayer(
                                     maxOf(d, lastKnownDuration)
                                 }
                             )
+                        val wasEnded = _uiState.value.playbackEnded
+                        val ratePrompt = ratePromptForNaturalEndOrNull(
+                            naturalEnded = naturalEnded,
+                            wasEnded = wasEnded,
+                        )
                         _uiState.update {
                             it.copy(
                                 isBuffering = if (NuvioExoPlayerPerformanceHelper.shouldSuppressBufferingUi(
                                     suppressBufferingUiForSeek, seekBufferingUiDeferred, isBuffering
                                 )) false else isBuffering,
-                                playbackEnded = naturalEnded
+                                playbackEnded = naturalEnded,
+                                postPlayMode = ratePrompt ?: it.postPlayMode,
+                                showControls = if (ratePrompt != null) false else it.showControls,
                             )
+                        }
+                        if (ratePrompt != null) {
+                            onRatePromptArmedFromNaturalEnd()
                         }
                         updateAudioControlAvailability()
 

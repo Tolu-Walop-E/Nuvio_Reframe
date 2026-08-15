@@ -1741,6 +1741,12 @@
     <string name="still_watching_setting_sub">Prompt after consecutive auto-played episodes.</string>
     <string name="still_watching_threshold_title">Episode Threshold</string>
     <string name="still_watching_threshold_sub">Number of auto-played episodes before prompting.</string>
+    <string name="rate_after_watching_title">Rate this title</string>
+    <string name="rate_after_watching_submit">Rate %1$d</string>
+    <string name="rate_after_watching_skip">Skip</string>
+    <string name="rate_after_watching_hint">Saved to Simkl when connected</string>
+    <string name="rate_after_watching_setting_title">Ask to rate after watching</string>
+    <string name="rate_after_watching_setting_sub">Prompt for a 1–10 score after movies and finales. Syncs to Simkl when linked.</string>
     <string name="skip_intro">Skip Intro</string>
     <string name="skip_ending">Skip Ending</string>
     <string name="skip_recap">Skip Recap</string>

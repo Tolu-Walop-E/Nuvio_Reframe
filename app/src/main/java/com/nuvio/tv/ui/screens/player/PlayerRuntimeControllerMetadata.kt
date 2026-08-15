@@ -303,7 +303,8 @@ internal fun PlayerRuntimeController.evaluatePostPlayOverlayVisibility(positionM
 
     val state = _uiState.value
     if (state.nextEpisode == null || nextEpisodeVideo == null) {
-        if (state.postPlayMode != null) {
+        // Keep an active rate prompt; clear only next-episode overlays.
+        if (state.postPlayMode != null && state.postPlayMode !is PostPlayMode.RatePrompt) {
             _uiState.update { it.copy(postPlayMode = null) }
         }
         return

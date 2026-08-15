@@ -267,6 +267,7 @@ data class PlayerSettings(
     val streamAutoPlayTimeoutSeconds: Int = 3,
     val stillWatchingEnabled: Boolean = false,
     val stillWatchingEpisodeThreshold: Int = DEFAULT_STILL_WATCHING_EPISODE_THRESHOLD,
+    val rateAfterWatchingEnabled: Boolean = true,
     val nextEpisodeThresholdMode: NextEpisodeThresholdMode = NextEpisodeThresholdMode.PERCENTAGE,
     val nextEpisodeThresholdPercent: Float = 99f,
     val nextEpisodeThresholdMinutesBeforeEnd: Float = 2f,
@@ -509,6 +510,7 @@ class PlayerSettingsDataStore @Inject constructor(
     private val streamAutoPlayReuseBingeGroupKey = booleanPreferencesKey("stream_auto_play_reuse_binge_group")
     private val streamAutoPlayTimeoutSecondsKey = intPreferencesKey("stream_auto_play_timeout_seconds")
     private val stillWatchingEnabledKey = booleanPreferencesKey("still_watching_enabled")
+    private val rateAfterWatchingEnabledKey = booleanPreferencesKey("rate_after_watching_enabled")
     private val stillWatchingEpisodeThresholdKey = intPreferencesKey("still_watching_episode_threshold")
     private val nextEpisodeThresholdModeKey = stringPreferencesKey("next_episode_threshold_mode")
     private val nextEpisodeThresholdPercentLegacyKey = intPreferencesKey("next_episode_threshold_percent")
@@ -874,6 +876,7 @@ class PlayerSettingsDataStore @Inject constructor(
                         PlayerSettings.MAX_STILL_WATCHING_EPISODE_THRESHOLD
                     )
                     ?: PlayerSettings.DEFAULT_STILL_WATCHING_EPISODE_THRESHOLD,
+                rateAfterWatchingEnabled = prefs[rateAfterWatchingEnabledKey] ?: true,
                 nextEpisodeThresholdMode = prefs[nextEpisodeThresholdModeKey]?.let {
                     runCatching { NextEpisodeThresholdMode.valueOf(it) }.getOrDefault(NextEpisodeThresholdMode.PERCENTAGE)
                 } ?: NextEpisodeThresholdMode.PERCENTAGE,
@@ -1240,6 +1243,12 @@ class PlayerSettingsDataStore @Inject constructor(
     suspend fun setStillWatchingEnabled(enabled: Boolean) {
         store().edit { prefs ->
             prefs[stillWatchingEnabledKey] = enabled
+        }
+    }
+
+    suspend fun setRateAfterWatchingEnabled(enabled: Boolean) {
+        store().edit { prefs ->
+            prefs[rateAfterWatchingEnabledKey] = enabled
         }
     }
 
