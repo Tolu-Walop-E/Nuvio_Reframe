@@ -53,6 +53,7 @@ internal fun HomeViewModel.observeCollectionsPipeline() {
                 collectionsCache = collections.associateBy { it.id }.values.toList()
                 _uiState.update { state -> state.copy(collections = collectionsCache) }
                 rebuildCatalogOrder(addonsCache)
+                ensureActivePackCatalogsLoaded()
                 scheduleUpdateCatalogRows()
             }
     }
@@ -163,8 +164,7 @@ internal fun HomeViewModel.loadActiveViewPackPipeline() {
                     ensureCatalogLoaded(
                         resolved.addonId,
                         resolved.type,
-                        resolved.catalogId,
-                        extraArgs = genreExtraForCatalogId(resolved.catalogId)
+                        resolved.catalogId
                     )
                 }
                 _uiState.update { state ->
@@ -441,7 +441,8 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
             emptyList()
         }
 
-        val allCatalogsToLoad = catalogsToLoad + heroOnlyCatalogs
+        val packCatalogsToLoad = packCatalogLoadPairs()
+        val allCatalogsToLoad = catalogsToLoad + heroOnlyCatalogs + packCatalogsToLoad
         if (allCatalogsToLoad.isEmpty()) {
             // No home catalogs and no hero catalogs to load —
             // but collections may still exist to render.
@@ -485,9 +486,20 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
         if (!_uiState.value.layoutPreferencesReady) {
             _uiState.first { it.layoutPreferencesReady }
         }
+        val packActive = activeViewPackOrderKeys != null &&
+            _uiState.value.homeLayout != HomeLayout.GRID &&
+            _uiState.value.homeLayout != HomeLayout.CLASSIC
         val isGridLayout = _uiState.value.homeLayout == HomeLayout.GRID
-        val eagerHomeCatalogs = if (isGridLayout) catalogsToLoad else catalogsToLoad.take(eagerCatalogLoadCount)
-        val lazyHomeCatalogs = if (isGridLayout) emptyList() else catalogsToLoad.drop(eagerCatalogLoadCount)
+        val eagerHomeCatalogs = when {
+            isGridLayout -> catalogsToLoad
+            packActive && packCatalogsToLoad.isNotEmpty() -> packCatalogsToLoad
+            else -> catalogsToLoad.take(eagerCatalogLoadCount)
+        }
+        val lazyHomeCatalogs = when {
+            isGridLayout -> emptyList()
+            packActive && packCatalogsToLoad.isNotEmpty() -> emptyList()
+            else -> catalogsToLoad.drop(eagerCatalogLoadCount)
+        }
 
         // Build placeholder descriptors for lazy catalogs
         synchronized(catalogStateLock) {
@@ -495,6 +507,7 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
             placeholderDescriptors.clear()
         }
         lazyLoadRequestedKeys.clear()
+        emptyCatalogRetryKeys.clear()
 
         (eagerHomeCatalogs + lazyHomeCatalogs).forEach { (addon, catalog) ->
             val key = catalogKey(addonId = addon.id, type = catalog.apiType, catalogId = catalog.id)
@@ -530,6 +543,7 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
         eagerCatalogs.forEach { (addon, catalog) ->
             loadCatalogPipeline(addon, catalog, generation)
         }
+        ensureActivePackCatalogsLoaded()
 
         // Immediately schedule an update so placeholder rows appear in the UI
         // while catalogs are still loading.
@@ -1059,8 +1073,7 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                             ensureCatalogLoaded(
                                 packCatalog.addonId,
                                 packCatalog.type,
-                                packCatalog.catalogId,
-                                extraArgs = genreExtraForCatalogId(packCatalog.catalogId)
+                                packCatalog.catalogId
                             )
                             add(
                                 HomeRow.Catalog(

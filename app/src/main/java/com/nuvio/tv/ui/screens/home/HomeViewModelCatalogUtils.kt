@@ -146,6 +146,7 @@ internal fun HomeViewModel.clearCatalogData() {
         placeholderDescriptors.clear()
     }
     lazyLoadRequestedKeys.clear()
+    emptyCatalogRetryKeys.clear()
 }
 
 internal fun HomeViewModel.snapshotCatalogKeys(): Set<String> = synchronized(catalogStateLock) {
@@ -302,10 +303,41 @@ internal fun HomeViewModel.rebuildCatalogOrder(addons: List<Addon>) {
     applyActiveViewPackOrderIfNeeded(allAvailable)
 }
 
-/**
- * Resolve `addonId_type_catalogId` against installed addons, or by splitting on a
- * known content-type segment when the catalog is missing from the manifest.
- */
+internal fun HomeViewModel.packCatalogLoadPairs(): List<Pair<Addon, CatalogDescriptor>> {
+    if (activeViewPackCatalogRefs.isEmpty() || addonsCache.isEmpty()) return emptyList()
+    val out = LinkedHashMap<String, Pair<Addon, CatalogDescriptor>>()
+    for (original in activeViewPackCatalogRefs.values) {
+        val resolved = resolvedPackCatalogForOrderKey(original.orderKey) ?: original
+        val addon = addonsCache.firstOrNull { it.id == resolved.addonId }
+            ?: addonsCache.firstOrNull { candidate ->
+                candidate.catalogs.any {
+                    it.id == resolved.catalogId && it.apiType.equals(resolved.type, ignoreCase = true)
+                }
+            }
+            ?: continue
+        val catalog = addon.catalogs.firstOrNull {
+            it.id == resolved.catalogId && it.apiType.equals(resolved.type, ignoreCase = true)
+        } ?: addon.catalogs.firstOrNull { it.id == resolved.catalogId }
+            ?: CatalogDescriptor(
+                type = com.nuvio.tv.domain.model.ContentType.fromString(resolved.type),
+                rawType = resolved.type,
+                id = resolved.catalogId,
+                name = resolved.label ?: resolved.catalogId,
+                showInHome = false
+            )
+        val key = catalogKey(addon.id, catalog.apiType, catalog.id)
+        if (key !in out) out[key] = addon to catalog
+    }
+    return out.values.toList()
+}
+
+internal fun HomeViewModel.ensureActivePackCatalogsLoaded() {
+    if (activeViewPackOrderKeys == null || addonsCache.isEmpty()) return
+    packCatalogLoadPairs().forEach { (addon, catalog) ->
+        ensureCatalogLoaded(addon.id, catalog.apiType, catalog.id)
+    }
+}
+
 internal fun HomeViewModel.resolvedPackCatalogForOrderKey(key: String): com.nuvio.tv.core.viewpack.PackCatalogRef? {
     val installed = addonsCache.flatMap { addon ->
         addon.catalogs.map { catalog -> Triple(addon.id, catalog.apiType, catalog.id) }

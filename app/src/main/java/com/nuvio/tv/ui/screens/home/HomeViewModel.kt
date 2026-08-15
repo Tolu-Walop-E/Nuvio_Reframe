@@ -382,6 +382,8 @@ class HomeViewModel @Inject constructor(
     // Lazy catalog loading
     internal val eagerCatalogLoadCount: Int = 4
     internal val lazyLoadRequestedKeys: MutableSet<String> = ConcurrentHashMap.newKeySet()
+    /** Pack/catalog keys that already got one empty-result retry this generation. */
+    internal val emptyCatalogRetryKeys: MutableSet<String> = ConcurrentHashMap.newKeySet()
     internal val pendingLazyCatalogs = linkedMapOf<String, Pair<Addon, CatalogDescriptor>>()
     /** All placeholder descriptors for homeRow construction. */
     internal data class PlaceholderDescriptor(
@@ -467,6 +469,27 @@ class HomeViewModel @Inject constructor(
                     netflixFolderLoadJobs.values.forEach { it.cancel() }
                     netflixFolderLoadJobs.clear()
                     _netflixFolderRails.value = emptyMap()
+                    // Catalog fetches are marked "already requested" per process.
+                    // Shared addons + a pack from the previous profile left titles
+                    // with empty rails until something else warmed the cache.
+                    cancelInFlightCatalogLoads()
+                    clearCatalogData()
+                    activeCatalogLoadSignature = null
+                    catalogsLoadInProgress = false
+                    pendingCatalogLoads = 0
+                    _uiState.update {
+                        it.copy(
+                            layoutPreferencesReady = false,
+                            continueWatchingItems = emptyList(),
+                            homeRows = emptyList(),
+                            catalogRows = emptyList(),
+                            isLoading = true
+                        )
+                    }
+                    viewModelScope.launch {
+                        loadAllCatalogsPipeline(addonsCache, forceReload = true)
+                        ensureActivePackCatalogsLoaded()
+                    }
                     // Clear all in-memory CW caches so data from the previous
                     // profile doesn't leak into the new one.
                     cwMetaCache.clear()
@@ -902,6 +925,9 @@ class HomeViewModel @Inject constructor(
             pendingLazyCatalogs.remove(catalogKey)
         }
         if (pair == null) {
+            resolveAddonCatalogForHomeKey(catalogKey)?.let { (addonId, type, catalogId) ->
+                ensureCatalogLoaded(addonId, type, catalogId)
+            }
             return
         }
         if (!lazyLoadRequestedKeys.add(catalogKey)) {
@@ -926,14 +952,21 @@ class HomeViewModel @Inject constructor(
         val key = catalogKey(addonId = addonId, type = type, catalogId = catalogId)
         val existing = readCatalogRow(key)
         if (existing != null && existing.items.isNotEmpty()) {
-            // Already fetched — still refresh fullCatalogRows so CatalogSeeAll
-            // picks up collection-only catalogs that aren't in home order.
             scheduleUpdateCatalogRows()
             return
         }
+        val retryEmpty = existing != null && existing.items.isEmpty()
         val retryWithExtras = extraArgs.isNotEmpty() && existing?.items.isNullOrEmpty()
-        if (!retryWithExtras && !lazyLoadRequestedKeys.add(key)) return
-        if (retryWithExtras) lazyLoadRequestedKeys.add(key)
+        if (retryEmpty) {
+            if (!emptyCatalogRetryKeys.add(key)) {
+                scheduleUpdateCatalogRows()
+                return
+            }
+            lazyLoadRequestedKeys.remove(key)
+        } else if (retryWithExtras) {
+            lazyLoadRequestedKeys.remove(key)
+        }
+        if (!lazyLoadRequestedKeys.add(key)) return
 
         val pending = synchronized(catalogStateLock) { pendingLazyCatalogs.remove(key) }
         if (pending != null) {
