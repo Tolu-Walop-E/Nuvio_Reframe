@@ -191,7 +191,11 @@ class HomeViewModel @Inject constructor(
         val addons = runCatching {
             addonRepository.getInstalledAddons().first().enabledAddons()
         }.getOrDefault(emptyList())
-        if (addons.isEmpty()) return
+        if (addons.isEmpty()) {
+            // Allow a retry once this profile's addons finish syncing.
+            netflixFolderLoadJobs.remove(request.railKey)
+            return
+        }
 
         val preferred = addons.find { it.id == source.addonId } ?: addons.first()
         var catalog = preferred.catalogs.find { it.id == source.catalogId && it.apiType == source.type }
@@ -454,6 +458,12 @@ class HomeViewModel @Inject constructor(
                     // Cancel old pipeline — prevents racing writes from stale coroutines.
                     cwPipelineJob?.cancel()
                     cwPipelineJob = null
+                    // Folder rails are keyed by collection folder, not profile. A load
+                    // that ran on the other profile (often with no addons yet) sticks
+                    // in netflixFolderLoadJobs and never retries after switching back.
+                    netflixFolderLoadJobs.values.forEach { it.cancel() }
+                    netflixFolderLoadJobs.clear()
+                    _netflixFolderRails.value = emptyMap()
                     // Clear all in-memory CW caches so data from the previous
                     // profile doesn't leak into the new one.
                     cwMetaCache.clear()
@@ -904,20 +914,28 @@ class HomeViewModel @Inject constructor(
      * Load a catalog by id even when it was never part of the home lazy queue
      * (genre collection catalogs, long-press remaps, etc.).
      */
-    fun ensureCatalogLoaded(addonId: String, type: String, catalogId: String) {
+    fun ensureCatalogLoaded(
+        addonId: String,
+        type: String,
+        catalogId: String,
+        extraArgs: Map<String, String> = emptyMap()
+    ) {
         val key = catalogKey(addonId = addonId, type = type, catalogId = catalogId)
-        if (key in snapshotCatalogKeys()) {
+        val existing = readCatalogRow(key)
+        if (existing != null && existing.items.isNotEmpty()) {
             // Already fetched — still refresh fullCatalogRows so CatalogSeeAll
             // picks up collection-only catalogs that aren't in home order.
             scheduleUpdateCatalogRows()
             return
         }
-        if (!lazyLoadRequestedKeys.add(key)) return
+        val retryWithExtras = extraArgs.isNotEmpty() && existing?.items.isNullOrEmpty()
+        if (!retryWithExtras && !lazyLoadRequestedKeys.add(key)) return
+        if (retryWithExtras) lazyLoadRequestedKeys.add(key)
 
         val pending = synchronized(catalogStateLock) { pendingLazyCatalogs.remove(key) }
         if (pending != null) {
             pendingCatalogLoads = (pendingCatalogLoads + 1)
-            loadCatalogPipeline(pending.first, pending.second, catalogLoadGeneration)
+            loadCatalogPipeline(pending.first, pending.second, catalogLoadGeneration, extraArgs)
             return
         }
 
@@ -947,11 +965,11 @@ class HomeViewModel @Inject constructor(
                 showInHome = false
             )
             pendingCatalogLoads = (pendingCatalogLoads + 1)
-            loadCatalogPipeline(addon, synthetic, catalogLoadGeneration)
+            loadCatalogPipeline(addon, synthetic, catalogLoadGeneration, extraArgs)
             return
         }
         pendingCatalogLoads = (pendingCatalogLoads + 1)
-        loadCatalogPipeline(addon, catalog, catalogLoadGeneration)
+        loadCatalogPipeline(addon, catalog, catalogLoadGeneration, extraArgs)
     }
 
     /**

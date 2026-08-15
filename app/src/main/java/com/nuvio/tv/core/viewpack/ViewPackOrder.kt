@@ -257,7 +257,8 @@ data class PackFolderCatalogRef(
     val folderTitle: String,
     val addonId: String,
     val type: String,
-    val catalogId: String
+    val catalogId: String,
+    val genre: String? = null
 ) {
     val catalogOrderKey: String get() = "${addonId}_${type}_${catalogId}"
 }
@@ -297,7 +298,8 @@ fun packFolderCatalogRefs(
             folderTitle = folder.title.ifBlank { block.label.orEmpty() }.ifBlank { folderId },
             addonId = source.addonId,
             type = source.type,
-            catalogId = source.catalogId
+            catalogId = source.catalogId,
+            genre = source.genre
         )
     }
     return out

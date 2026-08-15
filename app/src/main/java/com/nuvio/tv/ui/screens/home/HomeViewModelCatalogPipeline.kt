@@ -148,10 +148,20 @@ internal fun HomeViewModel.loadActiveViewPackPipeline() {
                     collectionsById = collectionsCache.associateBy { it.id }
                 )
                 folderRefs.values.forEach { ref ->
-                    ensureCatalogLoaded(ref.addonId, ref.type, ref.catalogId)
+                    ensureCatalogLoaded(
+                        ref.addonId,
+                        ref.type,
+                        ref.catalogId,
+                        extraArgs = folderCatalogExtraArgs(ref.genre)
+                    )
                 }
                 activeViewPackCatalogRefs.values.forEach { ref ->
-                    ensureCatalogLoaded(ref.addonId, ref.type, ref.catalogId)
+                    ensureCatalogLoaded(
+                        ref.addonId,
+                        ref.type,
+                        ref.catalogId,
+                        extraArgs = genreExtraForCatalogId(ref.catalogId)
+                    )
                 }
                 _uiState.update { state ->
                     state.copy(
@@ -583,7 +593,8 @@ internal fun HomeViewModel.loadHeroCatalogsPipeline() {
 internal fun HomeViewModel.loadCatalogPipeline(
     addon: Addon,
     catalog: CatalogDescriptor,
-    generation: Long
+    generation: Long,
+    extraArgs: Map<String, String> = emptyMap()
 ) {
     val loadJob = viewModelScope.launch {
         var hasCountedCompletion = false
@@ -604,6 +615,7 @@ internal fun HomeViewModel.loadCatalogPipeline(
                 type = catalog.apiType,
                 skip = 0,
                 skipStep = skipStep,
+                extraArgs = extraArgs,
                 supportsSkip = supportsSkip
             ).collect { result ->
                 if (generation != catalogLoadGeneration) return@collect
@@ -946,7 +958,8 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                             folderTitle = folder.title,
                             addonId = source.addonId,
                             type = source.type,
-                            catalogId = source.catalogId
+                            catalogId = source.catalogId,
+                            genre = source.genre
                         )
                     }
                 }
@@ -1029,14 +1042,20 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                         }
                     } else if (folderRef != null) {
                         // Kick load; rail appears once catalog arrives.
-                        ensureCatalogLoaded(folderRef.addonId, folderRef.type, folderRef.catalogId)
+                        ensureCatalogLoaded(
+                            folderRef.addonId,
+                            folderRef.type,
+                            folderRef.catalogId,
+                            extraArgs = folderCatalogExtraArgs(folderRef.genre)
+                        )
                     } else if (packActive) {
                         val packCatalog = activeViewPackCatalogRefs[key]
                         if (packCatalog != null) {
                             ensureCatalogLoaded(
                                 packCatalog.addonId,
                                 packCatalog.type,
-                                packCatalog.catalogId
+                                packCatalog.catalogId,
+                                extraArgs = genreExtraForCatalogId(packCatalog.catalogId)
                             )
                         } else {
                             resolveAddonCatalogForHomeKey(key)?.let { (addonId, type, catalogId) ->

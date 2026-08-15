@@ -264,39 +264,37 @@ fun NetflixHomeContent(
             .take(3)
             .map { entry -> entry.key.replaceFirstChar { it.uppercase() } }
     }
-    // Studio packs are the source of truth: no Netflix fan-out / discovery injection.
-    val packActive = !uiState.activeViewPackName.isNullOrBlank()
-    val fanOutRequests = remember(orderedContentRails, selectedTab, packActive) {
-        if (packActive) {
-            emptyList()
-        } else {
-            orderedContentRails
-                .filterIsInstance<NetflixHomeRail.Collection>()
-                .filter { NetflixCollectionLayout.shouldFanOut(it.collection) }
-                .flatMap { rail ->
-                    rail.collection.folders
-                        .asSequence()
-                        .mapNotNull { folder ->
-                            val source = NetflixCollectionLayout.pickSource(folder, selectedTab)
-                                ?: return@mapNotNull null
-                            NetflixFolderRailRequest(
-                                railKey = NetflixCollectionLayout.railKey(
-                                    rail.collection.id,
-                                    folder.id,
-                                    source
-                                ),
-                                title = folder.title,
-                                source = source
-                            )
-                        }
-                        .take(12)
-                        .toList()
-                }
-        }
+    // For You / New & Latest / Anime still expand into title rails under a Studio
+    // pack. Those folders (Because you watched, AI recommendations, …) are how
+    // posters actually load; the pack must not leave them as empty hubs.
+    val fanOutRequests = remember(orderedContentRails, selectedTab) {
+        orderedContentRails
+            .filterIsInstance<NetflixHomeRail.Collection>()
+            .filter { NetflixCollectionLayout.shouldFanOut(it.collection) }
+            .flatMap { rail ->
+                rail.collection.folders
+                    .asSequence()
+                    .mapNotNull { folder ->
+                        val source = NetflixCollectionLayout.pickSource(folder, selectedTab)
+                            ?: return@mapNotNull null
+                        NetflixFolderRailRequest(
+                            railKey = NetflixCollectionLayout.railKey(
+                                rail.collection.id,
+                                folder.id,
+                                source
+                            ),
+                            title = folder.title,
+                            source = source
+                        )
+                    }
+                    .take(12)
+                    .toList()
+            }
     }
     LaunchedEffect(fanOutRequests) {
         onEnsureFolderRails(fanOutRequests)
     }
+    val packActive = !uiState.activeViewPackName.isNullOrBlank()
     val discoveryRails = remember(catalogEntries, continueWatchingGenres, selectedTab, packActive) {
         if (packActive) {
             emptyList()
@@ -325,8 +323,18 @@ fun NetflixHomeContent(
             orderedContentRails = orderedContentRails,
             selectedTab = selectedTab,
             folderRails = netflixFolderRails,
-            fanOutCollections = !packActive
+            fanOutCollections = true
         )
+        val fanOutCatalogIds = fanOutRequests.map { it.source.catalogId }.toSet()
+        val withoutDuplicatePlaceholders = if (!packActive || fanOutCatalogIds.isEmpty()) {
+            expanded
+        } else {
+            expanded.filterNot { rail ->
+                rail is NetflixHomeRail.Catalog &&
+                    rail.entry.row.catalogId in fanOutCatalogIds &&
+                    rail.entry.row.items.firstOrNull()?.id?.startsWith("__placeholder_") == true
+            }
+        }
         buildList {
             val genresFirst = expanded.firstOrNull() is NetflixHomeRail.Genres
             if (genresFirst) {
@@ -335,7 +343,7 @@ fun NetflixHomeContent(
             if (selectedTab == NetflixContentTab.HOME && uiState.continueWatchingItems.isNotEmpty()) {
                 add(NetflixHomeRail.ContinueWatching)
             }
-            addAll(if (genresFirst) expanded.drop(1) else expanded)
+            addAll(if (genresFirst) withoutDuplicatePlaceholders.drop(1) else withoutDuplicatePlaceholders)
             addAll(discoveryRails)
         }
     }
@@ -1074,7 +1082,7 @@ private fun expandNetflixRails(
                 }
 
                 is NetflixHomeRail.Collection -> {
-                    if (fanOutCollections && NetflixCollectionLayout.shouldFanOut(rail.collection)) {
+                    if (NetflixCollectionLayout.shouldFanOut(rail.collection)) {
                         rail.collection.folders.asSequence().take(12).forEach { folder ->
                             val source = NetflixCollectionLayout.pickSource(folder, selectedTab)
                                 ?: return@forEach

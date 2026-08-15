@@ -3,6 +3,7 @@ package com.nuvio.tv.ui.screens.home
 import com.nuvio.tv.core.sync.HOME_GENRES_ROW_KEY
 import com.nuvio.tv.core.sync.isFloatingHomeRowKey
 import com.nuvio.tv.domain.model.Addon
+import com.nuvio.tv.domain.model.AddonCatalogCollectionSource
 import com.nuvio.tv.domain.model.CatalogDescriptor
 import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.MetaPreview
@@ -402,6 +403,34 @@ internal fun HomeViewModel.disableCatalogKey(
     catalogName: String
 ): String {
     return "${addonBaseUrl}_${type}_${catalogId}_${catalogName}"
+}
+
+internal fun folderCatalogExtraArgs(genre: String?): Map<String, String> {
+    val trimmed = genre?.trim().orEmpty()
+    if (trimmed.isEmpty() || trimmed.equals("None", ignoreCase = true)) return emptyMap()
+    return mapOf("genre" to trimmed)
+}
+
+internal fun HomeViewModel.genreExtraForCatalogId(catalogId: String): Map<String, String> {
+    val wanted = catalogId.trim()
+    if (wanted.isEmpty()) return emptyMap()
+    for (collection in collectionsCache) {
+        for (folder in collection.folders) {
+            val sources = folder.sources.filterIsInstance<AddonCatalogCollectionSource>().ifEmpty {
+                folder.catalogSources.map { legacy ->
+                    AddonCatalogCollectionSource(
+                        addonId = legacy.addonId,
+                        type = legacy.type,
+                        catalogId = legacy.catalogId,
+                        genre = legacy.genre
+                    )
+                }
+            }
+            val match = sources.firstOrNull { it.catalogId == wanted }
+            if (match != null) return folderCatalogExtraArgs(match.genre)
+        }
+    }
+    return emptyMap()
 }
 
 internal fun CatalogDescriptor.isSearchOnlyCatalog(): Boolean {
