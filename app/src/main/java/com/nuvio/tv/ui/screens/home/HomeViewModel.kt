@@ -283,6 +283,9 @@ class HomeViewModel @Inject constructor(
     /** Expanded Studio `catalog:…` rails → load refs (for ensureCatalogLoaded). */
     internal var activeViewPackCatalogRefs:
         Map<String, com.nuvio.tv.core.viewpack.PackCatalogRef> = emptyMap()
+    /** Studio `collection:id` hubs so missing local collections still keep their slot. */
+    internal var activeViewPackCollectionHubRefs:
+        Map<String, com.nuvio.tv.core.viewpack.PackCollectionHubRef> = emptyMap()
     /** Pack hero dataSource (`featured` / `catalog:…`). */
     internal var activeViewPackHeroDataSource: String? = null
     internal var customCatalogTitles: Map<String, String> = emptyMap()

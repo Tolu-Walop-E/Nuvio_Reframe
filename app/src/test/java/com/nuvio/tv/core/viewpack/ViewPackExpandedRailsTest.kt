@@ -32,6 +32,10 @@ class ViewPackExpandedRailsTest {
         val key = "app.xperience.abc_movie_anime_trending_movies"
         assertTrue(refs.containsKey(key))
         assertEquals("anime_trending_movies", refs.getValue(key).catalogId)
+        assertEquals("Trending Anime Movies", refs.getValue(key).label)
+        val hubs = packCollectionHubRefs(pack)
+        assertEquals(1, hubs.size)
+        assertEquals("Streaming Services", hubs.values.single().label)
     }
 
     @Test

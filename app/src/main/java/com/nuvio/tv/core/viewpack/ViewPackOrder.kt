@@ -367,7 +367,15 @@ data class PackCatalogRef(
     val orderKey: String,
     val addonId: String,
     val type: String,
-    val catalogId: String
+    val catalogId: String,
+    val label: String? = null
+)
+
+/** Pack `collection:id` hub (not an expanded folder rail). */
+data class PackCollectionHubRef(
+    val orderKey: String,
+    val collectionId: String,
+    val label: String? = null
 )
 
 /**
@@ -390,7 +398,30 @@ fun packCatalogRefs(pack: ViewPack): Map<String, PackCatalogRef> {
             orderKey = orderKey,
             addonId = addonId,
             type = type,
-            catalogId = catalogId
+            catalogId = catalogId,
+            label = block.label?.trim()?.takeIf { it.isNotEmpty() }
+        )
+    }
+    return out
+}
+
+/**
+ * Map pack `collection:id` hubs (not `:folder:`) so a missing local collection
+ * can still occupy its authored slot on Netflix home.
+ */
+fun packCollectionHubRefs(pack: ViewPack): Map<String, PackCollectionHubRef> {
+    val out = LinkedHashMap<String, PackCollectionHubRef>()
+    for (block in pack.blocks.sortedWith(compareBy({ it.y }, { it.x }, { it.id }))) {
+        val ds = block.dataSource.trim()
+        if (!ds.startsWith("collection:") || ds.contains(":folder:")) continue
+        val collectionId = ds.removePrefix("collection:").trim()
+        if (collectionId.isEmpty()) continue
+        val orderKey = "collection_$collectionId"
+        if (orderKey in out) continue
+        out[orderKey] = PackCollectionHubRef(
+            orderKey = orderKey,
+            collectionId = collectionId,
+            label = block.label?.trim()?.takeIf { it.isNotEmpty() }
         )
     }
     return out

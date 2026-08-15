@@ -7,6 +7,7 @@ import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.gestures.BringIntoViewSpec
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
@@ -44,6 +45,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
@@ -205,9 +207,38 @@ internal fun NetflixCatalogRail(
     trailerEnabled: Boolean = false,
     trailerMuted: Boolean = true,
     onRequestTrailerPreview: (MetaPreview) -> Unit = {},
+    /** Keep titled empty rails (Studio pack) instead of collapsing them. */
+    allowEmpty: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    if (row.items.isEmpty()) return
+    if (row.items.isEmpty()) {
+        if (!allowEmpty) return
+        val emptyRequester = remember(railKey) { FocusRequester() }
+        NetflixRailScaffold(
+            title = row.catalogName.replaceFirstChar { it.uppercase() },
+            subtitle = null,
+            railKey = railKey,
+            pendingFocusRailKey = pendingFocusRailKey,
+            lastFocusedIndex = 0,
+            itemRequesters = listOf(emptyRequester),
+            onPendingFocusConsumed = onPendingFocusConsumed,
+            onFirstCardRequesterReady = onFirstCardRequesterReady,
+            modifier = modifier
+        ) { _, _, _, _, _, _ ->
+            Box(
+                modifier = Modifier
+                    .height(140.dp)
+                    .fillMaxWidth()
+                    .padding(horizontal = NetflixHomeTokens.PageHorizontalPadding)
+                    .focusRequester(emptyRequester)
+                    .focusable()
+                    .onFocusChanged { state ->
+                        if (state.isFocused) onFocusedItemChanged(0, railKey)
+                    }
+            )
+        }
+        return
+    }
     val density = LocalDensity.current
     val itemRequesters = remember(railKey, row.items.size) { List(row.items.size) { FocusRequester() } }
     var focusedMeta by remember(row.items) { mutableStateOf(row.items.getOrNull(lastFocusedIndex)) }

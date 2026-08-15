@@ -159,8 +159,13 @@ fun NetflixHomeContent(
     )
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
-    val contentRails = remember(uiState.homeRows, uiState.catalogRows) {
-        buildNetflixContentRails(uiState.homeRows, uiState.catalogRows)
+    val packActive = !uiState.activeViewPackName.isNullOrBlank()
+    val contentRails = remember(uiState.homeRows, uiState.catalogRows, packActive) {
+        buildNetflixContentRails(
+            homeRows = uiState.homeRows,
+            fallbackCatalogRows = uiState.catalogRows,
+            keepEmptyRails = packActive
+        )
     }
     // Pack/catalog rails past the first eager loads stay as blank placeholder cards
     // until something asks for lazy load — Modern home does this; Netflix must too.
@@ -170,7 +175,9 @@ fun NetflixHomeContent(
                 is HomeRow.PlaceholderCatalog -> onRequestLazyCatalogLoad(row.catalogKey)
                 is HomeRow.Catalog -> {
                     val firstId = row.row.items.firstOrNull()?.id.orEmpty()
-                    if (row.row.isLoading && firstId.startsWith("__placeholder_")) {
+                    if (row.row.isLoading &&
+                        (row.row.items.isEmpty() || firstId.startsWith("__placeholder_"))
+                    ) {
                         onRequestLazyCatalogLoad(row.row.legacyKey())
                     }
                 }
@@ -237,14 +244,15 @@ fun NetflixHomeContent(
         genreChips,
         uiState.homeCatalogOrderKeys,
         uiState.disabledHomeCatalogKeys,
-        uiState.activeViewPackName
+        uiState.activeViewPackName,
+        packActive
     ) {
         // Pack order already shapes homeRows; homeCatalogOrderKeys mirrors that once applied.
         insertGenresRail(
             contentRails = contentRails,
             hasGenres = genreChips.isNotEmpty(),
             orderKeys = uiState.homeCatalogOrderKeys,
-            disabledKeys = uiState.disabledHomeCatalogKeys
+            disabledKeys = if (packActive) emptySet() else uiState.disabledHomeCatalogKeys
         )
     }
     val continueWatchingGenres = remember(uiState.continueWatchingItems) {
@@ -264,37 +272,39 @@ fun NetflixHomeContent(
             .take(3)
             .map { entry -> entry.key.replaceFirstChar { it.uppercase() } }
     }
-    // For You / New & Latest / Anime still expand into title rails under a Studio
-    // pack. Those folders (Because you watched, AI recommendations, …) are how
-    // posters actually load; the pack must not leave them as empty hubs.
-    val fanOutRequests = remember(orderedContentRails, selectedTab) {
-        orderedContentRails
-            .filterIsInstance<NetflixHomeRail.Collection>()
-            .filter { NetflixCollectionLayout.shouldFanOut(it.collection) }
-            .flatMap { rail ->
-                rail.collection.folders
-                    .asSequence()
-                    .mapNotNull { folder ->
-                        val source = NetflixCollectionLayout.pickSource(folder, selectedTab)
-                            ?: return@mapNotNull null
-                        NetflixFolderRailRequest(
-                            railKey = NetflixCollectionLayout.railKey(
-                                rail.collection.id,
-                                folder.id,
-                                source
-                            ),
-                            title = folder.title,
-                            source = source
-                        )
-                    }
-                    .take(12)
-                    .toList()
-            }
+    // Stock Netflix fans For You / New & Latest / Anime into title rails.
+    // An active Studio pack is the source of truth — keep authored collection hubs.
+    val fanOutRequests = remember(orderedContentRails, selectedTab, packActive) {
+        if (packActive) {
+            emptyList()
+        } else {
+            orderedContentRails
+                .filterIsInstance<NetflixHomeRail.Collection>()
+                .filter { NetflixCollectionLayout.shouldFanOut(it.collection) }
+                .flatMap { rail ->
+                    rail.collection.folders
+                        .asSequence()
+                        .mapNotNull { folder ->
+                            val source = NetflixCollectionLayout.pickSource(folder, selectedTab)
+                                ?: return@mapNotNull null
+                            NetflixFolderRailRequest(
+                                railKey = NetflixCollectionLayout.railKey(
+                                    rail.collection.id,
+                                    folder.id,
+                                    source
+                                ),
+                                title = folder.title,
+                                source = source
+                            )
+                        }
+                        .take(12)
+                        .toList()
+                }
+        }
     }
     LaunchedEffect(fanOutRequests) {
         onEnsureFolderRails(fanOutRequests)
     }
-    val packActive = !uiState.activeViewPackName.isNullOrBlank()
     val discoveryRails = remember(catalogEntries, continueWatchingGenres, selectedTab, packActive) {
         if (packActive) {
             emptyList()
@@ -321,12 +331,12 @@ fun NetflixHomeContent(
     ) {
         val expanded = expandNetflixRails(
             orderedContentRails = orderedContentRails,
-            selectedTab = selectedTab,
+            selectedTab = if (packActive) NetflixContentTab.HOME else selectedTab,
             folderRails = netflixFolderRails,
-            fanOutCollections = true
+            fanOutCollections = !packActive
         )
         val fanOutCatalogIds = fanOutRequests.map { it.source.catalogId }.toSet()
-        val withoutDuplicatePlaceholders = if (!packActive || fanOutCatalogIds.isEmpty()) {
+        val withoutDuplicatePlaceholders = if (packActive || fanOutCatalogIds.isEmpty()) {
             expanded
         } else {
             expanded.filterNot { rail ->
@@ -853,7 +863,8 @@ fun NetflixHomeContent(
                             onRequestTrailerPreview = { item ->
                                 Log.i(NETFLIX_TRAILER_LOG, "rail request trailer id=${item.id} title=${item.name}")
                                 onRequestTrailerPreview(item.id, item.name, item.releaseInfo, item.apiType)
-                            }
+                            },
+                            allowEmpty = packActive
                         )
                     }
 
@@ -876,7 +887,8 @@ fun NetflixHomeContent(
                             uiState.viewPackCollectionLandscapeScale
                         } else {
                             1f
-                        }
+                        },
+                        allowEmpty = packActive
                     )
                 }
             }
@@ -1022,7 +1034,8 @@ private data class NetflixCatalogEntry(
 
 private fun buildNetflixContentRails(
     homeRows: List<HomeRow>,
-    fallbackCatalogRows: List<com.nuvio.tv.domain.model.CatalogRow>
+    fallbackCatalogRows: List<com.nuvio.tv.domain.model.CatalogRow>,
+    keepEmptyRails: Boolean = false
 ): List<NetflixHomeRail> {
     if (homeRows.isEmpty()) {
         return fallbackCatalogRows.netflixCatalogEntries().map { entry ->
@@ -1033,7 +1046,7 @@ private fun buildNetflixContentRails(
     return homeRows.mapIndexedNotNull { index, homeRow ->
         when (homeRow) {
             is HomeRow.Catalog -> homeRow.row
-                .takeIf { it.items.isNotEmpty() }
+                .takeIf { keepEmptyRails || it.items.isNotEmpty() }
                 ?.let { row ->
                     NetflixHomeRail.Catalog(
                         NetflixCatalogEntry(
@@ -1043,9 +1056,29 @@ private fun buildNetflixContentRails(
                     )
                 }
             is HomeRow.CollectionRow -> homeRow.collection
-                .takeIf { it.folders.isNotEmpty() }
+                .takeIf { keepEmptyRails || it.folders.isNotEmpty() }
                 ?.let { collection -> NetflixHomeRail.Collection(collection) }
-            is HomeRow.PlaceholderCatalog -> null
+            is HomeRow.PlaceholderCatalog -> if (!keepEmptyRails) {
+                null
+            } else {
+                NetflixHomeRail.Catalog(
+                    NetflixCatalogEntry(
+                        row = com.nuvio.tv.domain.model.CatalogRow(
+                            addonId = homeRow.addonId,
+                            addonName = homeRow.addonName,
+                            addonBaseUrl = homeRow.addonBaseUrl,
+                            catalogId = homeRow.catalogId,
+                            catalogName = homeRow.displayTitle.ifBlank { homeRow.catalogName },
+                            type = com.nuvio.tv.domain.model.ContentType.fromString(homeRow.apiType),
+                            rawType = homeRow.apiType,
+                            items = emptyList(),
+                            isLoading = true,
+                            hasMore = false
+                        ),
+                        railKey = "${homeRow.catalogKey}|position|$index"
+                    )
+                )
+            }
         }
     }
 }

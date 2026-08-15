@@ -1,10 +1,18 @@
 package com.nuvio.tv.ui.screens.home.netflix
 
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.unit.dp
 import com.nuvio.tv.domain.model.Collection
 import com.nuvio.tv.ui.components.collectionFolderCardImageUrl
 
@@ -22,9 +30,38 @@ internal fun NetflixCollectionRail(
     onMoveDown: () -> Boolean,
     /** Pack-global landscape tile scale (1 = Netflix default). */
     landscapeScale: Float = 1f,
+    /** Keep titled empty hubs (Studio pack) instead of collapsing them. */
+    allowEmpty: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    if (collection.folders.isEmpty()) return
+    if (collection.folders.isEmpty()) {
+        if (!allowEmpty) return
+        val emptyRequester = remember(railKey) { FocusRequester() }
+        NetflixRailScaffold(
+            title = collection.title,
+            subtitle = null,
+            railKey = railKey,
+            pendingFocusRailKey = pendingFocusRailKey,
+            lastFocusedIndex = 0,
+            itemRequesters = listOf(emptyRequester),
+            onPendingFocusConsumed = onPendingFocusConsumed,
+            onFirstCardRequesterReady = onFirstCardRequesterReady,
+            modifier = modifier
+        ) { _, _, _, _, _, _ ->
+            Box(
+                modifier = Modifier
+                    .height(140.dp)
+                    .fillMaxWidth()
+                    .padding(horizontal = NetflixHomeTokens.PageHorizontalPadding)
+                    .focusRequester(emptyRequester)
+                    .focusable()
+                    .onFocusChanged { state ->
+                        if (state.isFocused) onFocusedItemChanged(0, railKey)
+                    }
+            )
+        }
+        return
+    }
 
     val scale = landscapeScale.coerceIn(0.55f, 2.5f)
     val itemRequesters = remember(railKey, collection.folders.size) {

@@ -93,6 +93,7 @@ internal fun HomeViewModel.loadActiveViewPackPipeline() {
                 activeViewPackRowTrailers = emptyMap()
                 activeViewPackRowPosterGrow = emptyMap()
                 activeViewPackCatalogRefs = emptyMap()
+                activeViewPackCollectionHubRefs = emptyMap()
                 activeViewPackHeroDataSource = null
                 _uiState.update { state ->
                     if (state.activeViewPackName == null &&
@@ -140,6 +141,8 @@ internal fun HomeViewModel.loadActiveViewPackPipeline() {
                 activeViewPackRowTrailers = com.nuvio.tv.core.viewpack.homeRowTrailersFromPack(rotated)
                 activeViewPackRowPosterGrow = com.nuvio.tv.core.viewpack.homeRowPosterGrowFromPack(rotated)
                 activeViewPackCatalogRefs = com.nuvio.tv.core.viewpack.packCatalogRefs(rotated)
+                activeViewPackCollectionHubRefs =
+                    com.nuvio.tv.core.viewpack.packCollectionHubRefs(rotated)
                 activeViewPackHeroDataSource = com.nuvio.tv.core.viewpack.packHeroDataSource(rotated)
                 // Expanded folder / catalog rails need their backing catalogs fetched
                 // even when those catalogs are not in the default home set.
@@ -195,6 +198,7 @@ internal fun HomeViewModel.loadActiveViewPackPipeline() {
                 activeViewPackRowTrailers = emptyMap()
                 activeViewPackRowPosterGrow = emptyMap()
                 activeViewPackCatalogRefs = emptyMap()
+                activeViewPackCollectionHubRefs = emptyMap()
                 activeViewPackHeroDataSource = null
                 _uiState.update { state ->
                     state.copy(
@@ -980,15 +984,16 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                 }
             } else {
                     val folderRef = packFolderRefs[key]
+                    val packCatalog = if (packActive) activeViewPackCatalogRefs[key] else null
                     val catalogLookupKey = folderRef?.catalogOrderKey ?: key
+                    val packRailTitle = folderRef?.folderTitle?.takeIf { it.isNotBlank() }
+                        ?: packCatalog?.label
                     val catalogRow = displayRowsByKey[catalogLookupKey]?.let { row ->
-                        if (folderRef != null && folderRef.folderTitle.isNotBlank()) {
-                            row.copy(catalogName = folderRef.folderTitle)
-                        } else {
-                            row
-                        }
+                        if (packRailTitle != null) row.copy(catalogName = packRailTitle) else row
                     }
                     if (catalogRow != null && catalogRow.items.isNotEmpty()) {
+                        add(HomeRow.Catalog(catalogRow))
+                    } else if (catalogRow != null && packActive) {
                         add(HomeRow.Catalog(catalogRow))
                     } else {
                         val placeholder = placeholdersByKey[catalogLookupKey]
@@ -1006,9 +1011,9 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                                 addonName = placeholder.addonName,
                                 addonBaseUrl = placeholder.addonBaseUrl,
                                 catalogId = placeholder.catalogId,
-                                catalogName = folderRef?.folderTitle ?: placeholder.catalogName,
+                                catalogName = packRailTitle ?: placeholder.catalogName,
                                 apiType = placeholder.apiType,
-                                displayTitle = folderRef?.folderTitle ?: placeholder.displayTitle
+                                displayTitle = packRailTitle ?: placeholder.displayTitle
                             ))
                         } else {
                             val fakeItems = (0 until 8).map { i ->
@@ -1032,7 +1037,7 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                                 addonName = placeholder.addonName,
                                 addonBaseUrl = placeholder.addonBaseUrl,
                                 catalogId = placeholder.catalogId,
-                                catalogName = folderRef?.folderTitle ?: placeholder.catalogName,
+                                catalogName = packRailTitle ?: placeholder.catalogName,
                                 type = com.nuvio.tv.domain.model.ContentType.fromString(placeholder.apiType),
                                 rawType = placeholder.apiType,
                                 items = fakeItems,
@@ -1049,7 +1054,6 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                             extraArgs = folderCatalogExtraArgs(folderRef.genre)
                         )
                     } else if (packActive) {
-                        val packCatalog = activeViewPackCatalogRefs[key]
                         if (packCatalog != null) {
                             ensureCatalogLoaded(
                                 packCatalog.addonId,
@@ -1057,9 +1061,39 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                                 packCatalog.catalogId,
                                 extraArgs = genreExtraForCatalogId(packCatalog.catalogId)
                             )
+                            add(
+                                HomeRow.Catalog(
+                                    CatalogRow(
+                                        addonId = packCatalog.addonId,
+                                        addonName = packCatalog.label ?: packCatalog.catalogId,
+                                        addonBaseUrl = "",
+                                        catalogId = packCatalog.catalogId,
+                                        catalogName = packCatalog.label ?: packCatalog.catalogId,
+                                        type = com.nuvio.tv.domain.model.ContentType.fromString(
+                                            packCatalog.type
+                                        ),
+                                        rawType = packCatalog.type,
+                                        items = emptyList(),
+                                        isLoading = true,
+                                        hasMore = false
+                                    )
+                                )
+                            )
                         } else {
-                            resolveAddonCatalogForHomeKey(key)?.let { (addonId, type, catalogId) ->
-                                ensureCatalogLoaded(addonId, type, catalogId)
+                            val hub = activeViewPackCollectionHubRefs[key]
+                            if (hub != null && addedCollectionIds.add(hub.collectionId)) {
+                                add(
+                                    HomeRow.CollectionRow(
+                                        Collection(
+                                            id = hub.collectionId,
+                                            title = hub.label ?: "Collection"
+                                        )
+                                    )
+                                )
+                            } else {
+                                resolveAddonCatalogForHomeKey(key)?.let { (addonId, type, catalogId) ->
+                                    ensureCatalogLoaded(addonId, type, catalogId)
+                                }
                             }
                         }
                     }
