@@ -457,6 +457,14 @@ class PlaybackSettingsViewModel @Inject constructor(
         playerSettingsDataStore.setStreamAutoPlaySelectedPlugins(plugins)
     }
 
+    suspend fun setStreamAutoPlayPrimaryAddon(addonName: String) {
+        playerSettingsDataStore.setStreamAutoPlayPrimaryAddon(addonName)
+    }
+
+    suspend fun setStreamAutoPlayBackupAddon(addonName: String) {
+        playerSettingsDataStore.setStreamAutoPlayBackupAddon(addonName)
+    }
+
     suspend fun setStreamAutoPlayRegex(regex: String) {
         playerSettingsDataStore.setStreamAutoPlayRegex(regex)
     }

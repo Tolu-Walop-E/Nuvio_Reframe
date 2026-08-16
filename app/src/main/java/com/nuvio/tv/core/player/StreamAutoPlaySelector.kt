@@ -10,7 +10,9 @@ import com.nuvio.tv.domain.model.StreamDebridCacheState
 object StreamAutoPlaySelector {
     fun orderAddonStreams(
         streams: List<AddonStreams>,
-        installedOrder: List<String>
+        installedOrder: List<String>,
+        primaryAddon: String = "",
+        backupAddon: String = ""
     ): List<AddonStreams> {
         if (streams.isEmpty()) return streams
 
@@ -25,15 +27,17 @@ object StreamAutoPlaySelector {
             it.streams.any { stream -> stream.isDirectDebrid() }
         }
         if (installedOrder.isEmpty()) {
-            return directDebridEntries + remainingEntries.sortedWith(preferredAddonComparator { it.addonName })
+            return directDebridEntries + remainingEntries.sortedWith(
+                preferredAddonComparator(primaryAddon, backupAddon) { it.addonName }
+            )
         }
         val (addonEntries, pluginEntries) = remainingEntries.partition { it.addonName in addonRankByName }
         val orderedAddons = addonEntries.sortedWith(
-            compareBy<AddonStreams> { preferredAddonRank(it.addonName) }
+            compareBy<AddonStreams> { preferredAddonRank(it.addonName, primaryAddon, backupAddon) }
                 .thenBy { addonRankByName.getValue(it.addonName) }
         )
         return directDebridEntries + orderedAddons +
-            pluginEntries.sortedWith(preferredAddonComparator { it.addonName })
+            pluginEntries.sortedWith(preferredAddonComparator(primaryAddon, backupAddon) { it.addonName })
     }
 
     private fun isPlayable(stream: Stream): Boolean {
@@ -49,33 +53,39 @@ object StreamAutoPlaySelector {
         return stream.getStreamUrl() != null || stream.isTorrent() || stream.isDirectDebrid()
     }
 
-    internal fun preferredAddonRank(addonName: String): Int {
-        val normalized = addonName.lowercase().replace(" ", "")
-        return when {
-            "duckstream" in normalized -> 0
-            "penguplay" in normalized || normalized == "pengu" -> 1
-            else -> 2
-        }
+    internal fun preferredAddonRank(
+        addonName: String,
+        primaryAddon: String = "",
+        backupAddon: String = ""
+    ): Int {
+        val primary = primaryAddon.trim()
+        val backup = backupAddon.trim()
+        if (primary.isNotEmpty() && addonName.equals(primary, ignoreCase = true)) return 0
+        if (backup.isNotEmpty() && addonName.equals(backup, ignoreCase = true)) return 1
+        return 2
     }
 
-    private fun <T> preferredAddonComparator(name: (T) -> String): Comparator<T> {
-        return compareBy { preferredAddonRank(name(it)) }
+    private fun <T> preferredAddonComparator(
+        primaryAddon: String,
+        backupAddon: String,
+        name: (T) -> String
+    ): Comparator<T> {
+        return compareBy { preferredAddonRank(name(it), primaryAddon, backupAddon) }
     }
 
-    private fun shouldWaitForDuckstreams(
+    fun shouldWaitForPreferredAddons(
+        primaryAddon: String,
         installedAddonNames: Set<String>,
         selectedAddons: Set<String>,
         arrivedAddonNames: Set<String>
     ): Boolean {
+        val primary = primaryAddon.trim()
+        if (primary.isEmpty()) return false
         val expected = if (selectedAddons.isEmpty()) installedAddonNames else selectedAddons
-        val duckstreams = expected.filter { preferredAddonRank(it) == 0 }
-        if (duckstreams.isEmpty()) return false
-        return duckstreams.none { name ->
-            arrivedAddonNames.any { arrived -> arrived.equals(name, ignoreCase = true) }
-        }
+        val primaryExpected = expected.any { it.equals(primary, ignoreCase = true) }
+        if (!primaryExpected) return false
+        return arrivedAddonNames.none { it.equals(primary, ignoreCase = true) }
     }
-
-
 
     fun selectAutoPlayStream(
         streams: List<Stream>,
@@ -89,7 +99,9 @@ object StreamAutoPlaySelector {
         preferBingeGroupInSelection: Boolean = false,
         bingeGroupOnly: Boolean = false,
         arrivedAddonNames: Set<String> = emptySet(),
-        waitForPreferredAddons: Boolean = false
+        waitForPreferredAddons: Boolean = false,
+        primaryAddon: String = "",
+        backupAddon: String = ""
     ): Stream? {
         if (streams.isEmpty()) return null
 
@@ -115,7 +127,8 @@ object StreamAutoPlaySelector {
         if (candidateStreams.isEmpty()) return null
 
         if (waitForPreferredAddons &&
-            shouldWaitForDuckstreams(
+            shouldWaitForPreferredAddons(
+                primaryAddon = primaryAddon,
                 installedAddonNames = installedAddonNames,
                 selectedAddons = selectedAddons,
                 arrivedAddonNames = arrivedAddonNames
@@ -126,8 +139,9 @@ object StreamAutoPlaySelector {
 
         val rankedCandidates = candidateStreams.withIndex()
             .sortedWith(
-                compareBy<IndexedValue<Stream>> { preferredAddonRank(it.value.addonName) }
-                    .thenBy { it.index }
+                compareBy<IndexedValue<Stream>> {
+                    preferredAddonRank(it.value.addonName, primaryAddon, backupAddon)
+                }.thenBy { it.index }
             )
             .map { it.value }
 
@@ -152,7 +166,7 @@ object StreamAutoPlaySelector {
             StreamAutoPlayMode.FIRST_STREAM -> rankedCandidates.firstOrNull { isPlayable(it) }
             StreamAutoPlayMode.REGEX_MATCH -> {
                 val pattern = regexPattern.trim()
- 
+
                 // Try to compile the user regex
                 val userRegex = runCatching { Regex(pattern, RegexOption.IGNORE_CASE) }.getOrNull()
                 if (userRegex == null) return null
@@ -197,7 +211,6 @@ object StreamAutoPlaySelector {
                 if (matchingStreams.isEmpty()) return null
                 matchingStreams.firstOrNull { isPlayable(it) }
             }
-
         }
     }
 }

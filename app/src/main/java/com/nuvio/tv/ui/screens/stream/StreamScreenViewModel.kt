@@ -462,7 +462,9 @@ class StreamScreenViewModel @Inject constructor(
             fun applySuccess(addonStreamGroups: List<AddonStreams>, isAllLoaded: Boolean) {
                 val orderedAddonStreams = StreamAutoPlaySelector.orderAddonStreams(
                     addonStreamGroups,
-                    installedAddonOrder
+                    installedAddonOrder,
+                    primaryAddon = playerSettings.streamAutoPlayPrimaryAddon,
+                    backupAddon = playerSettings.streamAutoPlayBackupAddon
                 )
 
                 // Preserve badges already computed by prior badge jobs so they
@@ -509,7 +511,9 @@ class StreamScreenViewModel @Inject constructor(
                         preferredBingeGroup = persistedBingeGroup,
                         preferBingeGroupInSelection = persistedBingeGroup != null,
                         arrivedAddonNames = mergedAddonStreams.map { it.addonName }.toSet(),
-                        waitForPreferredAddons = !isAllLoaded
+                        waitForPreferredAddons = !isAllLoaded,
+                        primaryAddon = playerSettings.streamAutoPlayPrimaryAddon,
+                        backupAddon = playerSettings.streamAutoPlayBackupAddon
                     )
                 }
                 if (selectedAutoPlayStream != null) {
@@ -696,7 +700,10 @@ class StreamScreenViewModel @Inject constructor(
                                 // match is found we can start playback immediately
                                 // without waiting for the full timeout.
                                 val orderedStreams = StreamAutoPlaySelector.orderAddonStreams(
-                                    merged, installedAddonOrder
+                                    merged,
+                                    installedAddonOrder,
+                                    primaryAddon = playerSettings.streamAutoPlayPrimaryAddon,
+                                    backupAddon = playerSettings.streamAutoPlayBackupAddon
                                 )
                                 val allStreams = orderedStreams.flatMap { it.streams }
                                 val earlyMatch = StreamAutoPlaySelector.selectAutoPlayStream(
@@ -709,7 +716,9 @@ class StreamScreenViewModel @Inject constructor(
                                     selectedPlugins = playerSettings.streamAutoPlaySelectedPlugins,
                                     preferredBingeGroup = persistedBingeGroup,
                                     preferBingeGroupInSelection = true,
-                                    bingeGroupOnly = true
+                                    bingeGroupOnly = true,
+                                    primaryAddon = playerSettings.streamAutoPlayPrimaryAddon,
+                                    backupAddon = playerSettings.streamAutoPlayBackupAddon
                                 )
                                 if (earlyMatch != null) {
                                     resolvedAutoPlayTarget = true

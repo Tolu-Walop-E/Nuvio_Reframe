@@ -269,117 +269,140 @@ class StreamAutoPlaySelectorTest {
     }
 
     @Test
-    fun `prefers Duckstreams over PenguPlay even when PenguPlay arrived first`() {
-        val pengu = stream(
+    fun `prefers primary addon over backup even when backup arrived first`() {
+        val backup = stream(
             addonName = "PenguPlay",
             url = "https://example.com/pengu.m3u8",
             name = "1080p"
         )
-        val duck = stream(
-            addonName = "Duckstreams",
-            url = "https://example.com/duck.m3u8",
+        val primary = stream(
+            addonName = "Comet",
+            url = "https://example.com/comet.m3u8",
             name = "720p"
         )
 
         val selected = StreamAutoPlaySelector.selectAutoPlayStream(
-            streams = listOf(pengu, duck),
+            streams = listOf(backup, primary),
             mode = StreamAutoPlayMode.FIRST_STREAM,
             regexPattern = "",
             source = StreamAutoPlaySource.ALL_SOURCES,
-            installedAddonNames = setOf("Duckstreams", "PenguPlay"),
+            installedAddonNames = setOf("Comet", "PenguPlay"),
             selectedAddons = emptySet(),
-            selectedPlugins = emptySet()
+            selectedPlugins = emptySet(),
+            primaryAddon = "Comet",
+            backupAddon = "PenguPlay"
         )
 
-        assertEquals(duck, selected)
+        assertEquals(primary, selected)
     }
 
     @Test
-    fun `falls back to PenguPlay when Duckstreams has no playable stream`() {
-        val duck = stream(
-            addonName = "Duckstreams",
+    fun `falls back to backup when primary has no playable stream`() {
+        val primary = stream(
+            addonName = "Comet",
             name = "broken",
             url = null
         )
-        val pengu = stream(
+        val backup = stream(
             addonName = "PenguPlay",
             url = "https://example.com/pengu.m3u8",
             name = "1080p"
         )
 
         val selected = StreamAutoPlaySelector.selectAutoPlayStream(
-            streams = listOf(duck, pengu),
+            streams = listOf(primary, backup),
             mode = StreamAutoPlayMode.FIRST_STREAM,
             regexPattern = "",
             source = StreamAutoPlaySource.ALL_SOURCES,
-            installedAddonNames = setOf("Duckstreams", "PenguPlay"),
+            installedAddonNames = setOf("Comet", "PenguPlay"),
             selectedAddons = emptySet(),
-            selectedPlugins = emptySet()
+            selectedPlugins = emptySet(),
+            primaryAddon = "Comet",
+            backupAddon = "PenguPlay"
         )
 
-        assertEquals(pengu, selected)
+        assertEquals(backup, selected)
     }
 
     @Test
-    fun `waits for Duckstreams instead of auto-picking PenguPlay`() {
-        val pengu = stream(
+    fun `waits for primary instead of auto-picking backup`() {
+        val backup = stream(
             addonName = "PenguPlay",
             url = "https://example.com/pengu.m3u8"
         )
 
         val selected = StreamAutoPlaySelector.selectAutoPlayStream(
-            streams = listOf(pengu),
+            streams = listOf(backup),
             mode = StreamAutoPlayMode.FIRST_STREAM,
             regexPattern = "",
             source = StreamAutoPlaySource.ALL_SOURCES,
-            installedAddonNames = setOf("Duckstreams", "PenguPlay"),
+            installedAddonNames = setOf("Comet", "PenguPlay"),
             selectedAddons = emptySet(),
             selectedPlugins = emptySet(),
             arrivedAddonNames = setOf("PenguPlay"),
-            waitForPreferredAddons = true
+            waitForPreferredAddons = true,
+            primaryAddon = "Comet",
+            backupAddon = "PenguPlay"
         )
 
         assertNull(selected)
     }
 
     @Test
-    fun `regex still prefers a Duckstreams match over a later PenguPlay match`() {
-        val pengu = stream(
+    fun `regex still prefers a primary match over a later backup match`() {
+        val backup = stream(
             addonName = "PenguPlay",
             url = "https://example.com/pengu.m3u8",
             name = "2160p"
         )
-        val duck = stream(
-            addonName = "Duckstreams",
-            url = "https://example.com/duck.m3u8",
+        val primary = stream(
+            addonName = "Comet",
+            url = "https://example.com/comet.m3u8",
             name = "2160p HDR"
         )
 
         val selected = StreamAutoPlaySelector.selectAutoPlayStream(
-            streams = listOf(pengu, duck),
+            streams = listOf(backup, primary),
             mode = StreamAutoPlayMode.REGEX_MATCH,
             regexPattern = "2160p",
             source = StreamAutoPlaySource.ALL_SOURCES,
-            installedAddonNames = setOf("Duckstreams", "PenguPlay"),
+            installedAddonNames = setOf("Comet", "PenguPlay"),
             selectedAddons = emptySet(),
-            selectedPlugins = emptySet()
+            selectedPlugins = emptySet(),
+            primaryAddon = "Comet",
+            backupAddon = "PenguPlay"
         )
 
-        assertEquals(duck, selected)
+        assertEquals(primary, selected)
     }
 
     @Test
-    fun `orderAddonStreams pins Duckstreams ahead of PenguPlay`() {
-        val pengu = addonStreams("PenguPlay")
-        val duck = addonStreams("Duckstreams")
+    fun `orderAddonStreams pins primary ahead of backup`() {
+        val backup = addonStreams("PenguPlay")
+        val primary = addonStreams("Comet")
         val other = addonStreams("Torrentio")
 
         val ordered = StreamAutoPlaySelector.orderAddonStreams(
-            streams = listOf(pengu, other, duck),
-            installedOrder = listOf("Torrentio", "PenguPlay", "Duckstreams")
+            streams = listOf(backup, other, primary),
+            installedOrder = listOf("Torrentio", "PenguPlay", "Comet"),
+            primaryAddon = "Comet",
+            backupAddon = "PenguPlay"
         )
 
-        assertEquals(listOf(duck, pengu, other), ordered)
+        assertEquals(listOf(primary, backup, other), ordered)
+    }
+
+    @Test
+    fun `without primary or backup keeps installed order`() {
+        val a = addonStreams("AddonA")
+        val b = addonStreams("AddonB")
+
+        val ordered = StreamAutoPlaySelector.orderAddonStreams(
+            streams = listOf(b, a),
+            installedOrder = listOf("AddonA", "AddonB")
+        )
+
+        assertEquals(listOf(a, b), ordered)
     }
 
     private fun stream(

@@ -141,6 +141,8 @@ fun PlaybackSettingsContent(
     var showStreamAutoPlaySourceDialog by remember { mutableStateOf(false) }
     var showStreamAutoPlayAddonSelectionDialog by remember { mutableStateOf(false) }
     var showStreamAutoPlayPluginSelectionDialog by remember { mutableStateOf(false) }
+    var showStreamAutoPlayPrimaryAddonDialog by remember { mutableStateOf(false) }
+    var showStreamAutoPlayBackupAddonDialog by remember { mutableStateOf(false) }
     var showStreamRegexDialog by remember { mutableStateOf(false) }
     var showNextEpisodeThresholdModeDialog by remember { mutableStateOf(false) }
     var showReuseLastLinkCacheDialog by remember { mutableStateOf(false) }
@@ -165,6 +167,8 @@ fun PlaybackSettingsContent(
         showStreamAutoPlaySourceDialog = false
         showStreamAutoPlayAddonSelectionDialog = false
         showStreamAutoPlayPluginSelectionDialog = false
+        showStreamAutoPlayPrimaryAddonDialog = false
+        showStreamAutoPlayBackupAddonDialog = false
         showStreamRegexDialog = false
         showNextEpisodeThresholdModeDialog = false
         showReuseLastLinkCacheDialog = false
@@ -219,6 +223,8 @@ fun PlaybackSettingsContent(
                 onShowStreamAutoPlaySourceDialog = { openDialog { showStreamAutoPlaySourceDialog = true } },
                 onShowStreamAutoPlayAddonSelectionDialog = { openDialog { showStreamAutoPlayAddonSelectionDialog = true } },
                 onShowStreamAutoPlayPluginSelectionDialog = { openDialog { showStreamAutoPlayPluginSelectionDialog = true } },
+                onShowStreamAutoPlayPrimaryAddonDialog = { openDialog { showStreamAutoPlayPrimaryAddonDialog = true } },
+                onShowStreamAutoPlayBackupAddonDialog = { openDialog { showStreamAutoPlayBackupAddonDialog = true } },
                 onShowStreamRegexDialog = { openDialog { showStreamRegexDialog = true } },
                 onShowNextEpisodeThresholdModeDialog = { openDialog { showNextEpisodeThresholdModeDialog = true } },
                 onShowReuseLastLinkCacheDialog = { openDialog { showReuseLastLinkCacheDialog = true } },
@@ -494,6 +500,8 @@ fun PlaybackSettingsContent(
         showStreamAutoPlaySourceDialog = showStreamAutoPlaySourceDialog,
         showStreamAutoPlayAddonSelectionDialog = showStreamAutoPlayAddonSelectionDialog,
         showStreamAutoPlayPluginSelectionDialog = showStreamAutoPlayPluginSelectionDialog,
+        showStreamAutoPlayPrimaryAddonDialog = showStreamAutoPlayPrimaryAddonDialog,
+        showStreamAutoPlayBackupAddonDialog = showStreamAutoPlayBackupAddonDialog,
         showStreamRegexDialog = showStreamRegexDialog,
         showNextEpisodeThresholdModeDialog = showNextEpisodeThresholdModeDialog,
         showReuseLastLinkCacheDialog = showReuseLastLinkCacheDialog,
@@ -559,6 +567,12 @@ fun PlaybackSettingsContent(
         onSetStreamAutoPlaySelectedPlugins = { selected ->
             coroutineScope.launch { viewModel.setStreamAutoPlaySelectedPlugins(selected) }
         },
+        onSetStreamAutoPlayPrimaryAddon = { addon ->
+            coroutineScope.launch { viewModel.setStreamAutoPlayPrimaryAddon(addon) }
+        },
+        onSetStreamAutoPlayBackupAddon = { addon ->
+            coroutineScope.launch { viewModel.setStreamAutoPlayBackupAddon(addon) }
+        },
         onSetReuseLastLinkCacheHours = { hours ->
             coroutineScope.launch { viewModel.setStreamReuseLastLinkCacheHours(hours) }
         },
@@ -579,6 +593,8 @@ fun PlaybackSettingsContent(
         onDismissStreamRegexDialog = ::dismissAllDialogs,
         onDismissStreamAutoPlayAddonSelectionDialog = ::dismissAllDialogs,
         onDismissStreamAutoPlayPluginSelectionDialog = ::dismissAllDialogs,
+        onDismissStreamAutoPlayPrimaryAddonDialog = ::dismissAllDialogs,
+        onDismissStreamAutoPlayBackupAddonDialog = ::dismissAllDialogs,
         onDismissNextEpisodeThresholdModeDialog = ::dismissAllDialogs,
         onDismissReuseLastLinkCacheDialog = ::dismissAllDialogs
     )

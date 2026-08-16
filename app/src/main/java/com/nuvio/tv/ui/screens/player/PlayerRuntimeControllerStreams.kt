@@ -206,6 +206,7 @@ internal fun PlayerRuntimeController.loadSourceStreams(forceRefresh: Boolean) {
         val installedAddons = addonRepository.getInstalledAddons().first().enabledAddons()
         val installedAddonOrder = installedAddons.map { it.displayName }
         val installedAddonNames = installedAddonOrder.toSet()
+        val autoPlaySettings = playerSettingsDataStore.playerSettings.first()
         var debridPreparationLaunched = false
 
         // On resume, skip chip reset — keep existing chip statuses
@@ -221,7 +222,12 @@ internal fun PlayerRuntimeController.loadSourceStreams(forceRefresh: Boolean) {
         ).collect { result ->
             when (result) {
                 is NetworkResult.Success -> {
-                    val addonStreams = StreamAutoPlaySelector.orderAddonStreams(result.data, installedAddonOrder)
+                    val addonStreams = StreamAutoPlaySelector.orderAddonStreams(
+                        result.data,
+                        installedAddonOrder,
+                        primaryAddon = autoPlaySettings.streamAutoPlayPrimaryAddon,
+                        backupAddon = autoPlaySettings.streamAutoPlayBackupAddon
+                    )
                     val allStreams = addonStreams.flatMap { it.streams }
                     val availableAddons = addonStreams.map { it.addonName }
                     _uiState.update {
@@ -1026,6 +1032,7 @@ internal fun PlayerRuntimeController.loadStreamsForEpisode(video: Video, forceRe
         val installedAddons = addonRepository.getInstalledAddons().first().enabledAddons()
         val installedAddonOrder = installedAddons.map { it.displayName }
         val installedAddonNames = installedAddonOrder.toSet()
+        val autoPlaySettings = playerSettingsDataStore.playerSettings.first()
         var debridPreparationLaunched = false
 
         streamRepository.getStreamsFromAllAddons(
@@ -1036,7 +1043,12 @@ internal fun PlayerRuntimeController.loadStreamsForEpisode(video: Video, forceRe
         ).collect { result ->
             when (result) {
                 is NetworkResult.Success -> {
-                    val addonStreams = StreamAutoPlaySelector.orderAddonStreams(result.data, installedAddonOrder)
+                    val addonStreams = StreamAutoPlaySelector.orderAddonStreams(
+                        result.data,
+                        installedAddonOrder,
+                        primaryAddon = autoPlaySettings.streamAutoPlayPrimaryAddon,
+                        backupAddon = autoPlaySettings.streamAutoPlayBackupAddon
+                    )
                     val allStreams = addonStreams.flatMap { it.streams }
                     val availableAddons = addonStreams.map { it.addonName }
                     val selectedAddon = previousAddonFilter?.takeIf { it in availableAddons }
@@ -1571,7 +1583,12 @@ internal fun PlayerRuntimeController.attemptFreshStreamLinkRecovery(
             var latestStreams: List<Stream> = emptyList()
 
             fun consider(data: List<AddonStreams>) {
-                val ordered = StreamAutoPlaySelector.orderAddonStreams(data, installedAddonOrder)
+                val ordered = StreamAutoPlaySelector.orderAddonStreams(
+                    data,
+                    installedAddonOrder,
+                    primaryAddon = playerSettings.streamAutoPlayPrimaryAddon,
+                    backupAddon = playerSettings.streamAutoPlayBackupAddon
+                )
                 latestStreams = ordered.flatMap { it.streams }
                 val candidate = PlayerFreshStreamLinkPolicy.select(
                     PlayerFreshStreamLinkPolicy.Input(
@@ -1594,7 +1611,9 @@ internal fun PlayerRuntimeController.attemptFreshStreamLinkRecovery(
                     preferBingeGroupInSelection = preferredBingeGroup != null,
                     bingeGroupOnly = false,
                     arrivedAddonNames = data.map { it.addonName }.toSet(),
-                    waitForPreferredAddons = false
+                    waitForPreferredAddons = false,
+                    primaryAddon = playerSettings.streamAutoPlayPrimaryAddon,
+                    backupAddon = playerSettings.streamAutoPlayBackupAddon
                 )?.takeIf { stream ->
                     val url = stream.getStreamUrl()
                     url.isNullOrBlank() || deadUrl.isBlank() || !url.equals(deadUrl, ignoreCase = true) ||
@@ -1781,7 +1800,12 @@ internal fun PlayerRuntimeController.playNextEpisode(userInitiated: Boolean = fa
                 data: List<AddonStreams>,
                 waitForPreferredAddons: Boolean = !timeoutElapsed
             ): Stream? {
-                val orderedStreams = StreamAutoPlaySelector.orderAddonStreams(data, installedAddonOrder)
+                val orderedStreams = StreamAutoPlaySelector.orderAddonStreams(
+                    data,
+                    installedAddonOrder,
+                    primaryAddon = playerSettings.streamAutoPlayPrimaryAddon,
+                    backupAddon = playerSettings.streamAutoPlayBackupAddon
+                )
                 val allStreams = orderedStreams.flatMap { it.streams }
                 return StreamAutoPlaySelector.selectAutoPlayStream(
                     streams = allStreams,
@@ -1799,13 +1823,20 @@ internal fun PlayerRuntimeController.playNextEpisode(userInitiated: Boolean = fa
                     preferBingeGroupInSelection = playerSettings.streamAutoPlayPreferBingeGroupForNextEpisode,
                     bingeGroupOnly = bingeGroupOnlyManualMode,
                     arrivedAddonNames = data.map { it.addonName }.toSet(),
-                    waitForPreferredAddons = waitForPreferredAddons
+                    waitForPreferredAddons = waitForPreferredAddons,
+                    primaryAddon = playerSettings.streamAutoPlayPrimaryAddon,
+                    backupAddon = playerSettings.streamAutoPlayBackupAddon
                 )
             }
 
             fun tryBingeGroupOnly(data: List<AddonStreams>): Stream? {
                 if (currentStreamBingeGroup == null || !playerSettings.streamAutoPlayPreferBingeGroupForNextEpisode) return null
-                val orderedStreams = StreamAutoPlaySelector.orderAddonStreams(data, installedAddonOrder)
+                val orderedStreams = StreamAutoPlaySelector.orderAddonStreams(
+                    data,
+                    installedAddonOrder,
+                    primaryAddon = playerSettings.streamAutoPlayPrimaryAddon,
+                    backupAddon = playerSettings.streamAutoPlayBackupAddon
+                )
                 val allStreams = orderedStreams.flatMap { it.streams }
                 return StreamAutoPlaySelector.selectAutoPlayStream(
                     streams = allStreams,
@@ -1817,7 +1848,9 @@ internal fun PlayerRuntimeController.playNextEpisode(userInitiated: Boolean = fa
                     selectedPlugins = effectiveSelectedPlugins,
                     preferredBingeGroup = currentStreamBingeGroup,
                     preferBingeGroupInSelection = true,
-                    bingeGroupOnly = true
+                    bingeGroupOnly = true,
+                    primaryAddon = playerSettings.streamAutoPlayPrimaryAddon,
+                    backupAddon = playerSettings.streamAutoPlayBackupAddon
                 )
             }
 

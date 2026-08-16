@@ -80,6 +80,8 @@ internal fun LazyListScope.autoPlaySettingsItems(
     onShowSourceDialog: () -> Unit,
     onShowAddonSelectionDialog: () -> Unit,
     onShowPluginSelectionDialog: () -> Unit,
+    onShowPrimaryAddonDialog: () -> Unit,
+    onShowBackupAddonDialog: () -> Unit,
     onShowRegexDialog: () -> Unit,
     onShowNextEpisodeThresholdModeDialog: () -> Unit,
     onShowReuseLastLinkCacheDialog: () -> Unit,
@@ -288,6 +290,28 @@ internal fun LazyListScope.autoPlaySettingsItems(
 
     if (playerSettings.streamAutoPlayMode != StreamAutoPlayMode.MANUAL) {
 
+        item(key = "autoplay_primary_addon") {
+            val noneLabel = stringResource(R.string.autoplay_addon_none)
+            NavigationSettingsItem(
+                icon = Icons.Default.Star,
+                title = stringResource(R.string.autoplay_primary_addon),
+                subtitle = playerSettings.streamAutoPlayPrimaryAddon.ifBlank { noneLabel },
+                onClick = onShowPrimaryAddonDialog,
+                onFocused = onItemFocused
+            )
+        }
+
+        item(key = "autoplay_backup_addon") {
+            val noneLabel = stringResource(R.string.autoplay_addon_none)
+            NavigationSettingsItem(
+                icon = Icons.Default.History,
+                title = stringResource(R.string.autoplay_backup_addon),
+                subtitle = playerSettings.streamAutoPlayBackupAddon.ifBlank { noneLabel },
+                onClick = onShowBackupAddonDialog,
+                onFocused = onItemFocused
+            )
+        }
+
         item(key = "autoplay_source_scope") {
             val sourceLabel = when (effectiveAutoPlaySource) {
                 StreamAutoPlaySource.ALL_SOURCES -> stringResource(R.string.autoplay_scope_all)
@@ -373,6 +397,8 @@ internal fun AutoPlaySettingsDialogs(
     showRegexDialog: Boolean,
     showAddonSelectionDialog: Boolean,
     showPluginSelectionDialog: Boolean,
+    showPrimaryAddonDialog: Boolean,
+    showBackupAddonDialog: Boolean,
     showNextEpisodeThresholdModeDialog: Boolean,
     showReuseLastLinkCacheDialog: Boolean,
     playerSettings: PlayerSettings,
@@ -384,12 +410,16 @@ internal fun AutoPlaySettingsDialogs(
     onSetRegex: (String) -> Unit,
     onSetSelectedAddons: (Set<String>) -> Unit,
     onSetSelectedPlugins: (Set<String>) -> Unit,
+    onSetPrimaryAddon: (String) -> Unit,
+    onSetBackupAddon: (String) -> Unit,
     onSetReuseLastLinkCacheHours: (Int) -> Unit,
     onDismissModeDialog: () -> Unit,
     onDismissSourceDialog: () -> Unit,
     onDismissRegexDialog: () -> Unit,
     onDismissAddonSelectionDialog: () -> Unit,
     onDismissPluginSelectionDialog: () -> Unit,
+    onDismissPrimaryAddonDialog: () -> Unit,
+    onDismissBackupAddonDialog: () -> Unit,
     onDismissNextEpisodeThresholdModeDialog: () -> Unit,
     onDismissReuseLastLinkCacheDialog: () -> Unit
 ) {
@@ -445,6 +475,32 @@ internal fun AutoPlaySettingsDialogs(
             selectedItems = playerSettings.streamAutoPlaySelectedAddons,
             onSelectionSaved = onSetSelectedAddons,
             onDismiss = onDismissAddonSelectionDialog
+        )
+    }
+
+    if (showPrimaryAddonDialog) {
+        StreamAutoPlayPreferredAddonDialog(
+            title = stringResource(R.string.autoplay_primary_addon),
+            installedAddonNames = installedAddonNames,
+            selectedAddon = playerSettings.streamAutoPlayPrimaryAddon,
+            onAddonSelected = {
+                onSetPrimaryAddon(it)
+                onDismissPrimaryAddonDialog()
+            },
+            onDismiss = onDismissPrimaryAddonDialog
+        )
+    }
+
+    if (showBackupAddonDialog) {
+        StreamAutoPlayPreferredAddonDialog(
+            title = stringResource(R.string.autoplay_backup_addon),
+            installedAddonNames = installedAddonNames,
+            selectedAddon = playerSettings.streamAutoPlayBackupAddon,
+            onAddonSelected = {
+                onSetBackupAddon(it)
+                onDismissBackupAddonDialog()
+            },
+            onDismiss = onDismissBackupAddonDialog
         )
     }
 
@@ -543,6 +599,36 @@ private fun StreamAutoPlayModeDialog(
         onDismiss = onDismiss,
         width = 460.dp,
         maxHeight = 320.dp
+    )
+}
+
+@Composable
+private fun StreamAutoPlayPreferredAddonDialog(
+    title: String,
+    installedAddonNames: List<String>,
+    selectedAddon: String,
+    onAddonSelected: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val noneLabel = stringResource(R.string.autoplay_addon_none)
+    val options = buildList {
+        add(SettingsPickerOption("", noneLabel, stringResource(R.string.autoplay_primary_addon_sub)))
+        installedAddonNames.forEach { name ->
+            add(SettingsPickerOption(name, name, null))
+        }
+    }
+    val selectedValue = selectedAddon.trim().takeIf { selected ->
+        selected.isNotEmpty() && installedAddonNames.any { it.equals(selected, ignoreCase = true) }
+    }.orEmpty()
+
+    SettingsSingleChoiceDialog(
+        title = title,
+        options = options,
+        selectedValue = selectedValue,
+        onOptionSelected = onAddonSelected,
+        onDismiss = onDismiss,
+        width = 460.dp,
+        maxHeight = 420.dp
     )
 }
 

@@ -260,6 +260,8 @@ data class PlayerSettings(
     val streamAutoPlaySource: StreamAutoPlaySource = StreamAutoPlaySource.ALL_SOURCES,
     val streamAutoPlaySelectedAddons: Set<String> = emptySet(),
     val streamAutoPlaySelectedPlugins: Set<String> = emptySet(),
+    val streamAutoPlayPrimaryAddon: String = "",
+    val streamAutoPlayBackupAddon: String = "",
     val streamAutoPlayRegex: String = "",
     val streamAutoPlayNextEpisodeEnabled: Boolean = false,
     val streamAutoPlayPreferBingeGroupForNextEpisode: Boolean = true,
@@ -504,6 +506,8 @@ class PlayerSettingsDataStore @Inject constructor(
     private val streamAutoPlaySourceKey = stringPreferencesKey("stream_auto_play_source")
     private val streamAutoPlaySelectedAddonsKey = stringSetPreferencesKey("stream_auto_play_selected_addons")
     private val streamAutoPlaySelectedPluginsKey = stringSetPreferencesKey("stream_auto_play_selected_plugins")
+    private val streamAutoPlayPrimaryAddonKey = stringPreferencesKey("stream_auto_play_primary_addon")
+    private val streamAutoPlayBackupAddonKey = stringPreferencesKey("stream_auto_play_backup_addon")
     private val streamAutoPlayRegexKey = stringPreferencesKey("stream_auto_play_regex")
     private val streamAutoPlayNextEpisodeEnabledKey = booleanPreferencesKey("stream_auto_play_next_episode_enabled")
     private val streamAutoPlayPreferBingeGroupForNextEpisodeKey = booleanPreferencesKey("stream_auto_play_prefer_bingegroup_next_episode")
@@ -859,6 +863,8 @@ class PlayerSettingsDataStore @Inject constructor(
                     runCatching { StreamAutoPlaySource.valueOf(it) }.getOrDefault(StreamAutoPlaySource.ALL_SOURCES)
                 } ?: StreamAutoPlaySource.ALL_SOURCES,
                 streamAutoPlaySelectedAddons = prefs[streamAutoPlaySelectedAddonsKey] ?: emptySet(),
+                streamAutoPlayPrimaryAddon = prefs[streamAutoPlayPrimaryAddonKey].orEmpty(),
+                streamAutoPlayBackupAddon = prefs[streamAutoPlayBackupAddonKey].orEmpty(),
                 streamAutoPlaySelectedPlugins = prefs[streamAutoPlaySelectedPluginsKey] ?: emptySet(),
                 streamAutoPlayRegex = prefs[streamAutoPlayRegexKey] ?: "",
                 streamAutoPlayNextEpisodeEnabled = prefs[streamAutoPlayNextEpisodeEnabledKey] ?: false,
@@ -1207,6 +1213,18 @@ class PlayerSettingsDataStore @Inject constructor(
     suspend fun setStreamAutoPlaySelectedPlugins(plugins: Set<String>) {
         store().edit { prefs ->
             prefs[streamAutoPlaySelectedPluginsKey] = plugins
+        }
+    }
+
+    suspend fun setStreamAutoPlayPrimaryAddon(addonName: String) {
+        store().edit { prefs ->
+            prefs[streamAutoPlayPrimaryAddonKey] = addonName.trim()
+        }
+    }
+
+    suspend fun setStreamAutoPlayBackupAddon(addonName: String) {
+        store().edit { prefs ->
+            prefs[streamAutoPlayBackupAddonKey] = addonName.trim()
         }
     }
 

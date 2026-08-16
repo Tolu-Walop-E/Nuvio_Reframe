@@ -852,6 +852,11 @@
     <string name="autoplay_timeout_unlimited">Unlimited</string>
     <string name="autoplay_allowed_addons">Allowed Addons</string>
     <string name="autoplay_all_addons">All installed addons</string>
+    <string name="autoplay_primary_addon">Primary Addon</string>
+    <string name="autoplay_primary_addon_sub">Preferred source for autoplay. Wait for this addon before falling back.</string>
+    <string name="autoplay_backup_addon">Backup Addon</string>
+    <string name="autoplay_backup_addon_sub">Used when the primary addon has no matching stream.</string>
+    <string name="autoplay_addon_none">None</string>
     <string name="autoplay_allowed_plugins">Allowed Plugins</string>
     <string name="autoplay_all_plugins">All enabled plugins</string>
     <string name="autoplay_regex_placeholder">No pattern set. Example: 4K|2160p|Remux</string>
