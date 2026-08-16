@@ -1521,7 +1521,24 @@ internal fun PlayerRuntimeController.initializePlayer(
                         if (
                             attemptFreshStreamLinkRecovery(
                                 reason = detailedError,
-                                resumePositionMs = resumePositionMs
+                                resumePositionMs = resumePositionMs,
+                                onRecoveryFailed = {
+                                    loadSourceStreams(forceRefresh = true)
+                                    _uiState.update {
+                                        it.copy(
+                                            error = null,
+                                            showLoadingOverlay = false,
+                                            showPauseOverlay = false,
+                                            loadingIssueReportVisible = false,
+                                            loadingIssueElapsedMs = 0L,
+                                            playbackEnded = false,
+                                            postPlayMode = null,
+                                            showSourcesPanel = true,
+                                            showControls = true,
+                                            sourceStreamsError = detailedError
+                                        )
+                                    }
+                                }
                             )
                         ) {
                             return
@@ -1555,18 +1572,21 @@ internal fun PlayerRuntimeController.initializePlayer(
                             }
                         }
 
-                        // Fatal error: stop any next-episode auto-play that may have been
-                        // armed by a short placeholder ENDED or residual post-play state.
+                        // Prefer sources panel over a dead-end fatal error (Continue Watching).
                         cancelNextEpisodeAutoPlayOnFatalError()
+                        loadSourceStreams(forceRefresh = true)
                         _uiState.update {
                             it.copy(
-                                error = detailedError,
+                                error = null,
                                 showLoadingOverlay = false,
                                 showPauseOverlay = false,
                                 loadingIssueReportVisible = false,
                                 loadingIssueElapsedMs = 0L,
                                 playbackEnded = false,
-                                postPlayMode = null
+                                postPlayMode = null,
+                                showSourcesPanel = true,
+                                showControls = true,
+                                sourceStreamsError = detailedError
                             )
                         }
                     }

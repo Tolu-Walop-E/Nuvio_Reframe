@@ -396,12 +396,19 @@ class StreamScreenViewModel @Inject constructor(
                 if (cached != null) {
                     autoPlayHandledForSession = true
                     resolvedAutoPlayTarget = true
-                    val isCachedTorrent = cached.infoHash != null && cached.url.isNullOrBlank()
+                    // If we have a torrent/debrid identity, always re-resolve instead of
+                    // trusting a possibly-expired unrestricted HTTP URL from cache.
+                    val hasReplayIdentity = !cached.infoHash.isNullOrBlank()
+                    val isCachedTorrent = hasReplayIdentity
                     val showOverlay = playerSettings.playerPreference == PlayerPreference.EXTERNAL
                     updateUiStateIfChanged {
                         it.copy(
                             autoPlayPlaybackInfo = StreamPlaybackInfo(
-                                url = cached.url.takeIf { u -> u.isNotBlank() },
+                                url = if (hasReplayIdentity) {
+                                    null
+                                } else {
+                                    cached.url.takeIf { u -> u.isNotBlank() }
+                                },
                                 title = title,
                                 streamName = cached.streamName,
                                 year = cached.year ?: year,
@@ -409,7 +416,7 @@ class StreamScreenViewModel @Inject constructor(
                                 isTorrent = isCachedTorrent,
                                 infoHash = cached.infoHash,
                                 ytId = null,
-                                headers = cached.headers,
+                                headers = if (hasReplayIdentity) emptyMap() else cached.headers,
                                 contentId = contentId ?: videoId.substringBefore(":"),
                                 contentType = contentType,
                                 contentName = contentName ?: title,
@@ -1179,17 +1186,22 @@ class StreamScreenViewModel @Inject constructor(
                     filename = result.filename ?: basePlaybackInfo.filename,
                     videoSize = result.videoSize ?: basePlaybackInfo.videoSize
                 )
-                // Save resolved URL to cache for reuse last link
-                if (!result.url.isNullOrBlank()) {
+                // Save resolved playback identity for reuse last link / Continue Watching.
+                // Prefer infoHash replay over the unrestricted HTTP URL (those expire).
+                val resolveInfoHash = stream.getEffectiveInfoHash()
+                if (!result.url.isNullOrBlank() || !resolveInfoHash.isNullOrBlank()) {
                     pendingCacheSaveJob = viewModelScope.launch {
                         streamLinkCacheDataStore.save(
                             contentKey = streamCacheKey,
-                            url = result.url,
+                            url = if (!resolveInfoHash.isNullOrBlank()) "" else result.url.orEmpty(),
                             streamName = resolved.streamName,
                             headers = null,
                             filename = resolved.filename,
                             videoHash = resolved.videoHash,
                             videoSize = resolved.videoSize,
+                            infoHash = resolveInfoHash,
+                            fileIdx = stream.getEffectiveFileIdx(),
+                            sources = stream.sources,
                             bingeGroup = resolved.bingeGroup,
                             contentLanguage = contentLanguage,
                             year = year

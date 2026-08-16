@@ -374,16 +374,22 @@ private fun PlayerRuntimeController.showMpvFatalStartupError(detailedError: Stri
     stopProgressUpdates()
     stopWatchProgressSaving()
     cancelNextEpisodeAutoPlayOnFatalError()
+    // Don't dump Continue Watching users on a dead-end error screen — open sources
+    // so they can pick another link immediately.
+    loadSourceStreams(forceRefresh = true)
     _uiState.update {
         it.copy(
-            error = detailedError,
+            error = null,
             showLoadingOverlay = false,
             showPauseOverlay = false,
             isBuffering = false,
             loadingIssueReportVisible = false,
             loadingIssueElapsedMs = 0L,
             playbackEnded = false,
-            postPlayMode = null
+            postPlayMode = null,
+            showSourcesPanel = true,
+            showControls = true,
+            sourceStreamsError = detailedError
         )
     }
 }
@@ -420,14 +426,18 @@ internal fun PlayerRuntimeController.handleMpvEndFile(reason: Long, errorCode: L
                 stopProgressUpdates()
                 stopWatchProgressSaving()
                 cancelNextEpisodeAutoPlayOnFatalError()
+                loadSourceStreams(forceRefresh = true)
                 _uiState.update {
                     it.copy(
-                        error = detailedError,
+                        error = null,
                         showLoadingOverlay = false,
                         showPauseOverlay = false,
                         isBuffering = false,
                         playbackEnded = false,
-                        postPlayMode = null
+                        postPlayMode = null,
+                        showSourcesPanel = true,
+                        showControls = true,
+                        sourceStreamsError = detailedError
                     )
                 }
             }
@@ -440,14 +450,18 @@ internal fun PlayerRuntimeController.handleMpvEndFile(reason: Long, errorCode: L
     stopProgressUpdates()
     stopWatchProgressSaving()
     cancelNextEpisodeAutoPlayOnFatalError()
+    loadSourceStreams(forceRefresh = true)
     _uiState.update {
         it.copy(
-            error = detailedError,
+            error = null,
             showLoadingOverlay = false,
             showPauseOverlay = false,
             isBuffering = false,
             playbackEnded = false,
-            postPlayMode = null
+            postPlayMode = null,
+            showSourcesPanel = true,
+            showControls = true,
+            sourceStreamsError = detailedError
         )
     }
 }

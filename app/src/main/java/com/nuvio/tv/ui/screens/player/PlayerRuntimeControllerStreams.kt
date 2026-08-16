@@ -552,16 +552,23 @@ private fun PlayerRuntimeController.persistSelectedStreamForReuse(
     val key = streamCacheKey ?: return
     val streamName = (stream.name?.takeIf { it.isNotBlank() } ?: stream.addonName)?.takeIf { it.isNotBlank() }
         ?: title
+    val infoHash = stream.getEffectiveInfoHash()
+    // Prefer identity replay on Continue Watching: expired HTTP URLs are common for debrid.
+    // When we have an infoHash, persist it and leave url blank so the next play re-resolves.
+    val persistUrl = if (!infoHash.isNullOrBlank()) "" else url
 
     scope.launch {
         streamLinkCacheDataStore.save(
             contentKey = key,
-            url = url,
+            url = persistUrl,
             streamName = streamName,
-            headers = headers,
+            headers = if (persistUrl.isBlank()) emptyMap() else headers,
             filename = currentFilename,
             videoHash = currentVideoHash,
             videoSize = currentVideoSize,
+            infoHash = infoHash,
+            fileIdx = stream.getEffectiveFileIdx(),
+            sources = stream.sources,
             bingeGroup = stream.behaviorHints?.bingeGroup,
             contentLanguage = contentLanguage,
             year = year
@@ -1558,12 +1565,14 @@ internal fun PlayerRuntimeController.attemptFreshStreamLinkRecovery(
 
             val installedAddons = addonRepository.getInstalledAddons().first().enabledAddons()
             val installedAddonOrder = installedAddons.map { it.displayName }
+            val playerSettings = playerSettingsDataStore.playerSettings.first()
             val searchSettled = CompletableDeferred<Unit>()
             var selected: Stream? = null
+            var latestStreams: List<Stream> = emptyList()
 
             fun consider(data: List<AddonStreams>) {
                 val ordered = StreamAutoPlaySelector.orderAddonStreams(data, installedAddonOrder)
-                val latestStreams = ordered.flatMap { it.streams }
+                latestStreams = ordered.flatMap { it.streams }
                 val candidate = PlayerFreshStreamLinkPolicy.select(
                     PlayerFreshStreamLinkPolicy.Input(
                         streams = latestStreams,
@@ -1573,9 +1582,43 @@ internal fun PlayerRuntimeController.attemptFreshStreamLinkRecovery(
                         preferredBingeGroup = preferredBingeGroup,
                         preferredAddonName = preferredAddonName,
                     )
-                )
+                ) ?: StreamAutoPlaySelector.selectAutoPlayStream(
+                    streams = latestStreams,
+                    mode = StreamAutoPlayMode.FIRST_STREAM,
+                    regexPattern = "",
+                    source = StreamAutoPlaySource.ALL_SOURCES,
+                    installedAddonNames = installedAddonOrder.toSet(),
+                    selectedAddons = emptySet(),
+                    selectedPlugins = emptySet(),
+                    preferredBingeGroup = preferredBingeGroup,
+                    preferBingeGroupInSelection = preferredBingeGroup != null,
+                    bingeGroupOnly = false,
+                    arrivedAddonNames = data.map { it.addonName }.toSet(),
+                    waitForPreferredAddons = false
+                )?.takeIf { stream ->
+                    val url = stream.getStreamUrl()
+                    url.isNullOrBlank() || deadUrl.isBlank() || !url.equals(deadUrl, ignoreCase = true) ||
+                        stream.clientResolve != null ||
+                        !stream.getEffectiveInfoHash().isNullOrBlank()
+                }?.let { stream ->
+                    if (
+                        stream.clientResolve != null ||
+                        stream.isDirectDebrid() ||
+                        stream.isTorrent() ||
+                        !stream.getEffectiveInfoHash().isNullOrBlank()
+                    ) {
+                        stream.copy(url = null, externalUrl = null)
+                    } else {
+                        stream
+                    }
+                }
                 if (candidate != null) {
                     selected = candidate
+                    Log.i(
+                        PlayerRuntimeController.TAG,
+                        "Fresh stream recovery candidate addon=${candidate.addonName} " +
+                            "streams=${latestStreams.size} settingsMode=${playerSettings.streamAutoPlayMode}"
+                    )
                     if (!searchSettled.isCompleted) searchSettled.complete(Unit)
                 }
             }
@@ -1598,11 +1641,28 @@ internal fun PlayerRuntimeController.attemptFreshStreamLinkRecovery(
             withTimeoutOrNull(PlayerRuntimeController.FRESH_STREAM_SEARCH_TIMEOUT_MS) {
                 searchSettled.await()
             }
+            // Give a short grace period for a final addon wave before giving up.
+            if (selected == null && latestStreams.isEmpty()) {
+                delay(2_500)
+            }
             collectJob.cancel()
 
-            val candidate = selected
+            val candidate = selected ?: PlayerFreshStreamLinkPolicy.select(
+                PlayerFreshStreamLinkPolicy.Input(
+                    streams = latestStreams,
+                    deadUrl = deadUrl,
+                    preferredInfoHash = preferredInfoHash,
+                    preferredFileIdx = preferredFileIdx,
+                    preferredBingeGroup = preferredBingeGroup,
+                    preferredAddonName = preferredAddonName,
+                )
+            )
             if (candidate == null) {
-                Log.w(PlayerRuntimeController.TAG, "Fresh stream recovery found no replacement for dead link")
+                Log.w(
+                    PlayerRuntimeController.TAG,
+                    "Fresh stream recovery found no replacement " +
+                        "(streamsSeen=${latestStreams.size} deadHost=${deadUrl.substringBefore('?').take(80)})"
+                )
                 onRecoveryFailed?.invoke()
                 return@launch
             }

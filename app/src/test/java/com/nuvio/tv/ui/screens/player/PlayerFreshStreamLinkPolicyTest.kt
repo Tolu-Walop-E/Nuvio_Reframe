@@ -3,6 +3,8 @@ package com.nuvio.tv.ui.screens.player
 import com.nuvio.tv.domain.model.Stream
 import com.nuvio.tv.domain.model.StreamBehaviorHints
 import com.nuvio.tv.domain.model.StreamClientResolve
+import com.nuvio.tv.domain.model.StreamDebridCacheState
+import com.nuvio.tv.domain.model.StreamDebridCacheStatus
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -56,6 +58,41 @@ class PlayerFreshStreamLinkPolicyTest {
                 preferredFileIdx = null,
                 preferredBingeGroup = "group-1",
                 preferredAddonName = "A",
+            )
+        )
+        assertNotNull(selected)
+        assertEquals("https://cdn.example/fresh.mp4", selected!!.url)
+    }
+
+    @Test
+    fun `accepts unknown debrid cache status during recovery`() {
+        val selected = PlayerFreshStreamLinkPolicy.select(
+            PlayerFreshStreamLinkPolicy.Input(
+                streams = listOf(
+                    Stream(
+                        name = "Pending",
+                        title = null,
+                        description = null,
+                        url = "https://cdn.example/fresh.mp4",
+                        ytId = null,
+                        infoHash = null,
+                        fileIdx = null,
+                        externalUrl = null,
+                        behaviorHints = null,
+                        addonName = "AIO",
+                        addonLogo = null,
+                        debridCacheStatus = StreamDebridCacheStatus(
+                            providerId = "torbox",
+                            providerName = "TorBox",
+                            state = StreamDebridCacheState.UNKNOWN
+                        )
+                    )
+                ),
+                deadUrl = "https://cdn.example/dead.mp4",
+                preferredInfoHash = null,
+                preferredFileIdx = null,
+                preferredBingeGroup = null,
+                preferredAddonName = null,
             )
         )
         assertNotNull(selected)

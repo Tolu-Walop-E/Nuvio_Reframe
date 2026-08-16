@@ -54,14 +54,14 @@ internal object PlayerFreshStreamLinkPolicy {
 
     private fun isRecoverableCandidate(stream: Stream): Boolean {
         if (stream.isExternal()) return false
-        when (stream.debridCacheStatus?.state) {
-            StreamDebridCacheState.CHECKING,
-            StreamDebridCacheState.NOT_CACHED,
-            StreamDebridCacheState.UNKNOWN -> return false
-            StreamDebridCacheState.CACHED,
-            null -> Unit
-        }
-        return stream.getStreamUrl() != null || stream.isTorrent() || stream.isDirectDebrid()
+        // During recovery, accept streams whose debrid cache status is still unknown /
+        // checking — Continue Watching often fails before badges finish.
+        if (stream.debridCacheStatus?.state == StreamDebridCacheState.NOT_CACHED) return false
+        return stream.getStreamUrl() != null ||
+            stream.isTorrent() ||
+            stream.isDirectDebrid() ||
+            !stream.getEffectiveInfoHash().isNullOrBlank() ||
+            stream.clientResolve != null
     }
 
     private fun fileIdxCompatible(stream: Stream, preferredFileIdx: Int?): Boolean {
@@ -78,12 +78,18 @@ internal object PlayerFreshStreamLinkPolicy {
 
     private fun canReResolveOrDiffers(stream: Stream, deadUrl: String): Boolean {
         if (stream.clientResolve != null || stream.isDirectDebrid() || stream.isTorrent()) return true
+        if (!stream.getEffectiveInfoHash().isNullOrBlank()) return true
         return differsFromDeadUrl(stream, deadUrl)
     }
 
     private fun stripStalePlayableUrl(stream: Stream): Stream {
         // Force debrid/torrent identities through resolve again instead of reusing a dead HTTP URL.
-        if (stream.clientResolve != null || stream.isDirectDebrid() || stream.isTorrent()) {
+        if (
+            stream.clientResolve != null ||
+            stream.isDirectDebrid() ||
+            stream.isTorrent() ||
+            !stream.getEffectiveInfoHash().isNullOrBlank()
+        ) {
             return stream.copy(url = null, externalUrl = null)
         }
         return stream

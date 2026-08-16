@@ -110,8 +110,8 @@ class PlayerRuntimeController(
         internal const val ADDON_SUBTITLE_TRACK_ID_PREFIX = "nuvio-addon-sub:"
         /** libmpv MPV_END_FILE_REASON_ERROR — stream failed instead of natural EOF. */
         internal const val MPV_END_FILE_REASON_ERROR = 4L
-        internal const val MAX_FRESH_STREAM_LINK_RECOVERIES = 2
-        internal const val FRESH_STREAM_SEARCH_TIMEOUT_MS = 12_000L
+        internal const val MAX_FRESH_STREAM_LINK_RECOVERIES = 3
+        internal const val FRESH_STREAM_SEARCH_TIMEOUT_MS = 28_000L
     }
 
     internal data class PendingAudioSelection(
