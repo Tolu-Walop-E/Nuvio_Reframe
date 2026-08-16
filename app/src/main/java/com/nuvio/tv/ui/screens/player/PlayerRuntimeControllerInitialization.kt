@@ -1517,6 +1517,16 @@ internal fun PlayerRuntimeController.initializePlayer(
                             return
                         }
 
+                        val resumePositionMs = currentPosition.coerceAtLeast(0L)
+                        if (
+                            attemptFreshStreamLinkRecovery(
+                                reason = detailedError,
+                                resumePositionMs = resumePositionMs
+                            )
+                        ) {
+                            return
+                        }
+
                         if (rebufferStartedAtMs != 0L) {
                             val lastRebufferMs = (SystemClock.elapsedRealtime() - rebufferStartedAtMs).coerceAtLeast(0L)
                             rebufferTotalMs += lastRebufferMs

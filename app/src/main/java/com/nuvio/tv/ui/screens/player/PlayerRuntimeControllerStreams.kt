@@ -734,6 +734,7 @@ internal fun PlayerRuntimeController.switchToSourceStream(
     // Reset stream-state error flags for the new stream.
     hasRetriedCurrentStreamAfter416 = false
     resetErrorRetryState()
+    freshStreamLinkRecoveryCount = 0
     hasRetriedCurrentStreamAfterUnexpectedNpe = false
     hasRetriedCurrentStreamAfterMediaPeriodHolderCrash = false
     subtitleDisabledByPersistedPreference = false
@@ -1496,6 +1497,137 @@ internal suspend fun PlayerRuntimeController.resolveDirectDebridStreamIfNeeded(
             null
         }
     }
+}
+
+/**
+ * Dead cache / expired debrid links should not dump the user on an error screen.
+ * Clear cached URLs, re-fetch sources for the current title, and play a fresh link.
+ *
+ * Returns true when recovery was scheduled (caller must not show a fatal error yet).
+ */
+internal fun PlayerRuntimeController.attemptFreshStreamLinkRecovery(
+    reason: String,
+    resumePositionMs: Long = currentPlaybackPositionMs()?.coerceAtLeast(0L) ?: 0L,
+    onRecoveryFailed: (() -> Unit)? = null
+): Boolean {
+    if (freshStreamLinkRecoveryCount >= PlayerRuntimeController.MAX_FRESH_STREAM_LINK_RECOVERIES) {
+        return false
+    }
+    val type = contentType?.takeIf { it.isNotBlank() } ?: return false
+    val videoId = currentVideoId?.takeIf { it.isNotBlank() }
+        ?: contentId?.takeIf { it.isNotBlank() }
+        ?: return false
+
+    freshStreamLinkRecoveryCount++
+    val attempt = freshStreamLinkRecoveryCount
+    val deadUrl = currentStreamUrl
+    val preferredInfoHash = (_uiState.value.currentStreamInfoHash ?: currentInfoHash)
+        ?.takeIf { it.isNotBlank() }
+    val preferredFileIdx = _uiState.value.currentStreamFileIdx ?: currentFileIdx
+    val preferredBingeGroup = currentStreamBingeGroup
+    val preferredAddonName = currentAddonName ?: _uiState.value.currentStreamAddonName
+    val season = currentSeason
+    val episode = currentEpisode
+
+    Log.w(
+        PlayerRuntimeController.TAG,
+        "Fresh stream recovery $attempt/${PlayerRuntimeController.MAX_FRESH_STREAM_LINK_RECOVERIES}: $reason"
+    )
+
+    debridResolveJob?.cancel()
+    debridResolveJob = scope.launch {
+        try {
+            setLoadingStatus(
+                phase = "refreshing_stream",
+                message = context.getString(com.nuvio.tv.R.string.player_loading_refreshing_stream),
+                showOverlay = true
+            )
+            _uiState.update {
+                it.copy(
+                    error = null,
+                    showLoadingOverlay = it.loadingOverlayEnabled,
+                    isBuffering = true,
+                    showPauseOverlay = false
+                )
+            }
+
+            streamCacheKey?.let { key ->
+                runCatching { streamLinkCacheDataStore.remove(key) }
+            }
+            runCatching { directDebridResolver.clearResolveCache() }
+
+            val installedAddons = addonRepository.getInstalledAddons().first().enabledAddons()
+            val installedAddonOrder = installedAddons.map { it.displayName }
+            val searchSettled = CompletableDeferred<Unit>()
+            var selected: Stream? = null
+
+            fun consider(data: List<AddonStreams>) {
+                val ordered = StreamAutoPlaySelector.orderAddonStreams(data, installedAddonOrder)
+                val latestStreams = ordered.flatMap { it.streams }
+                val candidate = PlayerFreshStreamLinkPolicy.select(
+                    PlayerFreshStreamLinkPolicy.Input(
+                        streams = latestStreams,
+                        deadUrl = deadUrl,
+                        preferredInfoHash = preferredInfoHash,
+                        preferredFileIdx = preferredFileIdx,
+                        preferredBingeGroup = preferredBingeGroup,
+                        preferredAddonName = preferredAddonName,
+                    )
+                )
+                if (candidate != null) {
+                    selected = candidate
+                    if (!searchSettled.isCompleted) searchSettled.complete(Unit)
+                }
+            }
+
+            val collectJob = launch {
+                streamRepository.getStreamsFromAllAddons(
+                    type = type,
+                    videoId = videoId,
+                    season = season,
+                    episode = episode
+                ).collect { result ->
+                    when (result) {
+                        is NetworkResult.Success -> consider(result.data)
+                        is NetworkResult.Error -> Unit
+                        is NetworkResult.Loading -> Unit
+                    }
+                }
+            }
+
+            withTimeoutOrNull(PlayerRuntimeController.FRESH_STREAM_SEARCH_TIMEOUT_MS) {
+                searchSettled.await()
+            }
+            collectJob.cancel()
+
+            val candidate = selected
+            if (candidate == null) {
+                Log.w(PlayerRuntimeController.TAG, "Fresh stream recovery found no replacement for dead link")
+                onRecoveryFailed?.invoke()
+                return@launch
+            }
+
+            Log.i(
+                PlayerRuntimeController.TAG,
+                "Fresh stream recovery switching to addon=${candidate.addonName} " +
+                    "infoHash=${candidate.getEffectiveInfoHash()} binge=${candidate.behaviorHints?.bingeGroup}"
+            )
+            if (resumePositionMs > 0L) {
+                _uiState.update { it.copy(pendingSeekPosition = resumePositionMs) }
+            }
+            resetErrorRetryState()
+            startupEngineFailoverTriggered = false
+            switchToSourceStream(candidate)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            Log.e(PlayerRuntimeController.TAG, "Fresh stream recovery failed: ${error.message}", error)
+            onRecoveryFailed?.invoke()
+        } finally {
+            debridResolveJob = null
+        }
+    }
+    return true
 }
 
 internal fun PlayerRuntimeController.playNextEpisode(userInitiated: Boolean = false) {

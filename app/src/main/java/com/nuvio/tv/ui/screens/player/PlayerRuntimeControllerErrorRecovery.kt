@@ -345,6 +345,16 @@ internal fun PlayerRuntimeController.handleMpvStartupFailure(detailedError: Stri
     Log.w(PlayerRuntimeController.TAG, "MPV startup failure: $detailedError")
 
     if (
+        attemptFreshStreamLinkRecovery(
+            reason = detailedError,
+            resumePositionMs = 0L,
+            onRecoveryFailed = { showMpvFatalStartupError(detailedError) }
+        )
+    ) {
+        return
+    }
+
+    if (
         maybeAutoSwitchInternalPlayerOnStartupError(
             detailedError = detailedError,
             allowEngineFailover = true
@@ -357,6 +367,10 @@ internal fun PlayerRuntimeController.handleMpvStartupFailure(detailedError: Stri
         return
     }
 
+    showMpvFatalStartupError(detailedError)
+}
+
+private fun PlayerRuntimeController.showMpvFatalStartupError(detailedError: String) {
     stopProgressUpdates()
     stopWatchProgressSaving()
     cancelNextEpisodeAutoPlayOnFatalError()
@@ -393,6 +407,32 @@ internal fun PlayerRuntimeController.handleMpvEndFile(reason: Long, errorCode: L
 
     if (!hasRenderedFirstFrame) {
         handleMpvStartupFailure(detailedError)
+        return
+    }
+
+    val resumePositionMs = currentPlaybackPositionMs()?.coerceAtLeast(0L) ?: 0L
+    if (
+        attemptFreshStreamLinkRecovery(
+            reason = detailedError,
+            resumePositionMs = resumePositionMs,
+            onRecoveryFailed = {
+                autoSubtitleSelected = true
+                stopProgressUpdates()
+                stopWatchProgressSaving()
+                cancelNextEpisodeAutoPlayOnFatalError()
+                _uiState.update {
+                    it.copy(
+                        error = detailedError,
+                        showLoadingOverlay = false,
+                        showPauseOverlay = false,
+                        isBuffering = false,
+                        playbackEnded = false,
+                        postPlayMode = null
+                    )
+                }
+            }
+        )
+    ) {
         return
     }
 

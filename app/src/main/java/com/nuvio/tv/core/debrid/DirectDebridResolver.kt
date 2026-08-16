@@ -116,6 +116,13 @@ class DirectDebridResolver @Inject constructor(
         }
     }
 
+    /** Drops in-memory unrestricted URLs so a dead cache link is re-resolved. */
+    suspend fun clearResolveCache() {
+        mutex.withLock {
+            resolvedCache.clear()
+        }
+    }
+
     suspend fun shouldResolveToPlayableStream(stream: Stream): Boolean {
         val settings = dataStore.settings.first()
         if (!settings.canResolvePlayableLinks) return false
