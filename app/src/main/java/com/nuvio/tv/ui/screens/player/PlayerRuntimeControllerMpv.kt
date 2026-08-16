@@ -2,10 +2,12 @@ package com.nuvio.tv.ui.screens.player
 
 import android.util.Log
 import androidx.media3.exoplayer.SeekParameters
+import com.nuvio.tv.R
 import com.nuvio.tv.data.local.InternalPlayerEngine
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
@@ -13,7 +15,9 @@ private const val MPV_RESUME_SEEK_TOLERANCE_MS = 1500L
 
 internal fun PlayerRuntimeController.attachMpvView(view: NuvioMpvSurfaceView?) {
     if (mpvView === view) return
+    mpvView?.playbackEventListener = null
     mpvView = view
+    bindMpvPlaybackEventListener(view)
 
     if (view == null) return
     if (!isUsingMpvEngine()) return
@@ -23,7 +27,7 @@ internal fun PlayerRuntimeController.attachMpvView(view: NuvioMpvSurfaceView?) {
     runCatching {
         performPendingMpvHardRestartIfNeeded(view)
         view.applyHardwareDecodeMode(mpvHardwareDecodeModeSetting)
-        view.setMedia(currentStreamUrl, currentHeaders)
+        view.setMedia(currentStreamUrl, currentHeaders, forceReload = true)
         view.setPlaybackSpeed(_uiState.value.playbackSpeed)
         view.applyAudioAmplificationDb(_uiState.value.audioAmplificationDb)
         view.applyAudioLanguagePreferences(mpvPreferredAudioLanguages)
@@ -51,6 +55,7 @@ internal fun PlayerRuntimeController.attachMpvView(view: NuvioMpvSurfaceView?) {
         updateMpvAvailableTracks()
         scheduleHideControls()
         emitScrobbleStart()
+        maybeScheduleMpvStartupWatchdog()
     }.onFailure {
         val detailedError = it.message ?: context.getString(com.nuvio.tv.R.string.player_error_mpv_surface_failed)
         if (
@@ -112,11 +117,12 @@ internal fun PlayerRuntimeController.initializeMpvPlayer(
             message = context.getString(com.nuvio.tv.R.string.player_loading_starting),
             showOverlay = true
         )
+        bindMpvPlaybackEventListener(view)
         performPendingMpvHardRestartIfNeeded(view)
         view.applyHardwareDecodeMode(mpvHardwareDecodeModeSetting)
         val initialResumePosition = resolvePendingInitialResumePosition()
         playbackAnalyticsDiagnostics.setStartupStartPosition(initialResumePosition)
-        view.setMedia(url, headers, initialResumePosition)
+        view.setMedia(url, headers, initialResumePosition, forceReload = true)
         playbackAnalyticsDiagnostics.recordRawEventLine(
             "PLAYER_INIT: engine=MPV host=${url.safeMpvTraceHost()} " +
                 "playbackSpeed=${_uiState.value.playbackSpeed} resumePositionMs=$initialResumePosition"
@@ -157,6 +163,7 @@ internal fun PlayerRuntimeController.initializeMpvPlayer(
         updateMpvAvailableTracks()
         scheduleHideControls()
         emitScrobbleStart()
+        maybeScheduleMpvStartupWatchdog()
     }.onFailure { error ->
         Log.e(PlayerRuntimeController.TAG, "libmpv initialize failed: ${error.message}", error)
         val detailedError = error.message ?: context.getString(com.nuvio.tv.R.string.player_error_mpv_playback_failed)
@@ -182,7 +189,71 @@ internal fun PlayerRuntimeController.initializeMpvPlayer(
 }
 
 internal fun PlayerRuntimeController.releaseMpvPlayer() {
+    cancelMpvStartupWatchdog()
+    mpvView?.playbackEventListener = null
     runCatching { mpvView?.releasePlayer() }
+}
+
+private fun PlayerRuntimeController.bindMpvPlaybackEventListener(view: NuvioMpvSurfaceView?) {
+    view?.playbackEventListener = NuvioMpvSurfaceView.PlaybackEventListener { event ->
+        when (event) {
+            NuvioMpvSurfaceView.PlaybackEvent.FileLoaded -> {
+                Log.d(PlayerRuntimeController.TAG, "MPV file-loaded")
+            }
+            is NuvioMpvSurfaceView.PlaybackEvent.EndFile -> {
+                handleMpvEndFile(reason = event.reason, errorCode = event.errorCode)
+            }
+        }
+    }
+}
+
+internal fun PlayerRuntimeController.cancelMpvStartupWatchdog() {
+    mpvStartupWatchdogJob?.cancel()
+    mpvStartupWatchdogJob = null
+}
+
+internal fun PlayerRuntimeController.maybeScheduleMpvStartupWatchdog() {
+    if (!isUsingMpvEngine()) return
+    if (hasRenderedFirstFrame) return
+    if (mpvStartupWatchdogJob?.isActive == true) return
+
+    val startedAtMs = System.currentTimeMillis()
+    mpvStartupWatchdogJob = scope.launch {
+        while (isActive) {
+            delay(PlayerMpvStartupWatchdogPolicy.POLL_INTERVAL_MS)
+            if (!isUsingMpvEngine() || hasRenderedFirstFrame) {
+                return@launch
+            }
+            val view = mpvView ?: return@launch
+            val elapsedMs = (System.currentTimeMillis() - startedAtMs).coerceAtLeast(0L)
+            when (
+                PlayerMpvStartupWatchdogPolicy.evaluate(
+                    PlayerMpvStartupWatchdogPolicy.Input(
+                        hasRenderedFirstFrame = hasRenderedFirstFrame,
+                        hasFileLoaded = view.hasFileLoadedForCurrentMedia,
+                        durationMs = view.durationMs().coerceAtLeast(0L),
+                        positionMs = view.currentPositionMs().coerceAtLeast(0L),
+                        isPausedForCache = view.isPausedForCacheNow(),
+                        elapsedSinceStartMs = elapsedMs,
+                    )
+                )
+            ) {
+                PlayerMpvStartupWatchdogPolicy.Decision.KeepWaiting -> Unit
+                PlayerMpvStartupWatchdogPolicy.Decision.FailStartup -> {
+                    Log.w(
+                        PlayerRuntimeController.TAG,
+                        "MPV_STARTUP_WATCHDOG: no playable timeline after ${elapsedMs}ms " +
+                            "(fileLoaded=${view.hasFileLoadedForCurrentMedia} " +
+                            "duration=${view.durationMs()} pos=${view.currentPositionMs()})"
+                    )
+                    handleMpvStartupFailure(
+                        context.getString(R.string.player_error_mpv_startup_failed)
+                    )
+                    return@launch
+                }
+            }
+        }
+    }
 }
 
 private fun String.safeMpvTraceHost(): String {

@@ -30,6 +30,7 @@ internal fun PlayerRuntimeController.releasePlayer(flushPlaybackState: Boolean) 
     mpvTrackRefreshJob?.cancel()
     mpvTrackRefreshJob = null
     mpvTrackRefreshInProgress = false
+    cancelMpvStartupWatchdog()
     hideControlsJob?.cancel()
     watchProgressSaveJob?.cancel()
     seekProgressSyncJob?.cancel()

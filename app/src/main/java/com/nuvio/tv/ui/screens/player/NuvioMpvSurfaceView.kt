@@ -1,12 +1,16 @@
 package com.nuvio.tv.ui.screens.player
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.util.AttributeSet
 import android.util.Log
 import android.view.SurfaceHolder
 import com.nuvio.tv.data.local.MpvHardwareDecodeMode
 import com.nuvio.tv.data.local.SubtitleStyleSettings
 import `is`.xyz.mpv.BaseMPVView
+import `is`.xyz.mpv.MPV
+import `is`.xyz.mpv.MPVNode
 import `is`.xyz.mpv.Utils
 import java.util.Locale
 import kotlin.math.pow
@@ -17,6 +21,15 @@ class NuvioMpvSurfaceView @JvmOverloads constructor(
     attrs: AttributeSet? = null
 ) : BaseMPVView(context, attrs) {
 
+    fun interface PlaybackEventListener {
+        fun onMpvEvent(event: PlaybackEvent)
+    }
+
+    sealed class PlaybackEvent {
+        data object FileLoaded : PlaybackEvent()
+        data class EndFile(val reason: Long, val errorCode: Long?) : PlaybackEvent()
+    }
+
     private var initialized = false
     private var hasQueuedInitialMedia = false
     private var lastMediaRequestKey: String? = null
@@ -25,8 +38,34 @@ class NuvioMpvSurfaceView @JvmOverloads constructor(
     private var hardwareDecodeMode: MpvHardwareDecodeMode = MpvHardwareDecodeMode.AUTO_SAFE
     private var currentAspectMode: AspectMode = AspectMode.ORIGINAL
     private var pendingAspectRetryCount = 0
+    private val mainHandler = Handler(Looper.getMainLooper())
+    @Volatile var playbackEventListener: PlaybackEventListener? = null
+    @Volatile var hasFileLoadedForCurrentMedia: Boolean = false
+        private set
     private val aspectReapplyRunnable = Runnable {
         applyAspectModeInternal(currentAspectMode, allowRetry = true)
+    }
+    private val eventObserver = object : MPV.EventObserver {
+        override fun eventProperty(property: String) = Unit
+        override fun eventProperty(property: String, value: Long) = Unit
+        override fun eventProperty(property: String, value: Boolean) = Unit
+        override fun eventProperty(property: String, value: String) = Unit
+        override fun eventProperty(property: String, value: Double) = Unit
+        override fun eventProperty(property: String, value: MPVNode) = Unit
+
+        override fun event(eventId: Int, data: MPVNode) {
+            when (eventId) {
+                MPV.mpvEvent.MPV_EVENT_FILE_LOADED -> {
+                    hasFileLoadedForCurrentMedia = true
+                    dispatchEvent(PlaybackEvent.FileLoaded)
+                }
+                MPV.mpvEvent.MPV_EVENT_END_FILE -> {
+                    val reason = runCatching { data["reason"]?.asInt() }.getOrNull() ?: -1L
+                    val errorCode = runCatching { data["error"]?.asInt() }.getOrNull()
+                    dispatchEvent(PlaybackEvent.EndFile(reason = reason, errorCode = errorCode))
+                }
+            }
+        }
     }
 
     fun ensureInitialized() {
@@ -39,13 +78,19 @@ class NuvioMpvSurfaceView @JvmOverloads constructor(
         initialized = true
     }
 
-    fun setMedia(url: String, headers: Map<String, String>, startPositionMs: Long = 0L) {
+    fun setMedia(
+        url: String,
+        headers: Map<String, String>,
+        startPositionMs: Long = 0L,
+        forceReload: Boolean = false
+    ) {
         ensureInitialized()
         val requestKey = buildMediaRequestKey(url = url, headers = headers) +
             "#start=${startPositionMs.coerceAtLeast(0L)}"
-        if (hasQueuedInitialMedia && requestKey == lastMediaRequestKey) {
+        if (!forceReload && hasQueuedInitialMedia && requestKey == lastMediaRequestKey) {
             return
         }
+        hasFileLoadedForCurrentMedia = false
         applyHeaders(headers)
         val startOption = startPositionMs
             .takeIf { it > 0L }
@@ -103,9 +148,17 @@ class NuvioMpvSurfaceView @JvmOverloads constructor(
         mpv.command("loadfile", url, "replace", LOADFILE_DEFAULT_INDEX, options)
     }
 
-    fun setMediaUsingLoadfile(url: String, headers: Map<String, String>) {
+    fun setMediaUsingLoadfile(
+        url: String,
+        headers: Map<String, String>,
+        forceReload: Boolean = false
+    ) {
         ensureInitialized()
         val requestKey = buildMediaRequestKey(url = url, headers = headers)
+        if (!forceReload && hasQueuedInitialMedia && requestKey == lastMediaRequestKey) {
+            return
+        }
+        hasFileLoadedForCurrentMedia = false
         applyHeaders(headers)
         pendingInitialMediaUrl = null
         pendingInitialStartOption = null
@@ -119,6 +172,15 @@ class NuvioMpvSurfaceView @JvmOverloads constructor(
         lastMediaRequestKey = requestKey
         applyDefaultTrackSelectionForNewLoad()
         scheduleAspectModeRefresh(resetRetryCount = true)
+    }
+
+    /** Clears the duplicate-load guard so a recovery retry always re-issues loadfile. */
+    fun invalidateQueuedMediaRequest() {
+        hasQueuedInitialMedia = false
+        lastMediaRequestKey = null
+        hasFileLoadedForCurrentMedia = false
+        pendingInitialMediaUrl = null
+        pendingInitialStartOption = null
     }
 
     private fun ensureSurfaceAttachedIfAlreadyAvailable() {
@@ -518,11 +580,13 @@ class NuvioMpvSurfaceView @JvmOverloads constructor(
     fun releasePlayer() {
         if (!initialized) return
         removeCallbacks(aspectReapplyRunnable)
+        runCatching { mpv.removeObserver(eventObserver) }
         runCatching { destroy() }
             .onFailure { Log.w(TAG, "Failed to destroy libmpv view cleanly: ${it.message}") }
         initialized = false
         hasQueuedInitialMedia = false
         lastMediaRequestKey = null
+        hasFileLoadedForCurrentMedia = false
         pendingInitialMediaUrl = null
         pendingInitialStartOption = null
     }
@@ -557,7 +621,19 @@ class NuvioMpvSurfaceView @JvmOverloads constructor(
     }
 
     override fun observeProperties() {
-        // Progress is polled by PlayerRuntimeController.
+        // Progress is polled by PlayerRuntimeController; observe load lifecycle so a dead
+        // stream can fail the loading overlay instead of hanging on "Starting stream…".
+        runCatching { mpv.removeObserver(eventObserver) }
+        mpv.addObserver(eventObserver)
+    }
+
+    private fun dispatchEvent(event: PlaybackEvent) {
+        val listener = playbackEventListener ?: return
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            listener.onMpvEvent(event)
+        } else {
+            mainHandler.post { listener.onMpvEvent(event) }
+        }
     }
 
     private fun applyHeaders(headers: Map<String, String>) {

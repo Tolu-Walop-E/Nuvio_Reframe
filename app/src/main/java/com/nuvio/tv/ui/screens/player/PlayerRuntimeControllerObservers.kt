@@ -819,6 +819,7 @@ internal fun PlayerRuntimeController.scheduleDeferredPlayerReinitialize(
 ) {
     cancelFirstFrameWatchdog()
     cancelStallWatchdog()
+    cancelMpvStartupWatchdog()
     if (clearResumeProgress) {
         pendingResumeProgress = null
     }

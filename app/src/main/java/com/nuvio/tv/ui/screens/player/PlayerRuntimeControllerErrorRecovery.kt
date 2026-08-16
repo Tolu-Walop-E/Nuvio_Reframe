@@ -330,6 +330,114 @@ internal fun PlayerRuntimeController.cancelStableProgressReset() {
     stableProgressResetJob = null
 }
 
+/**
+ * Retries or surfaces a fatal error when libmpv never opens a playable timeline
+ * (idle "Starting stream…" hang) or ends the file with an error before first frame.
+ */
+internal fun PlayerRuntimeController.handleMpvStartupFailure(detailedError: String) {
+    if (!isUsingMpvEngine()) return
+    if (hasRenderedFirstFrame) return
+    if (_uiState.value.error != null) return
+
+    cancelMpvStartupWatchdog()
+    autoSubtitleSelected = true
+
+    Log.w(PlayerRuntimeController.TAG, "MPV startup failure: $detailedError")
+
+    if (
+        maybeAutoSwitchInternalPlayerOnStartupError(
+            detailedError = detailedError,
+            allowEngineFailover = true
+        )
+    ) {
+        return
+    }
+
+    if (attemptMpvStartupRecovery(detailedError)) {
+        return
+    }
+
+    stopProgressUpdates()
+    stopWatchProgressSaving()
+    cancelNextEpisodeAutoPlayOnFatalError()
+    _uiState.update {
+        it.copy(
+            error = detailedError,
+            showLoadingOverlay = false,
+            showPauseOverlay = false,
+            isBuffering = false,
+            loadingIssueReportVisible = false,
+            loadingIssueElapsedMs = 0L,
+            playbackEnded = false,
+            postPlayMode = null
+        )
+    }
+}
+
+internal fun PlayerRuntimeController.handleMpvEndFile(reason: Long, errorCode: Long?) {
+    if (!isUsingMpvEngine()) return
+    if (reason != PlayerRuntimeController.MPV_END_FILE_REASON_ERROR) return
+
+    val detailedError = context.getString(
+        if (hasRenderedFirstFrame) {
+            R.string.player_error_mpv_playback_aborted
+        } else {
+            R.string.player_error_mpv_startup_failed
+        }
+    ) + (errorCode?.let { " (mpv $it)" } ?: "")
+
+    Log.w(
+        PlayerRuntimeController.TAG,
+        "MPV end-file error reason=$reason errorCode=$errorCode firstFrame=$hasRenderedFirstFrame"
+    )
+
+    if (!hasRenderedFirstFrame) {
+        handleMpvStartupFailure(detailedError)
+        return
+    }
+
+    autoSubtitleSelected = true
+    stopProgressUpdates()
+    stopWatchProgressSaving()
+    cancelNextEpisodeAutoPlayOnFatalError()
+    _uiState.update {
+        it.copy(
+            error = detailedError,
+            showLoadingOverlay = false,
+            showPauseOverlay = false,
+            isBuffering = false,
+            playbackEnded = false,
+            postPlayMode = null
+        )
+    }
+}
+
+private const val MAX_MPV_STARTUP_AUTO_RETRIES = 2
+
+internal fun PlayerRuntimeController.attemptMpvStartupRecovery(detailedError: String): Boolean {
+    if (hasRenderedFirstFrame) return false
+    if (startupRetryCount >= MAX_MPV_STARTUP_AUTO_RETRIES) return false
+
+    val paused = userPausedManually
+    val attempt = startupRetryCount
+    startupRetryCount++
+
+    Log.w(
+        PlayerRuntimeController.TAG,
+        "MPV startup recovery ${attempt + 1}/$MAX_MPV_STARTUP_AUTO_RETRIES after ${RETRY_DELAY_MS}ms for: $detailedError"
+    )
+
+    errorRetryJob?.cancel()
+    errorRetryJob = scope.launch {
+        showRecoveryOverlay()
+        delay(RETRY_DELAY_MS)
+        mpvView?.invalidateQueuedMediaRequest()
+        releasePlayer(flushPlaybackState = false)
+        initializePlayer(currentStreamUrl, currentHeaders, startPaused = paused)
+    }
+    return true
+}
+
 internal fun PlayerRuntimeController.refreshStableProgressResetGate() {
     if (!hasRenderedFirstFrame) return
     val player = _exoPlayer ?: return

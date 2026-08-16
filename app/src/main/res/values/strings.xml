@@ -2589,6 +2589,8 @@
     <string name="player_error_initialize_failed">Failed to initialize player</string>
     <string name="player_error_mpv_surface_failed">Failed to initialize libmpv surface</string>
     <string name="player_error_mpv_playback_failed">Failed to initialize libmpv playback</string>
+    <string name="player_error_mpv_startup_failed">Stream failed to start. The link may have expired or the source is unavailable. Try a different source.</string>
+    <string name="player_error_mpv_playback_aborted">Playback stopped unexpectedly. Try a different source.</string>
     <string name="player_error_torrent">Torrent error: %1$s</string>
     <string name="player_error_playback_fallback">Playback error</string>
     <!-- Subtitle timing recovery -->
