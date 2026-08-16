@@ -292,8 +292,12 @@ class FolderDetailViewModel @Inject constructor(
 
             val packOpenPrefs = resolvePackOpenPrefs(collection)
             val viewMode = packOpenPrefs.viewMode
+            // Netflix Reframe browse also needs placeholders — without them
+            // followLayoutHomeState stays null and the folder spins forever.
             val useShimmerPlaceholders = viewMode == FolderViewMode.FOLLOW_LAYOUT &&
-                (homeLayout == HomeLayout.MODERN || homeLayout == HomeLayout.CLASSIC)
+                (homeLayout == HomeLayout.MODERN ||
+                    homeLayout == HomeLayout.CLASSIC ||
+                    homeLayout == HomeLayout.NETFLIX)
 
             val sourceTabs = folder.sources.map { source ->
                 val (name, typeLabel, rawType) = when (source) {
@@ -464,9 +468,11 @@ class FolderDetailViewModel @Inject constructor(
         if (state.viewMode != FolderViewMode.FOLLOW_LAYOUT) return
         val sourceTabs = state.tabs.filter { !it.isAllTab }
         val loadedRows = sourceTabs.mapNotNull { it.catalogRow }
-        val useShimmer = state.homeLayout == HomeLayout.MODERN || state.homeLayout == HomeLayout.CLASSIC
+        val useShimmer = state.homeLayout == HomeLayout.MODERN ||
+            state.homeLayout == HomeLayout.CLASSIC ||
+            state.homeLayout == HomeLayout.NETFLIX
 
-        // Build rows including placeholder shimmer rows for tabs still loading (Modern/Classic)
+        // Build rows including placeholder shimmer rows for tabs still loading.
         val allRows = if (useShimmer) {
             sourceTabs.map { tab ->
                 if (tab.catalogRow != null) {
@@ -516,7 +522,40 @@ class FolderDetailViewModel @Inject constructor(
             loadedRows
         }
 
-        if (allRows.isEmpty()) return
+        if (allRows.isEmpty()) {
+            val anyLoadingEmpty = sourceTabs.any { it.isLoading }
+            _uiState.update { s ->
+                s.copy(
+                    followLayoutHomeState = HomeUiState(
+                        catalogRows = emptyList(),
+                        homeRows = emptyList(),
+                        gridItems = emptyList(),
+                        heroItems = emptyList(),
+                        heroSectionEnabled = false,
+                        isLoading = anyLoadingEmpty,
+                        homeLayout = s.homeLayout,
+                        posterLabelsEnabled = s.posterLabelsEnabled,
+                        modernLandscapePostersEnabled = s.modernLandscapePostersEnabled,
+                        modernHeroFullScreenBackdropEnabled = s.modernHeroFullScreenBackdropEnabled,
+                        catalogAddonNameEnabled = s.catalogAddonNameEnabled,
+                        catalogTypeSuffixEnabled = s.catalogTypeSuffixEnabled,
+                        focusedPosterBackdropExpandEnabled = s.focusedPosterBackdropExpandEnabled,
+                        focusedPosterBackdropExpandDelaySeconds = s.focusedPosterBackdropExpandDelaySeconds,
+                        focusedPosterBackdropTrailerEnabled = s.focusedPosterBackdropTrailerEnabled,
+                        focusedPosterBackdropTrailerMuted = s.focusedPosterBackdropTrailerMuted,
+                        focusedPosterBackdropTrailerPlaybackTarget = s.focusedPosterBackdropTrailerPlaybackTarget,
+                        posterCardWidthDp = s.posterCardWidthDp,
+                        posterCardHeightDp = s.posterCardHeightDp,
+                        posterCardCornerRadiusDp = s.posterCardCornerRadiusDp,
+                        hideUnreleasedContent = s.hideUnreleasedContent,
+                        showFullReleaseDate = s.showFullReleaseDate,
+                        movieWatchedStatus = s.movieWatchedStatus,
+                        heroEnrichmentEnabled = false
+                    )
+                )
+            }
+            return
+        }
 
         val homeRows = allRows.map { HomeRow.Catalog(it) }
         // Only include real (non-placeholder) rows in grid items
@@ -668,9 +707,31 @@ class FolderDetailViewModel @Inject constructor(
     private fun loadAddonCatalogForTab(tabIndex: Int, source: AddonCatalogCollectionSource) {
         viewModelScope.launch {
             val addons = addonRepository.getInstalledAddons().first().enabledAddons()
-            val addon = addons.find { it.id == source.addonId }
+            var effectiveAddon = addons.find { it.id == source.addonId }
+            var catalog = effectiveAddon?.catalogs?.find {
+                it.id == source.catalogId && it.apiType == source.type
+            } ?: effectiveAddon?.catalogs?.find {
+                it.id == source.catalogId.substringBefore(",") && it.apiType == source.type
+            }
 
-            if (addon == null) {
+            // Other profiles often store a sibling JWT/UUID for the same catalog id.
+            if (catalog == null) {
+                for (candidate in addons) {
+                    val match = candidate.catalogs.find {
+                        it.id == source.catalogId && it.apiType.equals(source.type, ignoreCase = true)
+                    } ?: candidate.catalogs.find {
+                        it.id == source.catalogId.substringBefore(",") &&
+                            it.apiType.equals(source.type, ignoreCase = true)
+                    } ?: candidate.catalogs.find { it.id == source.catalogId }
+                    if (match != null) {
+                        effectiveAddon = candidate
+                        catalog = match
+                        break
+                    }
+                }
+            }
+
+            if (effectiveAddon == null || catalog == null) {
                 _uiState.update { state ->
                     val tabs = state.tabs.toMutableList()
                     if (tabIndex < tabs.size) {
@@ -681,39 +742,29 @@ class FolderDetailViewModel @Inject constructor(
                     }
                     state.copy(tabs = tabs)
                 }
+                rebuildAllTab()
+                rebuildFollowLayoutState()
                 return@launch
             }
 
-            var catalog = addon.catalogs.find { it.id == source.catalogId && it.apiType == source.type }
-                ?: addon.catalogs.find { it.id == source.catalogId.substringBefore(",") && it.apiType == source.type }
-            // If the catalog wasn't found in the declared addon, search all installed addons.
-            var effectiveAddon: com.nuvio.tv.domain.model.Addon = addon
-            if (catalog == null) {
-                for (a in addons) {
-                    val match = a.catalogs.find { it.id == source.catalogId && it.apiType == source.type }
-                    if (match != null) {
-                        effectiveAddon = a
-                        catalog = match
-                        break
-                    }
-                }
-            }
+            val resolvedAddon = effectiveAddon!!
+            val resolvedCatalog = catalog!!
             val tab = _uiState.value.tabs.getOrNull(tabIndex)
-            val catalogName = catalog?.name
+            val catalogName = resolvedCatalog.name
                 ?: tab?.label?.takeIf { it.isNotBlank() }
                 ?: source.catalogId
 
-            val supportsSkip = catalog?.supportsExtra("skip") ?: false
-            val skipStep = catalog?.skipStep() ?: 100
+            val supportsSkip = resolvedCatalog.supportsExtra("skip")
+            val skipStep = resolvedCatalog.skipStep()
             val extraArgs = buildCatalogExtraArgs(source)
 
             catalogRepository.getCatalog(
-                addonBaseUrl = effectiveAddon.baseUrl,
-                addonId = effectiveAddon.id,
-                addonName = effectiveAddon.displayName,
-                catalogId = source.catalogId,
+                addonBaseUrl = resolvedAddon.baseUrl,
+                addonId = resolvedAddon.id,
+                addonName = resolvedAddon.displayName,
+                catalogId = resolvedCatalog.id,
                 catalogName = catalogName,
-                type = source.type,
+                type = resolvedCatalog.apiType,
                 skip = 0,
                 skipStep = skipStep,
                 extraArgs = extraArgs,
