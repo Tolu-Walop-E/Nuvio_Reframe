@@ -119,6 +119,13 @@ internal fun NetflixContinueWatchingRail(
         onFirstCardRequesterReady = onFirstCardRequesterReady,
         modifier = modifier
     ) { rowState, focusedIndex, onCardFocused, onMoveLeft, onMoveRight, railHasFocus ->
+        val density = LocalDensity.current
+        val continueCacheSizePx = remember(density) {
+            IntSize(
+                width = with(density) { NetflixHomeTokens.ContinueCardWidth.roundToPx().coerceAtLeast(1) },
+                height = with(density) { NetflixHomeTokens.ContinueCardHeight.roundToPx().coerceAtLeast(1) }
+            )
+        }
         NetflixPivotLazyRow(
             state = rowState,
             selectorVisible = railHasFocus,
@@ -133,6 +140,7 @@ internal fun NetflixContinueWatchingRail(
                         title = card.title,
                         subtitle = card.subtitle,
                         imageUrl = card.imageUrl,
+                        artworkCacheSizePx = continueCacheSizePx,
                         width = NetflixHomeTokens.ContinueCardWidth,
                         height = NetflixHomeTokens.ContinueCardHeight,
                         progress = card.progress,
@@ -298,34 +306,51 @@ internal fun NetflixCatalogRail(
             // Warm landscape/backdrop bitmaps for the focused card and neighbors so
             // D-pad moves don't wait on a cold Coil fetch when the URL switches.
             // Size to the focused card and skip when already in memory.
-            LaunchedEffect(focusedIndex, row.items, useLandscapeCards, geometry.focusedWidth, geometry.railHeight) {
-                val widthPx = with(density) { geometry.focusedWidth.roundToPx().coerceAtLeast(1) }
-                val heightPx = with(density) { geometry.railHeight.roundToPx().coerceAtLeast(1) }
+            val artworkCacheSizePx = remember(density, geometry.focusedWidth, geometry.railHeight) {
+                IntSize(
+                    width = with(density) { geometry.focusedWidth.roundToPx().coerceAtLeast(1) },
+                    height = with(density) { geometry.railHeight.roundToPx().coerceAtLeast(1) }
+                )
+            }
+            LaunchedEffect(focusedIndex, row.items, useLandscapeCards, artworkCacheSizePx) {
                 withContext(Dispatchers.IO) {
                     val lastIndex = row.items.lastIndex
                     if (lastIndex < 0) return@withContext
                     val center = focusedIndex.coerceIn(0, lastIndex)
-                    for (offset in -3..3) {
+                    // Nearest neighbours first: the next D-pad move is the one that
+                    // must not wait on a decode.
+                    val offsets = listOf(0, 1, -1, 2, -2, 3, -3, 4, -4)
+                    for (offset in offsets) {
                         val index = center + offset
                         if (index !in 0..lastIndex) continue
                         val item = row.items[index]
                         val landscape = useLandscapeCards || item.posterShape == PosterShape.LANDSCAPE
-                        val url = item.netflixCatalogueArtwork(
-                            focused = true,
-                            preferLandscapeWhenUnfocused = landscape
-                        ) ?: continue
-                        val cacheKey = "netflix-land|$url|${widthPx}x$heightPx"
-                        if (imageLoader.memoryCache?.get(MemoryCache.Key(cacheKey)) != null) {
-                            continue
+                        // Warm both states so neither the portrait rest state nor the
+                        // focused landscape swap has to decode on the focus frame.
+                        val urls = listOf(
+                            item.netflixCatalogueArtwork(
+                                focused = true,
+                                preferLandscapeWhenUnfocused = landscape
+                            ),
+                            item.netflixCatalogueArtwork(
+                                focused = false,
+                                preferLandscapeWhenUnfocused = landscape
+                            )
+                        ).filterNotNull().distinct()
+                        for (url in urls) {
+                            val cacheKey = netflixArtworkCacheKey(url, artworkCacheSizePx) ?: continue
+                            if (imageLoader.memoryCache?.get(MemoryCache.Key(cacheKey)) != null) {
+                                continue
+                            }
+                            imageLoader.enqueue(
+                                ImageRequest.Builder(context)
+                                    .data(url)
+                                    .memoryCacheKey(cacheKey)
+                                    .diskCacheKey(url)
+                                    .size(width = artworkCacheSizePx.width, height = artworkCacheSizePx.height)
+                                    .build()
+                            )
                         }
-                        imageLoader.enqueue(
-                            ImageRequest.Builder(context)
-                                .data(url)
-                                .memoryCacheKey(cacheKey)
-                                .diskCacheKey(url)
-                                .size(width = widthPx, height = heightPx)
-                                .build()
-                        )
                     }
                 }
             }
@@ -372,6 +397,7 @@ internal fun NetflixCatalogRail(
                         } else {
                             null
                         },
+                        artworkCacheSizePx = artworkCacheSizePx,
                         width = if (focused && posterGrow) {
                             geometry.focusedWidth
                         } else {

@@ -439,14 +439,16 @@ internal fun HomeViewModel.requestTrailerPreviewPipeline(
                         android.util.Log.i("NetflixTrailer", "fetch-ok-fallback id=$itemId")
                         trailerPreviewNegativeCache.remove(itemId)
                         trailerPreviewNegativeCacheTimestamps.remove(itemId)
-                        if (trailerPreviewUrlsState[itemId] != fallbackSource.videoUrl) {
+                        // Fill only: replacing a URL that is already playing restarts
+                        // the shared player and drops the card back to its poster.
+                        if (trailerPreviewUrlsState[itemId].isNullOrBlank()) {
                             trailerPreviewUrlsState[itemId] = fallbackSource.videoUrl
-                        }
-                        val fallbackAudio = fallbackSource.audioUrl
-                        if (fallbackAudio.isNullOrBlank()) {
-                            trailerPreviewAudioUrlsState.remove(itemId)
-                        } else if (trailerPreviewAudioUrlsState[itemId] != fallbackAudio) {
-                            trailerPreviewAudioUrlsState[itemId] = fallbackAudio
+                            val fallbackAudio = fallbackSource.audioUrl
+                            if (fallbackAudio.isNullOrBlank()) {
+                                trailerPreviewAudioUrlsState.remove(itemId)
+                            } else {
+                                trailerPreviewAudioUrlsState[itemId] = fallbackAudio
+                            }
                         }
                     } else {
                         // Soft miss: if TMDB id / YT ids were not ready yet, do NOT
@@ -470,15 +472,17 @@ internal fun HomeViewModel.requestTrailerPreviewPipeline(
                     android.util.Log.i("NetflixTrailer", "fetch-ok id=$itemId")
                     trailerPreviewNegativeCache.remove(itemId)
                     trailerPreviewNegativeCacheTimestamps.remove(itemId)
-                    val videoUrl = trailerSource.videoUrl
-                    if (trailerPreviewUrlsState[itemId] != videoUrl) {
-                        trailerPreviewUrlsState[itemId] = videoUrl
-                    }
-                    val audioUrl = trailerSource.audioUrl
-                    if (audioUrl.isNullOrBlank()) {
-                        trailerPreviewAudioUrlsState.remove(itemId)
-                    } else if (trailerPreviewAudioUrlsState[itemId] != audioUrl) {
-                        trailerPreviewAudioUrlsState[itemId] = audioUrl
+                    // Fill only: a late duplicate resolution returns the same media on
+                    // another CDN host, and swapping it mid-playback restarted the
+                    // player and reset the card to its poster.
+                    if (trailerPreviewUrlsState[itemId].isNullOrBlank()) {
+                        trailerPreviewUrlsState[itemId] = trailerSource.videoUrl
+                        val audioUrl = trailerSource.audioUrl
+                        if (audioUrl.isNullOrBlank()) {
+                            trailerPreviewAudioUrlsState.remove(itemId)
+                        } else {
+                            trailerPreviewAudioUrlsState[itemId] = audioUrl
+                        }
                     }
                 }
             }

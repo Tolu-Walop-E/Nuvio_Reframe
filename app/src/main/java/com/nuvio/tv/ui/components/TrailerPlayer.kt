@@ -34,10 +34,42 @@ import com.nuvio.tv.core.player.TrailerPlayerPool
 import com.nuvio.tv.data.trailer.YoutubeChunkedDataSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import android.net.Uri
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import com.nuvio.tv.R
 import kotlinx.coroutines.delay
+
+private const val TRAILER_LOG = "NetflixTrailer"
+
+/** How long we wait for a real video frame before rebuilding the video surface. */
+private const val FIRST_FRAME_TIMEOUT_MS = 700L
+private const val SURFACE_RECOVERY_ATTEMPTS = 3
+
+/**
+ * Stable identity for a trailer source.
+ *
+ * googlevideo serves the same media from different CDN hosts (`rr1---…` vs
+ * `rr5---…`) with volatile query params, so the URL string changes while the
+ * media does not. Keying playback state on the raw URL re-prepared the shared
+ * player and reset the first-frame gate mid-playback, which dropped the card
+ * back to its poster while audio kept running.
+ */
+private fun trailerMediaIdentity(videoUrl: String?, audioUrl: String?): String? {
+    if (videoUrl.isNullOrBlank()) return null
+    return "${stableStreamId(videoUrl)}|${audioUrl?.let { stableStreamId(it) }.orEmpty()}"
+}
+
+private fun stableStreamId(url: String): String = runCatching {
+    val uri = Uri.parse(url)
+    val id = uri.getQueryParameter("id")
+    val itag = uri.getQueryParameter("itag")
+    if (id != null || itag != null) {
+        "yt:$id:$itag"
+    } else {
+        "${uri.host.orEmpty()}${uri.path.orEmpty()}"
+    }
+}.getOrDefault(url)
 
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
@@ -84,8 +116,12 @@ fun TrailerPlayer(
     val currentOnProgressChanged by rememberUpdatedState(onProgressChanged)
     val currentOnRemoteKey by rememberUpdatedState(onRemoteKey)
     val zoomScale = if (cropToFill) overscanZoom.coerceAtLeast(1f) else 1f
-    var hasRenderedFirstFrame by remember(trailerUrl) { mutableStateOf(false) }
-    var surfaceAttached by remember(trailerUrl) { mutableStateOf(false) }
+    val mediaIdentity = remember(trailerUrl, trailerAudioUrl) {
+        trailerMediaIdentity(trailerUrl, trailerAudioUrl)
+    }
+    var hasRenderedFirstFrame by remember(mediaIdentity) { mutableStateOf(false) }
+    var surfaceAttached by remember(mediaIdentity) { mutableStateOf(false) }
+    var playerView by remember { mutableStateOf<PlayerView?>(null) }
     val playerAlphaState = animateFloatAsState(
         targetValue = if (isPlaying && hasRenderedFirstFrame) 1f else 0f,
         animationSpec = tween(durationMillis = 120),
@@ -98,18 +134,33 @@ fun TrailerPlayer(
     // ExoPlayer after focus has already moved to another card/hero surface.
     val poolOwner = remember { Any() }
 
-    val trailerPlayer = remember(trailerUrl, resolvedPool) {
-        if (trailerUrl != null) {
-            resolvedPool?.acquire(poolOwner)
+    // obtain(), not acquire(): composition must not claim the shared player, or a
+    // stale card recomposing steals it from whichever card is actually focused.
+    val trailerPlayer = remember(mediaIdentity, resolvedPool) {
+        if (mediaIdentity != null) {
+            resolvedPool?.obtain()
         } else {
             null
         }
     }
 
+    /** Point the shared player's video output back at this card's TextureView. */
+    fun reattachSurface(): Boolean {
+        val view = playerView ?: return false
+        val player = trailerPlayer ?: return false
+        if (resolvedPool?.isOwnedBy(poolOwner) == false) return false
+        // clearVideoTextureView is a no-op unless this view owns the output, so
+        // this cannot steal the surface from another card.
+        return runCatching {
+            view.player = null
+            view.player = player
+        }.isSuccess
+    }
+
     fun markFirstFrame() {
         if (!hasRenderedFirstFrame) {
             hasRenderedFirstFrame = true
-            android.util.Log.i("NetflixTrailer", "first-frame owner=${poolOwner.hashCode()}")
+            android.util.Log.i(TRAILER_LOG, "first-frame owner=${poolOwner.hashCode()}")
             trailerPlayer?.let { player ->
                 if (resolvedPool?.isOwnedBy(poolOwner) != false) {
                     player.volume = if (muted) 0f else 1f
@@ -147,47 +198,38 @@ fun TrailerPlayer(
     // Do NOT key on muted — volume is handled separately; re-prepare was tearing
     // the Nvidia surface (audio continues, picture gone).
     var preparedMediaKey by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(isPlaying, trailerUrl, trailerAudioUrl, trailerPlayer, surfaceAttached) {
+    LaunchedEffect(isPlaying, mediaIdentity, trailerPlayer, surfaceAttached) {
         val player = trailerPlayer ?: return@LaunchedEffect
-        if (isPlaying && trailerUrl != null) {
+        val videoUrl = currentTrailerUrl
+        if (isPlaying && mediaIdentity != null && videoUrl != null) {
             if (!surfaceAttached) return@LaunchedEffect
             resolvedPool?.acquire(poolOwner)
             if (resolvedPool?.isOwnedBy(poolOwner) == false) return@LaunchedEffect
-            val mediaKey = "$trailerUrl|${trailerAudioUrl.orEmpty()}"
             if (
-                preparedMediaKey == mediaKey &&
+                preparedMediaKey == mediaIdentity &&
                 player.currentMediaItem != null &&
                 player.playbackState != Player.STATE_IDLE &&
                 player.playbackState != Player.STATE_ENDED
             ) {
                 player.playWhenReady = true
-                if (!hasRenderedFirstFrame && player.videoSize.width > 0) {
-                    markFirstFrame()
-                }
                 return@LaunchedEffect
             }
             android.util.Log.i(
-                "NetflixTrailer",
-                "player-start url=${trailerUrl.take(64)} muted=$muted owner=${poolOwner.hashCode()}"
+                TRAILER_LOG,
+                "player-start id=$mediaIdentity muted=$muted owner=${poolOwner.hashCode()}"
             )
-            preparedMediaKey = mediaKey
+            preparedMediaKey = mediaIdentity
             hasRenderedFirstFrame = false
-            // Keep silent until first video frame so broken/late surfaces never
-            // leak audio-only playback on Shield.
+            // Take the video output before decoding: a previously focused card's
+            // teardown can leave the shared player pointing at a dead texture,
+            // which is exactly the audio-with-poster case.
+            reattachSurface()
+            // Keep silent until a real video frame so a broken surface can never
+            // leak audio-only playback.
             player.volume = 0f
-            player.bindTrailerMedia(trailerUrl, trailerAudioUrl)
+            player.bindTrailerMedia(videoUrl, currentTrailerAudioUrl)
             player.prepare()
             player.playWhenReady = true
-            delay(200)
-            if (
-                resolvedPool?.isOwnedBy(poolOwner) == true &&
-                currentIsPlaying &&
-                !hasRenderedFirstFrame &&
-                player.playbackState == Player.STATE_READY &&
-                player.videoSize.width > 0
-            ) {
-                markFirstFrame()
-            }
         } else {
             preparedMediaKey = null
             hasRenderedFirstFrame = false
@@ -197,6 +239,35 @@ fun TrailerPlayer(
             if (!isPlaying && resolvedPool?.isOwnedBy(poolOwner) == true) {
                 resolvedPool.stop(poolOwner)
             }
+        }
+    }
+
+    // Watchdog: audio can run while our TextureView never receives frames (surface
+    // handoff between cards on Shield). Rebuild the surface instead of leaving the
+    // card showing its poster, and mute rather than play audio with no picture.
+    LaunchedEffect(isPlaying, mediaIdentity, trailerPlayer, surfaceAttached, hasRenderedFirstFrame) {
+        val player = trailerPlayer ?: return@LaunchedEffect
+        if (!isPlaying || mediaIdentity == null || hasRenderedFirstFrame || !surfaceAttached) {
+            return@LaunchedEffect
+        }
+        repeat(SURFACE_RECOVERY_ATTEMPTS) { attempt ->
+            delay(FIRST_FRAME_TIMEOUT_MS)
+            if (!currentIsPlaying || hasRenderedFirstFrame) return@LaunchedEffect
+            if (resolvedPool?.isOwnedBy(poolOwner) == false) return@LaunchedEffect
+            if (player.playbackState == Player.STATE_IDLE) return@LaunchedEffect
+            android.util.Log.w(
+                TRAILER_LOG,
+                "no-first-frame attempt=${attempt + 1} state=${player.playbackState} " +
+                    "video=${player.videoSize.width}x${player.videoSize.height} " +
+                    "pos=${player.currentPosition} owner=${poolOwner.hashCode()}"
+            )
+            player.volume = 0f
+            if (!reattachSurface()) return@LaunchedEffect
+            player.playWhenReady = true
+        }
+        if (currentIsPlaying && !hasRenderedFirstFrame) {
+            android.util.Log.w(TRAILER_LOG, "no-video-giveup owner=${poolOwner.hashCode()}")
+            player.volume = 0f
         }
     }
 
@@ -242,29 +313,29 @@ fun TrailerPlayer(
                 if (playbackState == Player.STATE_ENDED) {
                     currentOnEnded()
                 }
-                if (
-                    playbackState == Player.STATE_READY &&
-                    player.videoSize.width > 0 &&
-                    currentIsPlaying
-                ) {
-                    markFirstFrame()
-                }
             }
 
+            // Only a real rendered frame reveals the player. READY + videoSize was
+            // also true while decoding into a dead surface, which showed a black
+            // card; the watchdog above rebuilds the surface instead, and a fresh
+            // surface always reports a first frame.
             override fun onRenderedFirstFrame() {
                 markFirstFrame()
             }
 
-            override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
-                if (videoSize.width > 0 && currentIsPlaying && player.playbackState == Player.STATE_READY) {
-                    markFirstFrame()
-                }
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                android.util.Log.w(
+                    TRAILER_LOG,
+                    "player-error owner=${poolOwner.hashCode()} code=${error.errorCodeName}"
+                )
+                player.volume = 0f
             }
         }
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_RESUME -> {
                     if (currentIsPlaying && !currentTrailerUrl.isNullOrBlank()) {
+                        reattachSurface()
                         if (player.currentMediaItem == null) {
                             player.bindTrailerMedia(currentTrailerUrl!!, currentTrailerAudioUrl)
                             player.prepare()
@@ -280,6 +351,9 @@ fun TrailerPlayer(
                         player.stop()
                         player.clearMediaItems()
                     }
+                    // Fall back to the poster rather than a stale/black frame, and
+                    // let the watchdog re-arm when we come back.
+                    hasRenderedFirstFrame = false
                 }
                 else -> Unit
             }
@@ -318,10 +392,12 @@ fun TrailerPlayer(
                     } else {
                         AspectRatioFrameLayout.RESIZE_MODE_FIT
                     }
+                    playerView = this
                     surfaceAttached = true
                 }
             },
             update = { view ->
+                playerView = view
                 if (resolvedPool?.isOwnedBy(poolOwner) != false && view.player !== trailerPlayer) {
                     view.player = trailerPlayer
                 }
@@ -341,14 +417,12 @@ fun TrailerPlayer(
                 }
             },
             onRelease = { view ->
-                // Critical: only clear the shared ExoPlayer from THIS view when we
-                // still own the pool. Otherwise a previous card's dispose wipes the
-                // new card's TextureView and leaves audio with a blank poster.
-                if (view.player === trailerPlayer &&
-                    (resolvedPool == null || resolvedPool.isOwnedBy(poolOwner))
-                ) {
-                    view.player = null
-                }
+                // Always detach: ExoPlayer's clearVideoTextureView only clears when
+                // this view still owns the output, so this cannot wipe the surface of
+                // the card that took over. Leaving stale views attached was what made
+                // a dying card's texture teardown kill the focused card's picture.
+                runCatching { view.player = null }
+                if (playerView === view) playerView = null
                 surfaceAttached = false
                 view.keepScreenOn = false
             },

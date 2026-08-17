@@ -32,6 +32,9 @@ private const val DEFAULT_USER_AGENT =
 private const val PREFERRED_SEPARATE_CLIENT = "android_vr"
 /** Card trailers: prefer <=720p so Shield does not spin up a 4K decode path. */
 private const val PREFERRED_PREVIEW_HEIGHT = 720
+/** Total time allowed for probing adaptive candidates before falling back to HLS. */
+private const val ADAPTIVE_VERIFY_BUDGET_MS = 4_000L
+private const val MAX_ADAPTIVE_VERIFY_CANDIDATES = 4
 
 private val VIDEO_ID_REGEX = Regex("^[a-zA-Z0-9_-]{11}$")
 private val API_KEY_REGEX = Regex("\"INNERTUBE_API_KEY\":\"([^\"]+)\"")
@@ -311,6 +314,11 @@ class InAppYouTubeExtractor @Inject constructor() {
                 if (status == "LOGIN_REQUIRED") {
                     loginRequiredCount++
                     Log.w(TAG, "Client ${client.key}: LOGIN_REQUIRED (visitor may be stale)")
+                    if (client.key == PREFERRED_SEPARATE_CLIENT) {
+                        // Losing our most reliable client leaves only 403-prone
+                        // streams, so refresh visitor data for the next extraction.
+                        invalidateConfig()
+                    }
                     continue
                 }
                 if (status != null && status != "OK") {
@@ -327,6 +335,7 @@ class InAppYouTubeExtractor @Inject constructor() {
                     val url = format.stringValue("url") ?: continue
                     val mimeType = format.stringValue("mimeType").orEmpty()
                     if (!mimeType.contains("video/") && mimeType.isNotBlank()) continue
+                    if (!isHardwareDecodable(mimeType)) continue
                     // Progressive must include audio — video-only "formats" play silent cards.
                     val hasMuxedAudio =
                         format.stringValue("audioQuality") != null ||
@@ -364,6 +373,12 @@ class InAppYouTubeExtractor @Inject constructor() {
                     val hasAudio = mimeType.contains("audio/") || mimeType.startsWith("audio/")
 
                     if (hasVideo) {
+                        // A codec without a hardware decoder (AV1 on Shield) leaves the
+                        // video renderer at 0x0 while audio keeps playing — the card
+                        // shows its poster with sound. Drop those candidates.
+                        if (!isHardwareDecodable(mimeType)) {
+                            continue
+                        }
                         val height = (format.numberValue("height")
                             ?: parseQualityLabel(format.stringValue("qualityLabel"))?.toDouble()
                             ?: 0.0).toInt()
@@ -448,35 +463,20 @@ class InAppYouTubeExtractor @Inject constructor() {
         }
 
         val bestProgressive = sortCandidates(progressive).firstOrNull()
-        val adaptivePair = pickBestAdaptivePair(adaptiveVideo, adaptiveAudio)
 
-        // Adaptive DASH is video-only + audio-only. Never return video without audio —
-        // that plays silent trailers on home cards (audioPresent=false).
+        // Adaptive DASH is video-only + audio-only, and YouTube 403s many of these
+        // URLs depending on the client that minted them. Only a pair we verified may
+        // reach the player: an unreachable video track left cards with audio over the
+        // poster until playback died with ERROR_CODE_IO_BAD_HTTP_STATUS.
         kotlinx.coroutines.yield()
-        if (adaptivePair != null) {
-            val resolvedVideo = resolveReachableUrl(adaptivePair.first.url)
-            val resolvedAudio = resolveReachableUrl(adaptivePair.second.url)
-            if (resolvedVideo != null && resolvedAudio != null) {
-                Log.d(
-                    TAG,
-                    "Using adaptive pair ${adaptivePair.first.height}p " +
-                        "v=${adaptivePair.first.itag} a=${adaptivePair.second.itag} " +
-                        "client=${adaptivePair.first.client}"
-                )
-                return TrailerPlaybackSource(videoUrl = resolvedVideo, audioUrl = resolvedAudio)
-            }
-            Log.w(
-                TAG,
-                "Adaptive pair unresolved after probe; using raw pair URLs"
-            )
-            // Probe flake: still try the paired URLs rather than silent muxed fallback.
-            return TrailerPlaybackSource(
-                videoUrl = adaptivePair.first.url,
-                audioUrl = adaptivePair.second.url
-            )
+        val verifiedPair = withTimeoutOrNull(ADAPTIVE_VERIFY_BUDGET_MS) {
+            pickVerifiedAdaptivePair(adaptiveVideo, adaptiveAudio)
+        }
+        if (verifiedPair != null) {
+            return TrailerPlaybackSource(videoUrl = verifiedPair.first, audioUrl = verifiedPair.second)
         }
 
-        // HLS / progressive include muxed audio — prefer these over silent adaptive video.
+        // HLS carries muxed audio and keeps working when adaptive URLs are rejected.
         if (bestManifest != null) {
             Log.d(TAG, "Using HLS muxed manifest height=${bestManifest.height}")
             return TrailerPlaybackSource(videoUrl = bestManifest.manifestUrl, audioUrl = null)
@@ -487,11 +487,8 @@ class InAppYouTubeExtractor @Inject constructor() {
             Log.d(TAG, "Using progressive muxed ${bestProgressive.height}p itag=${bestProgressive.itag}")
             return TrailerPlaybackSource(videoUrl = resolvedProgressive, audioUrl = null)
         }
-        if (bestProgressive != null) {
-            Log.d(TAG, "Using progressive muxed raw ${bestProgressive.height}p itag=${bestProgressive.itag}")
-            return TrailerPlaybackSource(videoUrl = bestProgressive.url, audioUrl = null)
-        }
 
+        Log.w(TAG, "No verified trailer source for $videoId")
         return null
     }
 
@@ -758,50 +755,105 @@ class InAppYouTubeExtractor @Inject constructor() {
         }
     }
 
-    private fun pickBestForClient(items: List<StreamCandidate>, clientKey: String): StreamCandidate? {
-        val sameClient = items.filter { it.client == clientKey }
-        if (sameClient.isNotEmpty()) {
-            return sortCandidates(sameClient).firstOrNull()
+    /**
+     * Returns the first adaptive video+audio pair that is actually reachable.
+     *
+     * Candidates are ordered by client trust (`android_vr`/`ios` streams play
+     * without a po_token far more reliably than plain `android`), then by URLs
+     * without an `n` parameter, then by the ≤720p preview ladder. Audio is paired
+     * from the same client and a compatible container so MergingMediaSource has
+     * sound.
+     */
+    private suspend fun pickVerifiedAdaptivePair(
+        videos: List<StreamCandidate>,
+        audios: List<StreamCandidate>
+    ): Pair<String, String>? {
+        if (videos.isEmpty() || audios.isEmpty()) return null
+
+        val orderedVideos = videos
+            .sortedWith(
+                compareBy<StreamCandidate> { clientTrust(it.client) }
+                    .thenBy { if (it.hasN) 1 else 0 }
+                    .thenByDescending { it.score }
+                    .thenBy { containerPreference(it.ext) }
+            )
+            .take(MAX_ADAPTIVE_VERIFY_CANDIDATES)
+
+        for (video in orderedVideos) {
+            val sameClientAudio = audios.filter { it.client == video.client }
+            val audioCandidates = (if (sameClientAudio.isNotEmpty()) sameClientAudio else audios)
+                .sortedWith(
+                    compareBy<StreamCandidate> { audioCompatibility(video.ext, it.ext) }
+                        .thenBy { if (it.hasN) 1 else 0 }
+                        .thenByDescending { it.score }
+                )
+                .take(2)
+            if (audioCandidates.isEmpty()) continue
+
+            val resolvedVideo = resolveReachableUrl(video.url) ?: continue
+            for (audio in audioCandidates) {
+                val resolvedAudio = resolveReachableUrl(audio.url) ?: continue
+                Log.d(
+                    TAG,
+                    "Verified adaptive pair ${video.height}p v=${video.itag} " +
+                        "a=${audio.itag} client=${video.client} hasN=${video.hasN}"
+                )
+                return resolvedVideo to resolvedAudio
+            }
         }
-        return sortCandidates(items).firstOrNull()
+        return null
+    }
+
+    /** Lower is more likely to play without a po_token. */
+    private fun clientTrust(client: String): Int = when (client) {
+        PREFERRED_SEPARATE_CLIENT -> 0
+        "ios" -> 1
+        "android" -> 2
+        else -> 3
+    }
+
+    private fun audioCompatibility(videoExt: String, audioExt: String): Int = when {
+        videoExt == "mp4" && audioExt == "m4a" -> 0
+        videoExt == "webm" && audioExt == "webm" -> 0
+        else -> 1
     }
 
     /**
-     * Pair adaptive video + audio from the same client when possible, preferring
-     * compatible containers (mp4+m4a) so MergingMediaSource actually has sound.
+     * True when this device has a hardware decoder for the stream's video codec.
+     *
+     * Previews must start instantly, and a software fallback (or no decoder at all)
+     * renders nothing while the audio track keeps playing. Unknown codecs are
+     * allowed through so a mime string we fail to parse doesn't drop every stream —
+     * the reachability probe and HLS fallback still cover us.
      */
-    private fun pickBestAdaptivePair(
-        videos: List<StreamCandidate>,
-        audios: List<StreamCandidate>
-    ): Pair<StreamCandidate, StreamCandidate>? {
-        if (videos.isEmpty() || audios.isEmpty()) return null
-
-        fun pairScore(video: StreamCandidate, audio: StreamCandidate): Double {
-            val sameClientBonus = if (video.client == audio.client) 1_000_000_000.0 else 0.0
-            val containerBonus = when {
-                video.ext == "mp4" && audio.ext == "m4a" -> 500_000_000.0
-                video.ext == "webm" && audio.ext == "webm" -> 400_000_000.0
-                else -> 0.0
-            }
-            val preferredClientBonus =
-                if (video.client == PREFERRED_SEPARATE_CLIENT) 50_000_000.0 else 0.0
-            return sameClientBonus + containerBonus + preferredClientBonus + video.score + audio.score * 0.01
+    private fun isHardwareDecodable(mimeType: String): Boolean {
+        val androidMime = when {
+            mimeType.contains("av01", ignoreCase = true) -> "video/av01"
+            mimeType.contains("vp9", ignoreCase = true) ||
+                mimeType.contains("vp09", ignoreCase = true) -> "video/x-vnd.on2.vp9"
+            mimeType.contains("avc1", ignoreCase = true) ||
+                mimeType.contains("h264", ignoreCase = true) -> "video/avc"
+            mimeType.contains("hvc1", ignoreCase = true) ||
+                mimeType.contains("hev1", ignoreCase = true) -> "video/hevc"
+            else -> return true
         }
+        return hardwareVideoMimes.contains(androidMime)
+    }
 
-        var best: Pair<StreamCandidate, StreamCandidate>? = null
-        var bestScore = Double.NEGATIVE_INFINITY
-        val topVideos = sortCandidates(videos).take(12)
-        val topAudios = sortCandidates(audios).take(8)
-        for (video in topVideos) {
-            for (audio in topAudios) {
-                val score = pairScore(video, audio)
-                if (score > bestScore) {
-                    bestScore = score
-                    best = video to audio
+    private val hardwareVideoMimes: Set<String> by lazy {
+        runCatching {
+            android.media.MediaCodecList(android.media.MediaCodecList.ALL_CODECS)
+                .codecInfos
+                .asSequence()
+                .filter { !it.isEncoder }
+                .filter {
+                    android.os.Build.VERSION.SDK_INT < 29 || it.isHardwareAccelerated
                 }
-            }
-        }
-        return best
+                .flatMap { it.supportedTypes.asSequence() }
+                .map { it.lowercase() }
+                .toSet()
+                .also { Log.d(TAG, "Hardware video decoders: ${it.filter { m -> m.startsWith("video/") }}") }
+        }.getOrDefault(emptySet())
     }
 
     /**
@@ -810,28 +862,13 @@ class InAppYouTubeExtractor @Inject constructor() {
      */
     private suspend fun resolveReachableUrl(url: String): String? {
         if (!url.contains("googlevideo.com")) return url
-        val uri = Uri.parse(url)
-        val mnParam = uri.getQueryParameter("mn") ?: return url
-        val servers = mnParam.split(",").map { it.trim() }.filter { it.isNotBlank() }
-        if (servers.size < 2) return url
+        val candidates = cdnCandidates(url)
 
-        val candidates = mutableListOf(url)
-        for (server in servers) {
-            val mviIndex = servers.indexOf(server)
-            val altHost = uri.host?.replaceFirst(
-                Regex("^rr\\d+---"),
-                "rr${mviIndex + 1}---"
-            )?.replaceFirst(
-                Regex("sn-[a-z0-9]+-[a-z0-9]+"),
-                server
-            ) ?: continue
-            if (altHost == uri.host) continue
-            candidates += url.replace(uri.host!!, altHost)
-        }
-
+        // Always verify, even with a single candidate. Skipping the probe when the
+        // URL advertised only one CDN node is how 403 video tracks reached the
+        // player: the card got audio and a stuck 0x0 picture.
         if (candidates.size == 1) {
-            // Probe is advisory; keep the URL if the HEAD check flakes.
-            return if (isUrlReachable(candidates[0])) candidates[0] else url
+            return if (isUrlReachable(candidates[0])) candidates[0] else null
         }
 
         val result = CompletableDeferred<String>()
@@ -843,12 +880,33 @@ class InAppYouTubeExtractor @Inject constructor() {
             }
         }
         return try {
-            // Prefer a probed CDN host, but never drop a usable URL — null here
-            // forced silent progressive fallbacks on Shield Wi‑Fi.
-            withTimeoutOrNull(2_000L) { result.await() } ?: url
+            withTimeoutOrNull(2_000L) { result.await() }
         } finally {
             probeScope.cancel()
         }
+    }
+
+    /** The original URL plus the alternate CDN hosts it advertises via `mn`. */
+    private fun cdnCandidates(url: String): List<String> {
+        val uri = Uri.parse(url)
+        val host = uri.host ?: return listOf(url)
+        val servers = uri.getQueryParameter("mn")
+            ?.split(",")
+            ?.map { it.trim() }
+            ?.filter { it.isNotBlank() }
+            .orEmpty()
+        if (servers.size < 2) return listOf(url)
+
+        val candidates = mutableListOf(url)
+        servers.forEachIndexed { index, server ->
+            val altHost = host
+                .replaceFirst(Regex("^rr\\d+---"), "rr${index + 1}---")
+                .replaceFirst(Regex("sn-[a-z0-9]+-[a-z0-9]+"), server)
+            if (altHost != host) {
+                candidates += url.replace(host, altHost)
+            }
+        }
+        return candidates.distinct()
     }
 
     private val probeClient by lazy {

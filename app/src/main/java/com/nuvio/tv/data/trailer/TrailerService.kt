@@ -13,7 +13,11 @@ import java.time.Duration
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 
@@ -52,6 +56,13 @@ class TrailerService(
     private val NEGATIVE_CACHE = TrailerPlaybackSource(videoUrl = "")
     // Time-bound cache: youtubeVideoId -> resolved playback source (success-only)
     private val youtubeSourceCache = ConcurrentHashMap<String, CachedTrailerPlaybackSource>()
+    // In-flight resolutions per YouTube id. Without this, two focus events for the
+    // same card extracted in parallel and returned the same media on different CDN
+    // hosts; the second URL replaced the first and restarted playback mid-frame.
+    private val inFlightYoutubeSources = ConcurrentHashMap<String, Deferred<TrailerPlaybackSource?>>()
+    // Detached from callers: a cancelled focus event must not cancel a resolution
+    // that another focus event is already awaiting.
+    private val resolveScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /**
      * Search for a trailer by title, year, tmdbId, and type.
@@ -221,15 +232,44 @@ class TrailerService(
         title: String? = null,
         year: String? = null
     ): TrailerPlaybackSource? = withContext(Dispatchers.IO) {
-        try {
-            val youtubeKey = extractYouTubeVideoId(youtubeUrl)
-            if (!youtubeKey.isNullOrBlank()) {
-                getValidCachedYoutubeSource(youtubeKey)?.let { cached ->
-                    Log.d(TAG, "YouTube cache hit for key=${obfuscateYoutubeKey(youtubeKey)}")
-                    return@withContext cached
+        val youtubeKey = extractYouTubeVideoId(youtubeUrl)
+        if (youtubeKey.isNullOrBlank()) {
+            return@withContext resolveYouTubeSource(youtubeUrl, null, title, year)
+        }
+
+        getValidCachedYoutubeSource(youtubeKey)?.let { cached ->
+            Log.d(TAG, "YouTube cache hit for key=${obfuscateYoutubeKey(youtubeKey)}")
+            return@withContext cached
+        }
+
+        // Share a single resolution per video id so concurrent focus events cannot
+        // hand back two different URLs for the same trailer.
+        val pending = inFlightYoutubeSources.computeIfAbsent(youtubeKey) {
+            resolveScope.async {
+                try {
+                    resolveYouTubeSource(youtubeUrl, youtubeKey, title, year)
+                } finally {
+                    inFlightYoutubeSources.remove(youtubeKey)
                 }
             }
+        }
+        try {
+            pending.await()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "Error awaiting trailer resolution: ${e.message}", e)
+            null
+        }
+    }
 
+    private suspend fun resolveYouTubeSource(
+        youtubeUrl: String,
+        youtubeKey: String?,
+        title: String?,
+        year: String?
+    ): TrailerPlaybackSource? = withContext(Dispatchers.IO) {
+        try {
             Log.d(TAG, "Attempting in-app YouTube extraction for ${summarizeUrl(youtubeUrl)}")
             val localSource = inAppYouTubeExtractor.extractPlaybackSource(youtubeUrl)
             if (localSource != null) {

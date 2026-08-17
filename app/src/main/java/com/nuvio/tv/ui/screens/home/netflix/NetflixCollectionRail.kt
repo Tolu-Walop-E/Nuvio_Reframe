@@ -79,6 +79,18 @@ internal fun NetflixCollectionRail(
         onFirstCardRequesterReady = onFirstCardRequesterReady,
         modifier = modifier
     ) { rowState, focusedIndex, onCardFocused, onMoveLeft, onMoveRight, railHasFocus ->
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        // Size to the focused card so the grow animation reuses one decoded bitmap.
+        val folderCacheSizePx = remember(density, scale) {
+            androidx.compose.ui.unit.IntSize(
+                width = with(density) {
+                    (NetflixHomeTokens.FocusedLandscapeCardWidth * scale).roundToPx().coerceAtLeast(1)
+                },
+                height = with(density) {
+                    (NetflixHomeTokens.FocusedLandscapeCardHeight * scale).roundToPx().coerceAtLeast(1)
+                }
+            )
+        }
         NetflixPivotLazyRow(
             state = rowState,
             selectorVisible = railHasFocus,
@@ -96,6 +108,7 @@ internal fun NetflixCollectionRail(
                         title = folder.title,
                         subtitle = null,
                         imageUrl = collectionFolderCardImageUrl(folder, focused),
+                        artworkCacheSizePx = folderCacheSizePx,
                         width = if (focused) {
                             NetflixHomeTokens.FocusedLandscapeCardWidth * scale
                         } else {

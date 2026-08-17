@@ -67,6 +67,13 @@ internal fun NetflixMediaCard(
      * (usually the portrait) until Coil has successfully loaded [imageUrl].
      */
     holdUntilReadyImageUrl: String? = null,
+    /**
+     * Stable decode/cache size for artwork, in pixels. Must match what the rail
+     * prefetches ([netflixArtworkCacheKey]). The card's own measured size animates
+     * on focus, so keying Coil on it produced a new cache key (and a fresh decode)
+     * for every animation frame and never hit the prefetched bitmap.
+     */
+    artworkCacheSizePx: IntSize? = null,
     width: Dp,
     height: Dp,
     progress: Float? = null,
@@ -107,18 +114,18 @@ internal fun NetflixMediaCard(
     val shouldHoldPortrait = !imageUrl.isNullOrBlank() &&
         !holdUntilReadyImageUrl.isNullOrBlank() &&
         imageUrl != holdUntilReadyImageUrl
-    fun landscapeCacheKey(url: String, size: IntSize): String? {
-        if (size.width <= 0 || size.height <= 0) return null
-        return "netflix-land|$url|${size.width}x${size.height}"
-    }
-    val desiredImageRequest = remember(imageUrl, cardSizePx) {
+    // Prefer the rail's stable size; fall back to the measured size for callers
+    // that don't pass one.
+    val cacheSizePx = artworkCacheSizePx ?: cardSizePx
+    val desiredImageRequest = remember(imageUrl, cacheSizePx) {
         val url = imageUrl ?: return@remember null
         ImageRequest.Builder(context)
             .data(url)
             .apply {
-                landscapeCacheKey(url, cardSizePx)?.let { key ->
+                netflixArtworkCacheKey(url, cacheSizePx)?.let { key ->
                     memoryCacheKey(key)
-                    size(width = cardSizePx.width, height = cardSizePx.height)
+                    diskCacheKey(url)
+                    size(width = cacheSizePx.width, height = cacheSizePx.height)
                 }
             }
             .build()
@@ -140,7 +147,7 @@ internal fun NetflixMediaCard(
     val artwork = remember(mediaKey, displayedImageUrl) {
         NetflixCardArtwork(key = "$mediaKey|${displayedImageUrl.orEmpty()}", imageUrl = displayedImageUrl)
     }
-    val displayedImageRequest = remember(displayedImageUrl, cardSizePx, shouldHoldPortrait) {
+    val displayedImageRequest = remember(displayedImageUrl, cacheSizePx, shouldHoldPortrait) {
         val url = displayedImageUrl ?: return@remember null
         ImageRequest.Builder(context)
             .data(url)
@@ -148,9 +155,10 @@ internal fun NetflixMediaCard(
                 // Only use the landscape-sized cache key for the focus artwork so
                 // it hits the rail prefetch; portrait holds keep the default key.
                 if (!shouldHoldPortrait || displayedImageUrl == imageUrl) {
-                    landscapeCacheKey(url, cardSizePx)?.let { key ->
+                    netflixArtworkCacheKey(url, cacheSizePx)?.let { key ->
                         memoryCacheKey(key)
-                        size(width = cardSizePx.width, height = cardSizePx.height)
+                        diskCacheKey(url)
+                        size(width = cacheSizePx.width, height = cacheSizePx.height)
                     }
                 }
             }
@@ -392,3 +400,15 @@ private data class NetflixCardArtwork(
     val key: String,
     val imageUrl: String?
 )
+
+/**
+ * Shared Coil memory-cache key for Netflix card artwork.
+ *
+ * The rail prefetches neighbours with this exact key at the focused card size, so
+ * the portrait→landscape swap on focus is a memory hit instead of a fresh decode.
+ * Both sides must agree on the size or the prefetch is wasted.
+ */
+internal fun netflixArtworkCacheKey(url: String, size: IntSize): String? {
+    if (size.width <= 0 || size.height <= 0) return null
+    return "netflix-land|$url|${size.width}x${size.height}"
+}

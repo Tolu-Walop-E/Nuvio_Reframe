@@ -70,6 +70,18 @@ class TrailerPlayerPool @Inject constructor(
     fun acquire(owner: Any = DEFAULT_OWNER): ExoPlayer? {
         if (released.get()) return null
         activeOwner = owner
+        return obtain()
+    }
+
+    /**
+     * Returns the shared player without claiming ownership.
+     *
+     * Composition must never claim ownership: a stale card recomposing (late
+     * trailer URL, size change) would steal the player from the focused card,
+     * leaving that card with audio and no picture.
+     */
+    fun obtain(): ExoPlayer? {
+        if (released.get()) return null
         if (yielded.get()) {
             // Reclaim was not called yet but someone wants the player — rebuild.
             reclaim()
@@ -78,6 +90,9 @@ class TrailerPlayerPool @Inject constructor(
     }
 
     fun isOwnedBy(owner: Any): Boolean = activeOwner === owner
+
+    /** True when nobody currently holds the shared player. */
+    fun isUnowned(): Boolean = activeOwner == null
 
     /**
      * Stops playback and clears media but keeps the instance alive for reuse.
