@@ -109,6 +109,16 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
                     coil3.network.okhttp.OkHttpNetworkFetcherFactory(
                         callFactory = {
                             OkHttpClient.Builder()
+                                .dispatcher(
+                                    // Posters and backdrops nearly all come from one
+                                    // host, and OkHttp only runs 5 calls per host by
+                                    // default. Rail prefetches then queue ahead of the
+                                    // cards on screen, which left visible posters grey.
+                                    okhttp3.Dispatcher().apply {
+                                        maxRequests = 64
+                                        maxRequestsPerHost = 16
+                                    }
+                                )
                                 .dns(IPv4FirstDns())
                                 .followRedirects(true)
                                 .followSslRedirects(true)

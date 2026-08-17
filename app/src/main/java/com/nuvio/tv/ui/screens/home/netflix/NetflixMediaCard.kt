@@ -3,10 +3,11 @@
 package com.nuvio.tv.ui.screens.home.netflix
 
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.Crossfade
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
@@ -27,6 +28,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -68,12 +70,18 @@ internal fun NetflixMediaCard(
      */
     holdUntilReadyImageUrl: String? = null,
     /**
-     * Stable decode/cache size for artwork, in pixels. Must match what the rail
+     * Stable decode/cache size for [imageUrl], in pixels. Must match what the rail
      * prefetches ([netflixArtworkCacheKey]). The card's own measured size animates
      * on focus, so keying Coil on it produced a new cache key (and a fresh decode)
      * for every animation frame and never hit the prefetched bitmap.
      */
     artworkCacheSizePx: IntSize? = null,
+    /**
+     * Decode/cache size for [holdUntilReadyImageUrl]. A portrait poster fills a much
+     * narrower box than the focused landscape card, so it needs its own size or the
+     * request asks for a bitmap far wider than the poster ever occupies.
+     */
+    holdArtworkCacheSizePx: IntSize? = null,
     width: Dp,
     height: Dp,
     progress: Float? = null,
@@ -117,6 +125,7 @@ internal fun NetflixMediaCard(
     // Prefer the rail's stable size; fall back to the measured size for callers
     // that don't pass one.
     val cacheSizePx = artworkCacheSizePx ?: cardSizePx
+    val holdCacheSizePx = holdArtworkCacheSizePx ?: cacheSizePx
     val desiredImageRequest = remember(imageUrl, cacheSizePx) {
         val url = imageUrl ?: return@remember null
         ImageRequest.Builder(context)
@@ -130,41 +139,39 @@ internal fun NetflixMediaCard(
             }
             .build()
     }
-    val desiredPainter = rememberAsyncImagePainter(model = desiredImageRequest ?: imageUrl)
+    val desiredPainter = rememberAsyncImagePainter(
+        model = desiredImageRequest ?: imageUrl,
+        contentScale = ContentScale.Crop
+    )
     val desiredState by desiredPainter.state.collectAsState()
     val desiredReady = desiredState is AsyncImagePainter.State.Success
-    val displayedImageUrl = if (shouldHoldPortrait && !desiredReady) {
-        holdUntilReadyImageUrl
-    } else {
-        imageUrl
-    }
-    // Instant swap when landscape is already cached; crossfade only while waiting.
-    val artworkCrossfadeMs = if (shouldHoldPortrait && !desiredReady) {
-        NetflixHomeMotion.ArtworkCrossfadeDurationMs
-    } else {
-        0
-    }
-    val artwork = remember(mediaKey, displayedImageUrl) {
-        NetflixCardArtwork(key = "$mediaKey|${displayedImageUrl.orEmpty()}", imageUrl = displayedImageUrl)
-    }
-    val displayedImageRequest = remember(displayedImageUrl, cacheSizePx, shouldHoldPortrait) {
-        val url = displayedImageUrl ?: return@remember null
+    // Each URL keeps the size of the box it fills, so the held portrait reuses the
+    // bitmap the unfocused card already decoded instead of asking for a new one.
+    val holdImageRequest = remember(holdUntilReadyImageUrl, holdCacheSizePx) {
+        val url = holdUntilReadyImageUrl ?: return@remember null
         ImageRequest.Builder(context)
             .data(url)
             .apply {
-                // Only use the landscape-sized cache key for the focus artwork so
-                // it hits the rail prefetch; portrait holds keep the default key.
-                if (!shouldHoldPortrait || displayedImageUrl == imageUrl) {
-                    netflixArtworkCacheKey(url, cacheSizePx)?.let { key ->
-                        memoryCacheKey(key)
-                        diskCacheKey(url)
-                        size(width = cacheSizePx.width, height = cacheSizePx.height)
-                    }
+                netflixArtworkCacheKey(url, holdCacheSizePx)?.let { key ->
+                    memoryCacheKey(key)
+                    diskCacheKey(url)
+                    size(width = holdCacheSizePx.width, height = holdCacheSizePx.height)
                 }
             }
             .build()
     }
-    val showFallbackTitle = showFallbackTitleWhenArtworkMissing && displayedImageUrl.isNullOrBlank()
+    val showHoldArtwork = shouldHoldPortrait && !desiredReady
+    // Fade in only when swapping portrait→landscape under focus; otherwise appear at once.
+    val desiredArtworkAlpha by animateFloatAsState(
+        targetValue = if (desiredReady) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = if (shouldHoldPortrait) NetflixHomeMotion.ArtworkCrossfadeDurationMs else 0
+        ),
+        label = "netflixCardArtworkAlpha"
+    )
+    val showFallbackTitle = showFallbackTitleWhenArtworkMissing &&
+        imageUrl.isNullOrBlank() &&
+        holdUntilReadyImageUrl.isNullOrBlank()
     val showText = showLabels || showFallbackTitle
 
     // Arm ASAP when the trailer URL is already warm; otherwise wait a short settle
@@ -251,19 +258,26 @@ internal fun NetflixMediaCard(
             // frame (alpha 0→1); removing artwork earlier caused a surface flash.
             // While focus swaps portrait→landscape, hold the portrait until the
             // landscape Coil request succeeds so the card never looks empty.
-            Crossfade(
-                targetState = artwork,
-                animationSpec = tween(durationMillis = artworkCrossfadeMs),
-                label = "netflixCardArtwork"
-            ) { targetArtwork ->
-                if (!targetArtwork.imageUrl.isNullOrBlank()) {
-                    AsyncImage(
-                        model = displayedImageRequest ?: targetArtwork.imageUrl,
-                        contentDescription = title,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
-                }
+            if (showHoldArtwork) {
+                AsyncImage(
+                    model = holdImageRequest ?: holdUntilReadyImageUrl,
+                    contentDescription = title,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            }
+            // Draw the painter the card already owns instead of starting a second
+            // request for the same URL: two live requests sharing one cache entry
+            // raced each other and left unfocused cards blank.
+            if (!imageUrl.isNullOrBlank()) {
+                Image(
+                    painter = desiredPainter,
+                    contentDescription = title,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .alpha(desiredArtworkAlpha),
+                    contentScale = ContentScale.Crop
+                )
             }
             if (shouldPlayTrailer) {
                 TrailerPlayer(
@@ -396,17 +410,12 @@ private fun NetflixResumeBar(
     }
 }
 
-private data class NetflixCardArtwork(
-    val key: String,
-    val imageUrl: String?
-)
-
 /**
  * Shared Coil memory-cache key for Netflix card artwork.
  *
- * The rail prefetches neighbours with this exact key at the focused card size, so
- * the portrait→landscape swap on focus is a memory hit instead of a fresh decode.
- * Both sides must agree on the size or the prefetch is wasted.
+ * The rail prefetches neighbours with this exact key, sized to the box the artwork
+ * fills, so the portrait→landscape swap on focus is a memory hit instead of a fresh
+ * decode. Both sides must agree on the size or the prefetch is wasted.
  */
 internal fun netflixArtworkCacheKey(url: String, size: IntSize): String? {
     if (size.width <= 0 || size.height <= 0) return null

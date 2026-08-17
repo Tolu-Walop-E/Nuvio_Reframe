@@ -303,54 +303,69 @@ internal fun NetflixCatalogRail(
                     maxAbsoluteRailHeight = maxPosterHeight
                 )
             }
-            // Warm landscape/backdrop bitmaps for the focused card and neighbors so
-            // D-pad moves don't wait on a cold Coil fetch when the URL switches.
-            // Size to the focused card and skip when already in memory.
-            val artworkCacheSizePx = remember(density, geometry.focusedWidth, geometry.railHeight) {
+            // Two stable decode sizes: the narrow box a poster rests in, and the wide
+            // box the focused card grows into. Artwork must be requested at the size it
+            // actually fills, otherwise a portrait poster is decoded for a landscape
+            // box and every read misses the cache.
+            val portraitCacheSizePx = remember(density, geometry.portraitWidth, geometry.railHeight) {
+                IntSize(
+                    width = with(density) { geometry.portraitWidth.roundToPx().coerceAtLeast(1) },
+                    height = with(density) { geometry.railHeight.roundToPx().coerceAtLeast(1) }
+                )
+            }
+            val focusCacheSizePx = remember(density, geometry.focusedWidth, geometry.railHeight) {
                 IntSize(
                     width = with(density) { geometry.focusedWidth.roundToPx().coerceAtLeast(1) },
                     height = with(density) { geometry.railHeight.roundToPx().coerceAtLeast(1) }
                 )
             }
-            LaunchedEffect(focusedIndex, row.items, useLandscapeCards, artworkCacheSizePx) {
+            // Warm the focus artwork for the focused card and its immediate neighbours
+            // so D-pad moves don't wait on a cold Coil fetch when the URL switches.
+            // Keep the window tight: image downloads share one OkHttp per-host queue
+            // with the visible cards, so a deep prefetch leaves posters on screen grey
+            // while their request waits behind neighbours nobody is looking at.
+            LaunchedEffect(
+                focusedIndex,
+                row.items,
+                useLandscapeCards,
+                portraitCacheSizePx,
+                focusCacheSizePx,
+                railHasFocus
+            ) {
                 withContext(Dispatchers.IO) {
                     val lastIndex = row.items.lastIndex
                     if (lastIndex < 0) return@withContext
                     val center = focusedIndex.coerceIn(0, lastIndex)
+                    val reach = if (railHasFocus) 2 else 1
                     // Nearest neighbours first: the next D-pad move is the one that
                     // must not wait on a decode.
-                    val offsets = listOf(0, 1, -1, 2, -2, 3, -3, 4, -4)
+                    val offsets = (0..reach).flatMap { listOf(it, -it) }.distinct()
                     for (offset in offsets) {
                         val index = center + offset
                         if (index !in 0..lastIndex) continue
                         val item = row.items[index]
                         val landscape = useLandscapeCards || item.posterShape == PosterShape.LANDSCAPE
-                        // Warm both states so neither the portrait rest state nor the
-                        // focused landscape swap has to decode on the focus frame.
-                        val urls = listOf(
-                            item.netflixCatalogueArtwork(
-                                focused = true,
-                                preferLandscapeWhenUnfocused = landscape
-                            ),
-                            item.netflixCatalogueArtwork(
-                                focused = false,
-                                preferLandscapeWhenUnfocused = landscape
-                            )
-                        ).filterNotNull().distinct()
-                        for (url in urls) {
-                            val cacheKey = netflixArtworkCacheKey(url, artworkCacheSizePx) ?: continue
-                            if (imageLoader.memoryCache?.get(MemoryCache.Key(cacheKey)) != null) {
-                                continue
-                            }
-                            imageLoader.enqueue(
-                                ImageRequest.Builder(context)
-                                    .data(url)
-                                    .memoryCacheKey(cacheKey)
-                                    .diskCacheKey(url)
-                                    .size(width = artworkCacheSizePx.width, height = artworkCacheSizePx.height)
-                                    .build()
-                            )
+                        val url = item.netflixCatalogueArtwork(
+                            focused = true,
+                            preferLandscapeWhenUnfocused = landscape
+                        ) ?: continue
+                        val restUrl = item.netflixCatalogueArtwork(
+                            focused = false,
+                            preferLandscapeWhenUnfocused = landscape
+                        )
+                        val size = if (url == restUrl) portraitCacheSizePx else focusCacheSizePx
+                        val cacheKey = netflixArtworkCacheKey(url, size) ?: continue
+                        if (imageLoader.memoryCache?.get(MemoryCache.Key(cacheKey)) != null) {
+                            continue
                         }
+                        imageLoader.enqueue(
+                            ImageRequest.Builder(context)
+                                .data(url)
+                                .memoryCacheKey(cacheKey)
+                                .diskCacheKey(url)
+                                .size(width = size.width, height = size.height)
+                                .build()
+                        )
                     }
                 }
             }
@@ -397,7 +412,12 @@ internal fun NetflixCatalogRail(
                         } else {
                             null
                         },
-                        artworkCacheSizePx = artworkCacheSizePx,
+                        artworkCacheSizePx = if (artwork == portraitArtwork) {
+                            portraitCacheSizePx
+                        } else {
+                            focusCacheSizePx
+                        },
+                        holdArtworkCacheSizePx = portraitCacheSizePx,
                         width = if (focused && posterGrow) {
                             geometry.focusedWidth
                         } else {
