@@ -327,6 +327,14 @@ class InAppYouTubeExtractor @Inject constructor() {
                     val url = format.stringValue("url") ?: continue
                     val mimeType = format.stringValue("mimeType").orEmpty()
                     if (!mimeType.contains("video/") && mimeType.isNotBlank()) continue
+                    // Progressive must include audio — video-only "formats" play silent cards.
+                    val hasMuxedAudio =
+                        format.stringValue("audioQuality") != null ||
+                            format.numberValue("audioSampleRate") != null ||
+                            format.numberValue("audioChannels") != null ||
+                            mimeType.contains("mp4a") ||
+                            mimeType.contains("opus")
+                    if (!hasMuxedAudio) continue
 
                     val height = (format.numberValue("height")
                         ?: parseQualityLabel(format.stringValue("qualityLabel"))?.toDouble()
@@ -449,23 +457,39 @@ class InAppYouTubeExtractor @Inject constructor() {
             val resolvedVideo = resolveReachableUrl(adaptivePair.first.url)
             val resolvedAudio = resolveReachableUrl(adaptivePair.second.url)
             if (resolvedVideo != null && resolvedAudio != null) {
+                Log.d(
+                    TAG,
+                    "Using adaptive pair ${adaptivePair.first.height}p " +
+                        "v=${adaptivePair.first.itag} a=${adaptivePair.second.itag} " +
+                        "client=${adaptivePair.first.client}"
+                )
                 return TrailerPlaybackSource(videoUrl = resolvedVideo, audioUrl = resolvedAudio)
             }
             Log.w(
                 TAG,
-                "Adaptive pair unreachable (video=${resolvedVideo != null} audio=${resolvedAudio != null}); " +
-                    "falling back to muxed source"
+                "Adaptive pair unresolved after probe; using raw pair URLs"
+            )
+            // Probe flake: still try the paired URLs rather than silent muxed fallback.
+            return TrailerPlaybackSource(
+                videoUrl = adaptivePair.first.url,
+                audioUrl = adaptivePair.second.url
             )
         }
 
         // HLS / progressive include muxed audio — prefer these over silent adaptive video.
         if (bestManifest != null) {
+            Log.d(TAG, "Using HLS muxed manifest height=${bestManifest.height}")
             return TrailerPlaybackSource(videoUrl = bestManifest.manifestUrl, audioUrl = null)
         }
 
         val resolvedProgressive = bestProgressive?.url?.let { resolveReachableUrl(it) }
         if (resolvedProgressive != null) {
+            Log.d(TAG, "Using progressive muxed ${bestProgressive.height}p itag=${bestProgressive.itag}")
             return TrailerPlaybackSource(videoUrl = resolvedProgressive, audioUrl = null)
+        }
+        if (bestProgressive != null) {
+            Log.d(TAG, "Using progressive muxed raw ${bestProgressive.height}p itag=${bestProgressive.itag}")
+            return TrailerPlaybackSource(videoUrl = bestProgressive.url, audioUrl = null)
         }
 
         return null
@@ -806,8 +830,8 @@ class InAppYouTubeExtractor @Inject constructor() {
         }
 
         if (candidates.size == 1) {
-            // Single candidate — verify it's reachable
-            return if (isUrlReachable(candidates[0])) candidates[0] else null
+            // Probe is advisory; keep the URL if the HEAD check flakes.
+            return if (isUrlReachable(candidates[0])) candidates[0] else url
         }
 
         val result = CompletableDeferred<String>()
@@ -819,7 +843,9 @@ class InAppYouTubeExtractor @Inject constructor() {
             }
         }
         return try {
-            withTimeoutOrNull(2_000L) { result.await() }
+            // Prefer a probed CDN host, but never drop a usable URL — null here
+            // forced silent progressive fallbacks on Shield Wi‑Fi.
+            withTimeoutOrNull(2_000L) { result.await() } ?: url
         } finally {
             probeScope.cancel()
         }
