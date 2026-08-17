@@ -147,10 +147,10 @@ class TrailerPlayerPool @Inject constructor(
         // Preview trailers should start quickly; full-screen playback uses its own player.
         val loadControlBuilder = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                /* minBufferMs = */ 5_000,
-                /* maxBufferMs = */ 30_000,
-                /* bufferForPlaybackMs = */ 750,
-                /* bufferForPlaybackAfterRebufferMs = */ 1_500
+                /* minBufferMs = */ 2_000,
+                /* maxBufferMs = */ 15_000,
+                /* bufferForPlaybackMs = */ 250,
+                /* bufferForPlaybackAfterRebufferMs = */ 750
             )
         if (forceNative) {
             val allocator = DefaultAllocator(
@@ -165,10 +165,10 @@ class TrailerPlayerPool @Inject constructor(
         val trackSelector = DefaultTrackSelector(context).apply {
             setParameters(
                 buildUponParameters()
-                    .setMaxVideoSizeSd()
-                    .clearVideoSizeConstraints()
-                    .setForceHighestSupportedBitrate(true)
-                    .setMaxVideoSize(Integer.MAX_VALUE, Integer.MAX_VALUE)
+                    // Prefer a mid ladder for fast first frame on TV Wi‑Fi; forcing
+                    // the top HLS variant delayed card trailers badly.
+                    .setMaxVideoSize(1280, 720)
+                    .setForceHighestSupportedBitrate(false)
             )
         }
         return ExoPlayer.Builder(context)
@@ -176,7 +176,7 @@ class TrailerPlayerPool @Inject constructor(
             .setTrackSelector(trackSelector)
             .setBandwidthMeter(
                 DefaultBandwidthMeter.Builder(context)
-                    .setInitialBitrateEstimate(50_000_000L) // 50 Mbps – force highest HLS variant from start
+                    .setInitialBitrateEstimate(4_000_000L)
                     .build()
             )
             .setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS)

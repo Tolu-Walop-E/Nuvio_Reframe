@@ -406,8 +406,7 @@ internal fun HomeViewModel.requestTrailerPreviewPipeline(
 
     viewModelScope.launch(Dispatchers.IO) {
         try {
-            // Short settle so rapid D-pad moves don't spam TMDB/trailer lookups.
-            delay(40)
+            delay(16)
 
             // Only the LATEST request proceeds — all earlier ones are stale
             if (trailerPreviewRequestVersion != requestVersion) {

@@ -67,6 +67,7 @@ import androidx.compose.ui.zIndex
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import coil3.imageLoader
+import coil3.memory.MemoryCache
 import coil3.request.ImageRequest
 import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.MetaPreview
@@ -269,30 +270,6 @@ internal fun NetflixCatalogRail(
     ) { rowState, focusedIndex, onCardFocused, onMoveLeft, onMoveRight, railHasFocus ->
         val context = LocalContext.current
         val imageLoader = context.imageLoader
-        // Warm landscape/backdrop bitmaps for the focused card and neighbors so
-        // D-pad moves don't wait on a cold Coil fetch when the URL switches.
-        LaunchedEffect(focusedIndex, row.items, useLandscapeCards) {
-            withContext(Dispatchers.IO) {
-                val lastIndex = row.items.lastIndex
-                if (lastIndex < 0) return@withContext
-                val center = focusedIndex.coerceIn(0, lastIndex)
-                for (offset in -2..2) {
-                    val index = center + offset
-                    if (index !in 0..lastIndex) continue
-                    val item = row.items[index]
-                    val landscape = useLandscapeCards || item.posterShape == PosterShape.LANDSCAPE
-                    val url = item.netflixCatalogueArtwork(
-                        focused = true,
-                        preferLandscapeWhenUnfocused = landscape
-                    ) ?: continue
-                    imageLoader.enqueue(
-                        ImageRequest.Builder(context)
-                            .data(url)
-                            .build()
-                    )
-                }
-            }
-        }
         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
             val usableWidth = (maxWidth - (NetflixHomeTokens.PageHorizontalPadding * 2))
                 .coerceAtLeast(0.dp)
@@ -317,6 +294,40 @@ internal fun NetflixCatalogRail(
                     scale = railScale,
                     maxAbsoluteRailHeight = maxPosterHeight
                 )
+            }
+            // Warm landscape/backdrop bitmaps for the focused card and neighbors so
+            // D-pad moves don't wait on a cold Coil fetch when the URL switches.
+            // Size to the focused card and skip when already in memory.
+            LaunchedEffect(focusedIndex, row.items, useLandscapeCards, geometry.focusedWidth, geometry.railHeight) {
+                val widthPx = with(density) { geometry.focusedWidth.roundToPx().coerceAtLeast(1) }
+                val heightPx = with(density) { geometry.railHeight.roundToPx().coerceAtLeast(1) }
+                withContext(Dispatchers.IO) {
+                    val lastIndex = row.items.lastIndex
+                    if (lastIndex < 0) return@withContext
+                    val center = focusedIndex.coerceIn(0, lastIndex)
+                    for (offset in -3..3) {
+                        val index = center + offset
+                        if (index !in 0..lastIndex) continue
+                        val item = row.items[index]
+                        val landscape = useLandscapeCards || item.posterShape == PosterShape.LANDSCAPE
+                        val url = item.netflixCatalogueArtwork(
+                            focused = true,
+                            preferLandscapeWhenUnfocused = landscape
+                        ) ?: continue
+                        val cacheKey = "netflix-land|$url|${widthPx}x$heightPx"
+                        if (imageLoader.memoryCache?.get(MemoryCache.Key(cacheKey)) != null) {
+                            continue
+                        }
+                        imageLoader.enqueue(
+                            ImageRequest.Builder(context)
+                                .data(url)
+                                .memoryCacheKey(cacheKey)
+                                .diskCacheKey(url)
+                                .size(width = widthPx, height = heightPx)
+                                .build()
+                        )
+                    }
+                }
             }
             NetflixPivotLazyRow(
                 state = rowState,

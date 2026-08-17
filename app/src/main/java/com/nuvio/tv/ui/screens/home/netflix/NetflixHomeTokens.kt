@@ -42,7 +42,12 @@ internal object NetflixHomeTokens {
     val ProgressBarBottomInset = 7.dp
     val ProgressBarHorizontalInset = 8.dp
     val ProgressScrimHeight = 32.dp
-    const val TrailerStartDelayMs = 1750L
+    /**
+     * Min settle before arming when a trailer URL is already cached.
+     * Longer [TrailerStartDelayMs] only applies while the URL is still loading.
+     */
+    const val TrailerCachedStartDelayMs = 120L
+    const val TrailerStartDelayMs = 500L
     val PortraitCardWidth = 122.dp
     val PortraitCardHeight = 184.dp
     val FocusedPortraitCardWidth = 258.dp
@@ -166,7 +171,8 @@ internal object NetflixHomeSpacing {
 
 internal object NetflixHomeMotion {
     const val FocusWidthDurationMs = 120
-    const val ArtworkCrossfadeDurationMs = 140
+    /** Short / zero when landscape is already memory-cached to avoid poster flicker under trailers. */
+    const val ArtworkCrossfadeDurationMs = 80
     val FocusWidthAnimation: TweenSpec<Dp> = tween(durationMillis = FocusWidthDurationMs)
 }
 

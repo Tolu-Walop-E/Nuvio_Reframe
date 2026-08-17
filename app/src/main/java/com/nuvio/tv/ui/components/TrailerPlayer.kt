@@ -88,7 +88,7 @@ fun TrailerPlayer(
     var surfaceAttached by remember(trailerUrl) { mutableStateOf(false) }
     val playerAlphaState = animateFloatAsState(
         targetValue = if (isPlaying && hasRenderedFirstFrame) 1f else 0f,
-        animationSpec = tween(durationMillis = 300),
+        animationSpec = tween(durationMillis = 120),
         label = "trailerFirstFrameAlpha"
     )
 
@@ -155,7 +155,7 @@ fun TrailerPlayer(
             player.playWhenReady = true
             // If first-frame already passed before the listener was active (surface
             // attach race), recover once READY so alpha is not stuck at 0.
-            delay(400)
+            delay(200)
             if (
                 resolvedPool?.isOwnedBy(poolOwner) == true &&
                 currentIsPlaying &&

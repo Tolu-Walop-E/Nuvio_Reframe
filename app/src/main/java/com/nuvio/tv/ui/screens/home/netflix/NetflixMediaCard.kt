@@ -40,15 +40,19 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
 import coil3.compose.rememberAsyncImagePainter
+import coil3.request.ImageRequest
 import com.nuvio.tv.ui.components.TrailerPlayer
 import kotlinx.coroutines.delay
 
@@ -89,9 +93,11 @@ internal fun NetflixMediaCard(
     showFocusBorder: Boolean = true,
     onLongClick: (() -> Unit)? = null
 ) {
+    val context = LocalContext.current
     var focused by remember { mutableStateOf(false) }
     var hasTrailerFrame by remember(trailerUrl, mediaKey) { mutableStateOf(false) }
     var trailerArmed by remember(mediaKey) { mutableStateOf(false) }
+    var cardSizePx by remember(mediaKey) { mutableStateOf(IntSize.Zero) }
     val animatedWidth by animateDpAsState(
         targetValue = width,
         animationSpec = NetflixHomeMotion.FocusWidthAnimation,
@@ -101,7 +107,23 @@ internal fun NetflixMediaCard(
     val shouldHoldPortrait = !imageUrl.isNullOrBlank() &&
         !holdUntilReadyImageUrl.isNullOrBlank() &&
         imageUrl != holdUntilReadyImageUrl
-    val desiredPainter = rememberAsyncImagePainter(model = imageUrl)
+    fun landscapeCacheKey(url: String, size: IntSize): String? {
+        if (size.width <= 0 || size.height <= 0) return null
+        return "netflix-land|$url|${size.width}x${size.height}"
+    }
+    val desiredImageRequest = remember(imageUrl, cardSizePx) {
+        val url = imageUrl ?: return@remember null
+        ImageRequest.Builder(context)
+            .data(url)
+            .apply {
+                landscapeCacheKey(url, cardSizePx)?.let { key ->
+                    memoryCacheKey(key)
+                    size(width = cardSizePx.width, height = cardSizePx.height)
+                }
+            }
+            .build()
+    }
+    val desiredPainter = rememberAsyncImagePainter(model = desiredImageRequest ?: imageUrl)
     val desiredState by desiredPainter.state.collectAsState()
     val desiredReady = desiredState is AsyncImagePainter.State.Success
     val displayedImageUrl = if (shouldHoldPortrait && !desiredReady) {
@@ -109,20 +131,57 @@ internal fun NetflixMediaCard(
     } else {
         imageUrl
     }
+    // Instant swap when landscape is already cached; crossfade only while waiting.
+    val artworkCrossfadeMs = if (shouldHoldPortrait && !desiredReady) {
+        NetflixHomeMotion.ArtworkCrossfadeDurationMs
+    } else {
+        0
+    }
     val artwork = remember(mediaKey, displayedImageUrl) {
         NetflixCardArtwork(key = "$mediaKey|${displayedImageUrl.orEmpty()}", imageUrl = displayedImageUrl)
+    }
+    val displayedImageRequest = remember(displayedImageUrl, cardSizePx, shouldHoldPortrait) {
+        val url = displayedImageUrl ?: return@remember null
+        ImageRequest.Builder(context)
+            .data(url)
+            .apply {
+                // Only use the landscape-sized cache key for the focus artwork so
+                // it hits the rail prefetch; portrait holds keep the default key.
+                if (!shouldHoldPortrait || displayedImageUrl == imageUrl) {
+                    landscapeCacheKey(url, cardSizePx)?.let { key ->
+                        memoryCacheKey(key)
+                        size(width = cardSizePx.width, height = cardSizePx.height)
+                    }
+                }
+            }
+            .build()
     }
     val showFallbackTitle = showFallbackTitleWhenArtworkMissing && displayedImageUrl.isNullOrBlank()
     val showText = showLabels || showFallbackTitle
 
-    // Arm on focus settle only. Do NOT restart when the URL arrives later — that
-    // was resetting the 1.75s timer and often prevented playback entirely.
+    // Arm ASAP when the trailer URL is already warm; otherwise wait a short settle
+    // so D-pad flits don't start the shared player. URL arrival while focused also
+    // arms quickly without restarting a long timer.
     LaunchedEffect(focused, mediaKey) {
         trailerArmed = false
         hasTrailerFrame = false
         if (!focused) return@LaunchedEffect
-        delay(NetflixHomeTokens.TrailerStartDelayMs)
+        val cached = !trailerUrl.isNullOrBlank()
+        delay(
+            if (cached) {
+                NetflixHomeTokens.TrailerCachedStartDelayMs
+            } else {
+                NetflixHomeTokens.TrailerStartDelayMs
+            }
+        )
         if (focused) {
+            trailerArmed = true
+        }
+    }
+    LaunchedEffect(trailerUrl, focused, mediaKey) {
+        if (!focused || trailerArmed || trailerUrl.isNullOrBlank()) return@LaunchedEffect
+        delay(NetflixHomeTokens.TrailerCachedStartDelayMs)
+        if (focused && !trailerUrl.isNullOrBlank()) {
             trailerArmed = true
         }
     }
@@ -165,6 +224,7 @@ internal fun NetflixMediaCard(
             }
             .width(animatedWidth)
             .height(height)
+            .onSizeChanged { cardSizePx = it }
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick
@@ -185,12 +245,12 @@ internal fun NetflixMediaCard(
             // landscape Coil request succeeds so the card never looks empty.
             Crossfade(
                 targetState = artwork,
-                animationSpec = tween(durationMillis = NetflixHomeMotion.ArtworkCrossfadeDurationMs),
+                animationSpec = tween(durationMillis = artworkCrossfadeMs),
                 label = "netflixCardArtwork"
             ) { targetArtwork ->
                 if (!targetArtwork.imageUrl.isNullOrBlank()) {
                     AsyncImage(
-                        model = targetArtwork.imageUrl,
+                        model = displayedImageRequest ?: targetArtwork.imageUrl,
                         contentDescription = title,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop
@@ -210,11 +270,13 @@ internal fun NetflixMediaCard(
                     muted = trailerMuted,
                     cropToFill = true,
                     modifier = Modifier.fillMaxSize(),
-                    enter = fadeIn(animationSpec = tween(120)),
-                    exit = fadeOut(animationSpec = tween(100))
+                    enter = fadeIn(animationSpec = tween(80)),
+                    exit = fadeOut(animationSpec = tween(80))
                 )
             }
-            if (focused && !hasTrailerFrame) {
+            // Soft focus wash only before the trailer is armed — lifting it under a
+            // playing trailer caused a visible flicker into first frame.
+            if (focused && !hasTrailerFrame && !trailerArmed) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()

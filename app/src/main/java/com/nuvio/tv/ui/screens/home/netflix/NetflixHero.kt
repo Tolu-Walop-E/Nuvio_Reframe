@@ -70,13 +70,27 @@ internal fun NetflixHero(
     var hasTrailerFrame by remember(item?.key) { mutableStateOf(false) }
     var trailerArmed by remember(item?.key) { mutableStateOf(false) }
 
-    // Arm on focus settle only — URL arrival must not restart the delay.
+    // Arm ASAP when the trailer URL is already warm; otherwise wait a short settle.
     LaunchedEffect(focused, item?.key) {
         trailerArmed = false
         hasTrailerFrame = false
         if (!focused) return@LaunchedEffect
-        delay(NetflixHomeTokens.TrailerStartDelayMs)
+        val cached = !trailerPreviewUrl.isNullOrBlank()
+        delay(
+            if (cached) {
+                NetflixHomeTokens.TrailerCachedStartDelayMs
+            } else {
+                NetflixHomeTokens.TrailerStartDelayMs
+            }
+        )
         if (focused) {
+            trailerArmed = true
+        }
+    }
+    LaunchedEffect(trailerPreviewUrl, focused, item?.key) {
+        if (!focused || trailerArmed || trailerPreviewUrl.isNullOrBlank()) return@LaunchedEffect
+        delay(NetflixHomeTokens.TrailerCachedStartDelayMs)
+        if (focused && !trailerPreviewUrl.isNullOrBlank()) {
             trailerArmed = true
         }
     }
@@ -102,7 +116,7 @@ internal fun NetflixHero(
             // Keep backdrop under the player; TrailerPlayer fades in on first frame.
             Crossfade(
                 targetState = item?.backdrop ?: item?.poster,
-                animationSpec = tween(520),
+                animationSpec = tween(180),
                 label = "netflixHeroBackdrop"
             ) { imageUrl ->
                 AsyncImage(
