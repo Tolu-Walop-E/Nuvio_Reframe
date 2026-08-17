@@ -1,5 +1,6 @@
 package com.nuvio.tv.ui.screens.home
 
+import android.os.SystemClock
 import android.util.Log
 import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.LocaleCache
@@ -26,6 +27,9 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+/** Soft TTL so a failed YouTube extract on home does not stick forever. */
+private const val TRAILER_PREVIEW_NEGATIVE_CACHE_TTL_MS = 90_000L
 
 private data class CoreLayoutPrefs(
     val layout: HomeLayout,
@@ -372,8 +376,16 @@ internal fun HomeViewModel.requestTrailerPreviewPipeline(
     val resolvedFallbackYtId = fallbackYtId ?: findCatalogItemById(itemId)?.trailerYtIds?.firstOrNull()
 
     if (trailerPreviewNegativeCache.contains(itemId)) {
-        android.util.Log.i("NetflixTrailer", "skip negative-cache id=$itemId")
-        return
+        // Allow a re-focus retry after a short TTL so a transient YouTube miss
+        // does not force the user into the details page to hear a trailer.
+        val cachedAt = trailerPreviewNegativeCacheTimestamps[itemId]
+        val ageMs = cachedAt?.let { SystemClock.elapsedRealtime() - it }
+        if (ageMs != null && ageMs < TRAILER_PREVIEW_NEGATIVE_CACHE_TTL_MS) {
+            android.util.Log.i("NetflixTrailer", "skip negative-cache id=$itemId ageMs=$ageMs")
+            return
+        }
+        trailerPreviewNegativeCache.remove(itemId)
+        trailerPreviewNegativeCacheTimestamps.remove(itemId)
     }
     if (trailerPreviewUrlsState.containsKey(itemId)) {
         activeTrailerPreviewItemId = itemId
@@ -427,6 +439,7 @@ internal fun HomeViewModel.requestTrailerPreviewPipeline(
                     if (fallbackSource?.videoUrl != null) {
                         android.util.Log.i("NetflixTrailer", "fetch-ok-fallback id=$itemId")
                         trailerPreviewNegativeCache.remove(itemId)
+                        trailerPreviewNegativeCacheTimestamps.remove(itemId)
                         if (trailerPreviewUrlsState[itemId] != fallbackSource.videoUrl) {
                             trailerPreviewUrlsState[itemId] = fallbackSource.videoUrl
                         }
@@ -444,6 +457,7 @@ internal fun HomeViewModel.requestTrailerPreviewPipeline(
                         if (hardMiss) {
                             android.util.Log.w("NetflixTrailer", "fetch-miss id=$itemId tmdbId=$tmdbId")
                             trailerPreviewNegativeCache.add(itemId)
+                            trailerPreviewNegativeCacheTimestamps[itemId] = SystemClock.elapsedRealtime()
                         } else {
                             android.util.Log.w(
                                 "NetflixTrailer",
@@ -456,6 +470,7 @@ internal fun HomeViewModel.requestTrailerPreviewPipeline(
                 } else {
                     android.util.Log.i("NetflixTrailer", "fetch-ok id=$itemId")
                     trailerPreviewNegativeCache.remove(itemId)
+                    trailerPreviewNegativeCacheTimestamps.remove(itemId)
                     val videoUrl = trailerSource.videoUrl
                     if (trailerPreviewUrlsState[itemId] != videoUrl) {
                         trailerPreviewUrlsState[itemId] = videoUrl
@@ -479,6 +494,7 @@ internal fun HomeViewModel.retryTrailerPreviewIfFocused(itemId: String) {
     if (activeTrailerPreviewItemId != itemId) return
     if (trailerPreviewUrlsState.containsKey(itemId)) return
     trailerPreviewNegativeCache.remove(itemId)
+    trailerPreviewNegativeCacheTimestamps.remove(itemId)
     trailerPreviewLoadingIds.remove(itemId)
     trailerPreviewRequestVersion++
     val item = findCatalogItemById(itemId) ?: return

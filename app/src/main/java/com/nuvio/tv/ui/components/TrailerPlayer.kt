@@ -1,6 +1,5 @@
 package com.nuvio.tv.ui.components
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.animateFloatAsState
@@ -67,6 +66,13 @@ fun TrailerPlayer(
     exit: ExitTransition = fadeOut(animationSpec = tween(500)),
     trailerPlayerPool: TrailerPlayerPool? = null
 ) {
+    // enter/exit kept for call-site API compatibility; video fade uses alpha below
+    // so PlayerView can attach before prepare (avoids audio-with-no-picture).
+    @Suppress("UNUSED_PARAMETER")
+    val unusedEnter = enter
+    @Suppress("UNUSED_PARAMETER")
+    val unusedExit = exit
+
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val activityLifecycleOwner = remember(context) { context as? androidx.lifecycle.LifecycleOwner ?: lifecycleOwner }
@@ -79,22 +85,19 @@ fun TrailerPlayer(
     val currentOnRemoteKey by rememberUpdatedState(onRemoteKey)
     val zoomScale = if (cropToFill) overscanZoom.coerceAtLeast(1f) else 1f
     var hasRenderedFirstFrame by remember(trailerUrl) { mutableStateOf(false) }
+    var surfaceAttached by remember(trailerUrl) { mutableStateOf(false) }
     val playerAlphaState = animateFloatAsState(
         targetValue = if (isPlaying && hasRenderedFirstFrame) 1f else 0f,
         animationSpec = tween(durationMillis = 300),
         label = "trailerFirstFrameAlpha"
     )
 
-    // Resolve pool: explicit parameter > CompositionLocal
     val resolvedPool = trailerPlayerPool ?: LocalTrailerPlayerPool.current
 
     // Exclusive owner token so a previous TrailerPlayer cannot stop/clear the shared
     // ExoPlayer after focus has already moved to another card/hero surface.
     val poolOwner = remember { Any() }
 
-    // Use the shared pool instance instead of creating a new ExoPlayer per focus.
-    // The pool keeps one ExoPlayer alive across poster focus changes, eliminating
-    // the expensive create/teardown cycle that was the app-launch bottleneck.
     val trailerPlayer = remember(trailerUrl, resolvedPool) {
         if (trailerUrl != null) {
             resolvedPool?.acquire(poolOwner)
@@ -103,7 +106,25 @@ fun TrailerPlayer(
         }
     }
 
-    // Configure player settings when acquired
+    fun markFirstFrame() {
+        if (!hasRenderedFirstFrame) {
+            hasRenderedFirstFrame = true
+            android.util.Log.i("NetflixTrailer", "first-frame owner=${poolOwner.hashCode()}")
+            currentOnFirstFrameRendered()
+        }
+    }
+
+    fun ExoPlayer.bindTrailerMedia(videoUrl: String, audioUrl: String?) {
+        if (!audioUrl.isNullOrBlank()) {
+            val mediaSourceFactory = DefaultMediaSourceFactory(YoutubeChunkedDataSourceFactory())
+            val videoSource = mediaSourceFactory.createMediaSource(MediaItem.fromUri(videoUrl))
+            val audioSource = mediaSourceFactory.createMediaSource(MediaItem.fromUri(audioUrl))
+            setMediaSource(MergingMediaSource(videoSource, audioSource))
+        } else {
+            setMediaItem(MediaItem.fromUri(videoUrl))
+        }
+    }
+
     LaunchedEffect(trailerPlayer, muted, cropToFill) {
         val player = trailerPlayer ?: return@LaunchedEffect
         if (resolvedPool?.isOwnedBy(poolOwner) == false) return@LaunchedEffect
@@ -115,9 +136,12 @@ fun TrailerPlayer(
         }
     }
 
-    LaunchedEffect(isPlaying, trailerUrl, trailerAudioUrl, muted, trailerPlayer) {
+    // Prepare only after PlayerView has attached the shared ExoPlayer. Starting
+    // decode before a TextureView exists is the main cause of audio-only cards.
+    LaunchedEffect(isPlaying, trailerUrl, trailerAudioUrl, muted, trailerPlayer, surfaceAttached) {
         val player = trailerPlayer ?: return@LaunchedEffect
-            if (isPlaying && trailerUrl != null) {
+        if (isPlaying && trailerUrl != null) {
+            if (!surfaceAttached) return@LaunchedEffect
             resolvedPool?.acquire(poolOwner)
             if (resolvedPool?.isOwnedBy(poolOwner) == false) return@LaunchedEffect
             android.util.Log.i(
@@ -126,21 +150,25 @@ fun TrailerPlayer(
             )
             hasRenderedFirstFrame = false
             player.volume = if (muted) 0f else 1f
-            if (!trailerAudioUrl.isNullOrBlank()) {
-                val mediaSourceFactory = DefaultMediaSourceFactory(YoutubeChunkedDataSourceFactory())
-                val videoSource = mediaSourceFactory.createMediaSource(MediaItem.fromUri(trailerUrl))
-                val audioSource = mediaSourceFactory.createMediaSource(MediaItem.fromUri(trailerAudioUrl))
-                player.setMediaSource(MergingMediaSource(videoSource, audioSource))
-            } else {
-                player.setMediaItem(MediaItem.fromUri(trailerUrl))
-            }
+            player.bindTrailerMedia(trailerUrl, trailerAudioUrl)
             player.prepare()
             player.playWhenReady = true
+            // If first-frame already passed before the listener was active (surface
+            // attach race), recover once READY so alpha is not stuck at 0.
+            delay(400)
+            if (
+                resolvedPool?.isOwnedBy(poolOwner) == true &&
+                currentIsPlaying &&
+                !hasRenderedFirstFrame &&
+                player.playbackState == Player.STATE_READY &&
+                player.videoSize.width > 0
+            ) {
+                markFirstFrame()
+            }
         } else {
             hasRenderedFirstFrame = false
             if (resolvedPool?.isOwnedBy(poolOwner) != true) return@LaunchedEffect
             player.playWhenReady = false
-            // Defer heavy stop and clear until focus settling/collapse has finished
             delay(150)
             if (!isPlaying && resolvedPool?.isOwnedBy(poolOwner) == true) {
                 resolvedPool.stop(poolOwner)
@@ -190,12 +218,23 @@ fun TrailerPlayer(
                 if (playbackState == Player.STATE_ENDED) {
                     currentOnEnded()
                 }
+                if (
+                    playbackState == Player.STATE_READY &&
+                    player.videoSize.width > 0 &&
+                    currentIsPlaying
+                ) {
+                    markFirstFrame()
+                }
             }
 
             override fun onRenderedFirstFrame() {
-                hasRenderedFirstFrame = true
-                android.util.Log.i("NetflixTrailer", "first-frame owner=${poolOwner.hashCode()}")
-                currentOnFirstFrameRendered()
+                markFirstFrame()
+            }
+
+            override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+                if (videoSize.width > 0 && currentIsPlaying && player.playbackState == Player.STATE_READY) {
+                    markFirstFrame()
+                }
             }
         }
         val observer = LifecycleEventObserver { _, event ->
@@ -203,14 +242,7 @@ fun TrailerPlayer(
                 Lifecycle.Event.ON_RESUME -> {
                     if (currentIsPlaying && !currentTrailerUrl.isNullOrBlank()) {
                         if (player.currentMediaItem == null) {
-                            if (!currentTrailerAudioUrl.isNullOrBlank()) {
-                                val mediaSourceFactory = DefaultMediaSourceFactory(YoutubeChunkedDataSourceFactory())
-                                val videoSource = mediaSourceFactory.createMediaSource(MediaItem.fromUri(currentTrailerUrl!!))
-                                val audioSource = mediaSourceFactory.createMediaSource(MediaItem.fromUri(currentTrailerAudioUrl!!))
-                                player.setMediaSource(MergingMediaSource(videoSource, audioSource))
-                            } else {
-                                player.setMediaItem(MediaItem.fromUri(currentTrailerUrl!!))
-                            }
+                            player.bindTrailerMedia(currentTrailerUrl!!, currentTrailerAudioUrl)
                             player.prepare()
                         }
                         player.playWhenReady = true
@@ -218,8 +250,6 @@ fun TrailerPlayer(
                 }
                 Lifecycle.Event.ON_PAUSE,
                 Lifecycle.Event.ON_STOP -> {
-                    // Only tear down if we still own the shared pool. Another
-                    // TrailerPlayer (or detail yield) may have taken over.
                     if (resolvedPool?.isOwnedBy(poolOwner) == true) {
                         player.playWhenReady = false
                         player.pause()
@@ -227,7 +257,6 @@ fun TrailerPlayer(
                         player.clearMediaItems()
                     }
                 }
-                // Do NOT release on destroy — the pool owns the lifecycle.
                 else -> Unit
             }
         }
@@ -236,77 +265,83 @@ fun TrailerPlayer(
         onDispose {
             runCatching { activityLifecycleOwner.lifecycle.removeObserver(observer) }
             runCatching { player.removeListener(listener) }
-            // Only stop if we still own the pool — never release.
             resolvedPool?.stop(poolOwner)
         }
     }
 
-    if (trailerPlayer != null) {
-        AnimatedVisibility(
-            visible = isPlaying,
-            enter = enter,
-            exit = exit
-        ) {
-            AndroidView(
-                factory = { ctx ->
-                    (LayoutInflater.from(ctx).inflate(R.layout.trailer_player_view, null) as PlayerView).apply {
-                        player = trailerPlayer
-                        isFocusable = playerFocusable
-                        isFocusableInTouchMode = playerFocusable
-                        isClickable = playerFocusable
-                        descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
-                        if (playerFocusable) {
-                            setOnKeyListener { _, keyCode, event ->
-                                currentOnRemoteKey(keyCode, event.action, event.repeatCount)
-                            }
-                        } else {
-                            setOnKeyListener(null)
-                            if (isFocused) clearFocus()
+    // Keep PlayerView composed whenever we have a player and want playback (or are
+    // fading out). Avoid AnimatedVisibility so the TextureView exists before prepare.
+    if (trailerPlayer != null && (isPlaying || hasRenderedFirstFrame)) {
+        AndroidView(
+            factory = { ctx ->
+                (LayoutInflater.from(ctx).inflate(R.layout.trailer_player_view, null) as PlayerView).apply {
+                    player = trailerPlayer
+                    isFocusable = playerFocusable
+                    isFocusableInTouchMode = playerFocusable
+                    isClickable = playerFocusable
+                    descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
+                    if (playerFocusable) {
+                        setOnKeyListener { _, keyCode, event ->
+                            currentOnRemoteKey(keyCode, event.action, event.repeatCount)
                         }
-                        keepScreenOn = true
-                        resizeMode = if (cropToFill) {
-                            AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                        } else {
-                            AspectRatioFrameLayout.RESIZE_MODE_FIT
-                        }
+                    } else {
+                        setOnKeyListener(null)
+                        if (isFocused) clearFocus()
                     }
-                },
-                update = { view ->
-                    // Re-attach player in case it was reclaimed after yield
-                    if (view.player !== trailerPlayer) {
-                        view.player = trailerPlayer
-                    }
-                    view.isFocusable = playerFocusable
-                    view.isFocusableInTouchMode = playerFocusable
-                    view.isClickable = playerFocusable
-                    if (!playerFocusable && view.isFocused) {
-                        view.clearFocus()
-                    }
-                    view.resizeMode = if (cropToFill) {
+                    keepScreenOn = true
+                    resizeMode = if (cropToFill) {
                         AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                     } else {
                         AspectRatioFrameLayout.RESIZE_MODE_FIT
                     }
-                },
-                onRelease = { view ->
+                    surfaceAttached = true
+                }
+            },
+            update = { view ->
+                if (resolvedPool?.isOwnedBy(poolOwner) != false && view.player !== trailerPlayer) {
+                    view.player = trailerPlayer
+                }
+                if (view.player === trailerPlayer) {
+                    surfaceAttached = true
+                }
+                view.isFocusable = playerFocusable
+                view.isFocusableInTouchMode = playerFocusable
+                view.isClickable = playerFocusable
+                if (!playerFocusable && view.isFocused) {
+                    view.clearFocus()
+                }
+                view.resizeMode = if (cropToFill) {
+                    AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                } else {
+                    AspectRatioFrameLayout.RESIZE_MODE_FIT
+                }
+            },
+            onRelease = { view ->
+                // Critical: only clear the shared ExoPlayer from THIS view when we
+                // still own the pool. Otherwise a previous card's dispose wipes the
+                // new card's TextureView and leaves audio with a blank poster.
+                if (view.player === trailerPlayer &&
+                    (resolvedPool == null || resolvedPool.isOwnedBy(poolOwner))
+                ) {
                     view.player = null
-                    view.keepScreenOn = false
-                },
-                modifier = modifier
-                    .clipToBounds()
-                    .then(
-                        if (playerFocusable) {
-                            Modifier
-                        } else {
-                            Modifier.focusProperties { canFocus = false }
-                        }
-                    )
-                    .graphicsLayer {
-                        alpha = playerAlphaState.value
-                        scaleX = zoomScale
-                        scaleY = zoomScale
+                }
+                surfaceAttached = false
+                view.keepScreenOn = false
+            },
+            modifier = modifier
+                .clipToBounds()
+                .then(
+                    if (playerFocusable) {
+                        Modifier
+                    } else {
+                        Modifier.focusProperties { canFocus = false }
                     }
-            )
-        }
+                )
+                .graphicsLayer {
+                    alpha = playerAlphaState.value
+                    scaleX = zoomScale
+                    scaleY = zoomScale
+                }
+        )
     }
 }

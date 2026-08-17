@@ -305,6 +305,7 @@ class HomeViewModel @Inject constructor(
     internal val truncatedRowCache = mutableMapOf<String, TruncatedRowCacheEntry>()
     internal val trailerPreviewLoadingIds = mutableSetOf<String>()
     internal val trailerPreviewNegativeCache = mutableSetOf<String>()
+    internal val trailerPreviewNegativeCacheTimestamps = mutableMapOf<String, Long>()
     internal val trailerPreviewUrlsState = mutableStateMapOf<String, String>()
     internal val trailerPreviewAudioUrlsState = mutableStateMapOf<String, String>()
     internal var activeTrailerPreviewItemId: String? = null
