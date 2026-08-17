@@ -138,23 +138,38 @@ fun TrailerPlayer(
 
     // Prepare only after PlayerView has attached the shared ExoPlayer. Starting
     // decode before a TextureView exists is the main cause of audio-only cards.
-    LaunchedEffect(isPlaying, trailerUrl, trailerAudioUrl, muted, trailerPlayer, surfaceAttached) {
+    // Do NOT key on muted — volume is handled separately; re-prepare was tearing
+    // the Nvidia surface (audio continues, picture gone).
+    var preparedMediaKey by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(isPlaying, trailerUrl, trailerAudioUrl, trailerPlayer, surfaceAttached) {
         val player = trailerPlayer ?: return@LaunchedEffect
         if (isPlaying && trailerUrl != null) {
             if (!surfaceAttached) return@LaunchedEffect
             resolvedPool?.acquire(poolOwner)
             if (resolvedPool?.isOwnedBy(poolOwner) == false) return@LaunchedEffect
+            val mediaKey = "$trailerUrl|${trailerAudioUrl.orEmpty()}"
+            if (
+                preparedMediaKey == mediaKey &&
+                player.currentMediaItem != null &&
+                player.playbackState != Player.STATE_IDLE &&
+                player.playbackState != Player.STATE_ENDED
+            ) {
+                player.playWhenReady = true
+                if (!hasRenderedFirstFrame && player.videoSize.width > 0) {
+                    markFirstFrame()
+                }
+                return@LaunchedEffect
+            }
             android.util.Log.i(
                 "NetflixTrailer",
                 "player-start url=${trailerUrl.take(64)} muted=$muted owner=${poolOwner.hashCode()}"
             )
+            preparedMediaKey = mediaKey
             hasRenderedFirstFrame = false
             player.volume = if (muted) 0f else 1f
             player.bindTrailerMedia(trailerUrl, trailerAudioUrl)
             player.prepare()
             player.playWhenReady = true
-            // If first-frame already passed before the listener was active (surface
-            // attach race), recover once READY so alpha is not stuck at 0.
             delay(200)
             if (
                 resolvedPool?.isOwnedBy(poolOwner) == true &&
@@ -166,6 +181,7 @@ fun TrailerPlayer(
                 markFirstFrame()
             }
         } else {
+            preparedMediaKey = null
             hasRenderedFirstFrame = false
             if (resolvedPool?.isOwnedBy(poolOwner) != true) return@LaunchedEffect
             player.playWhenReady = false

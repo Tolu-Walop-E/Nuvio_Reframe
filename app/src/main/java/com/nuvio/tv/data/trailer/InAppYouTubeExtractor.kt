@@ -30,6 +30,8 @@ private const val DEFAULT_USER_AGENT =
     "Mozilla/5.0 (Linux; Android 12; Android TV) AppleWebKit/537.36 " +
         "(KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
 private const val PREFERRED_SEPARATE_CLIENT = "android_vr"
+/** Card trailers: prefer <=720p so Shield does not spin up a 4K decode path. */
+private const val PREFERRED_PREVIEW_HEIGHT = 720
 
 private val VIDEO_ID_REGEX = Regex("^[a-zA-Z0-9_-]{11}$")
 private val API_KEY_REGEX = Regex("\"INNERTUBE_API_KEY\":\"([^\"]+)\"")
@@ -425,7 +427,7 @@ class InAppYouTubeExtractor @Inject constructor() {
                 )
                 if (
                     bestManifest == null ||
-                    candidate.height > bestManifest.height ||
+                    isBetterPreviewHeight(candidate.height, bestManifest.height) ||
                     (candidate.height == bestManifest.height && candidate.bandwidth > bestManifest.bandwidth)
                 ) {
                     bestManifest = candidate
@@ -591,8 +593,11 @@ class InAppYouTubeExtractor @Inject constructor() {
 
             if (
                 bestVariant == null ||
-                candidate.height > bestVariant.height ||
-                (candidate.height == bestVariant.height && candidate.bandwidth > bestVariant.bandwidth) ||
+                isBetterPreviewHeight(candidate.height, bestVariant.height) ||
+                (
+                    candidate.height == bestVariant.height &&
+                        candidate.bandwidth > bestVariant.bandwidth
+                    ) ||
                 (
                     candidate.height == bestVariant.height &&
                         candidate.bandwidth == bestVariant.bandwidth &&
@@ -675,7 +680,32 @@ class InAppYouTubeExtractor @Inject constructor() {
     }
 
     private fun videoScore(height: Int, fps: Int, bitrate: Double): Double {
-        return height * 1_000_000_000.0 + fps * 1_000_000.0 + bitrate
+        // Prefer up to 720p for in-app trailers. Scoring pure height made adaptive
+        // picks 4K, which on Shield often left audio running after a surface handoff.
+        val heightScore = when {
+            height <= 0 -> 0.0
+            height <= PREFERRED_PREVIEW_HEIGHT -> height * 1_000_000_000.0
+            else -> {
+                PREFERRED_PREVIEW_HEIGHT * 1_000_000_000.0 -
+                    (height - PREFERRED_PREVIEW_HEIGHT) * 50_000_000.0
+            }
+        }
+        return heightScore + fps * 1_000_000.0 + bitrate
+    }
+
+    private fun isBetterPreviewHeight(candidate: Int, best: Int): Boolean {
+        val c = candidate.coerceAtLeast(0)
+        val b = best.coerceAtLeast(0)
+        val cOver = c > PREFERRED_PREVIEW_HEIGHT
+        val bOver = b > PREFERRED_PREVIEW_HEIGHT
+        return when {
+            c == 0 -> false
+            b == 0 -> true
+            !cOver && bOver -> true
+            cOver && !bOver -> false
+            !cOver && !bOver -> c > b
+            else -> c < b
+        }
     }
 
     private fun audioScore(bitrate: Double, audioSampleRate: Double): Double {
