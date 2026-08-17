@@ -440,24 +440,29 @@ class InAppYouTubeExtractor @Inject constructor() {
         }
 
         val bestProgressive = sortCandidates(progressive).firstOrNull()
-        val bestVideo = pickBestForClient(adaptiveVideo, PREFERRED_SEPARATE_CLIENT)
-        val bestAudio = pickBestForClient(adaptiveAudio, PREFERRED_SEPARATE_CLIENT)
+        val adaptivePair = pickBestAdaptivePair(adaptiveVideo, adaptiveAudio)
 
-        // Try adaptive video + audio first (best quality, separate streams)
+        // Adaptive DASH is video-only + audio-only. Never return video without audio —
+        // that plays silent trailers on home cards (audioPresent=false).
         kotlinx.coroutines.yield()
-        val resolvedVideo = bestVideo?.url?.let { resolveReachableUrl(it) }
-        val resolvedAudio = if (resolvedVideo != null) bestAudio?.url?.let { resolveReachableUrl(it) } else null
-
-        if (resolvedVideo != null) {
-            return TrailerPlaybackSource(videoUrl = resolvedVideo, audioUrl = resolvedAudio)
+        if (adaptivePair != null) {
+            val resolvedVideo = resolveReachableUrl(adaptivePair.first.url)
+            val resolvedAudio = resolveReachableUrl(adaptivePair.second.url)
+            if (resolvedVideo != null && resolvedAudio != null) {
+                return TrailerPlaybackSource(videoUrl = resolvedVideo, audioUrl = resolvedAudio)
+            }
+            Log.w(
+                TAG,
+                "Adaptive pair unreachable (video=${resolvedVideo != null} audio=${resolvedAudio != null}); " +
+                    "falling back to muxed source"
+            )
         }
 
-        // Adaptive failed (403) — fall back to HLS manifest (1080p, always works for COPPA/kids content)
+        // HLS / progressive include muxed audio — prefer these over silent adaptive video.
         if (bestManifest != null) {
             return TrailerPlaybackSource(videoUrl = bestManifest.manifestUrl, audioUrl = null)
         }
 
-        // No HLS available — try progressive (combined video+audio, usually low quality)
         val resolvedProgressive = bestProgressive?.url?.let { resolveReachableUrl(it) }
         if (resolvedProgressive != null) {
             return TrailerPlaybackSource(videoUrl = resolvedProgressive, audioUrl = null)
@@ -735,6 +740,44 @@ class InAppYouTubeExtractor @Inject constructor() {
             return sortCandidates(sameClient).firstOrNull()
         }
         return sortCandidates(items).firstOrNull()
+    }
+
+    /**
+     * Pair adaptive video + audio from the same client when possible, preferring
+     * compatible containers (mp4+m4a) so MergingMediaSource actually has sound.
+     */
+    private fun pickBestAdaptivePair(
+        videos: List<StreamCandidate>,
+        audios: List<StreamCandidate>
+    ): Pair<StreamCandidate, StreamCandidate>? {
+        if (videos.isEmpty() || audios.isEmpty()) return null
+
+        fun pairScore(video: StreamCandidate, audio: StreamCandidate): Double {
+            val sameClientBonus = if (video.client == audio.client) 1_000_000_000.0 else 0.0
+            val containerBonus = when {
+                video.ext == "mp4" && audio.ext == "m4a" -> 500_000_000.0
+                video.ext == "webm" && audio.ext == "webm" -> 400_000_000.0
+                else -> 0.0
+            }
+            val preferredClientBonus =
+                if (video.client == PREFERRED_SEPARATE_CLIENT) 50_000_000.0 else 0.0
+            return sameClientBonus + containerBonus + preferredClientBonus + video.score + audio.score * 0.01
+        }
+
+        var best: Pair<StreamCandidate, StreamCandidate>? = null
+        var bestScore = Double.NEGATIVE_INFINITY
+        val topVideos = sortCandidates(videos).take(12)
+        val topAudios = sortCandidates(audios).take(8)
+        for (video in topVideos) {
+            for (audio in topAudios) {
+                val score = pairScore(video, audio)
+                if (score > bestScore) {
+                    bestScore = score
+                    best = video to audio
+                }
+            }
+        }
+        return best
     }
 
     /**

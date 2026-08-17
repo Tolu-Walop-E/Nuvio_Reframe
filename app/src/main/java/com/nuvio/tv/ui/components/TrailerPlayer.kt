@@ -110,6 +110,11 @@ fun TrailerPlayer(
         if (!hasRenderedFirstFrame) {
             hasRenderedFirstFrame = true
             android.util.Log.i("NetflixTrailer", "first-frame owner=${poolOwner.hashCode()}")
+            trailerPlayer?.let { player ->
+                if (resolvedPool?.isOwnedBy(poolOwner) != false) {
+                    player.volume = if (muted) 0f else 1f
+                }
+            }
             currentOnFirstFrameRendered()
         }
     }
@@ -125,10 +130,11 @@ fun TrailerPlayer(
         }
     }
 
-    LaunchedEffect(trailerPlayer, muted, cropToFill) {
+    LaunchedEffect(trailerPlayer, muted, cropToFill, hasRenderedFirstFrame) {
         val player = trailerPlayer ?: return@LaunchedEffect
         if (resolvedPool?.isOwnedBy(poolOwner) == false) return@LaunchedEffect
-        player.volume = if (muted) 0f else 1f
+        // Don't unmute before a frame — avoids audio-only on late/broken surfaces.
+        player.volume = if (muted || !hasRenderedFirstFrame) 0f else 1f
         player.videoScalingMode = if (cropToFill) {
             C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
         } else {
@@ -166,7 +172,9 @@ fun TrailerPlayer(
             )
             preparedMediaKey = mediaKey
             hasRenderedFirstFrame = false
-            player.volume = if (muted) 0f else 1f
+            // Keep silent until first video frame so broken/late surfaces never
+            // leak audio-only playback on Shield.
+            player.volume = 0f
             player.bindTrailerMedia(trailerUrl, trailerAudioUrl)
             player.prepare()
             player.playWhenReady = true
