@@ -69,6 +69,7 @@ import androidx.tv.material3.Text
 import com.nuvio.tv.core.build.AppFeaturePolicy
 import com.nuvio.tv.core.streams.STREAM_BADGE_IMPORT_LIMIT
 import com.nuvio.tv.core.streams.StreamBadgePlacement
+import com.nuvio.tv.data.local.LayoutPreferenceDataStore
 import com.nuvio.tv.domain.model.ContinueWatchingCardStyle
 import com.nuvio.tv.domain.model.ContinueWatchingSortMode
 import com.nuvio.tv.domain.model.CardDepthStyle
@@ -771,9 +772,12 @@ fun LayoutSettingsContent(
                     onFocused = { focusedSection = LayoutSettingsSection.FOCUSED_POSTER }
                 ) {
                     val isModern = uiState.selectedLayout == HomeLayout.MODERN
+                    val isNetflix = uiState.selectedLayout == HomeLayout.NETFLIX
                     val isModernLandscape = isModern && uiState.modernLandscapePostersEnabled
+                    // Netflix cards play trailers without the expand-on-focus behaviour,
+                    // so its trailer rows must not hang off the expand toggle.
                     val showAutoplayRow = AppFeaturePolicy.inAppTrailerPlaybackEnabled &&
-                        (uiState.focusedPosterBackdropExpandEnabled || isModernLandscape)
+                        (uiState.focusedPosterBackdropExpandEnabled || isModernLandscape || isNetflix)
 
                     if (!isModernLandscape) {
                         CompactToggleRow(
@@ -848,6 +852,25 @@ fun LayoutSettingsContent(
                                     LayoutSettingsEvent.SetFocusedPosterBackdropTrailerMuted(
                                         !uiState.focusedPosterBackdropTrailerMuted
                                     )
+                                )
+                            },
+                            onFocused = { focusedSection = LayoutSettingsSection.FOCUSED_POSTER }
+                        )
+                    }
+
+                    if (showAutoplayRow && uiState.focusedPosterBackdropTrailerEnabled) {
+                        SliderSettingsItem(
+                            icon = Icons.Default.Timer,
+                            title = stringResource(R.string.layout_trailer_start_delay),
+                            subtitle = stringResource(R.string.layout_trailer_start_delay_sub),
+                            value = uiState.trailerStartDelayMs,
+                            valueText = trailerStartDelayLabel(uiState.trailerStartDelayMs),
+                            minValue = LayoutPreferenceDataStore.MIN_TRAILER_START_DELAY_MS,
+                            maxValue = LayoutPreferenceDataStore.MAX_TRAILER_START_DELAY_MS,
+                            step = TRAILER_START_DELAY_STEP_MS,
+                            onValueChange = { delayMs ->
+                                viewModel.onEvent(
+                                    LayoutSettingsEvent.SetTrailerStartDelayMs(delayMs)
                                 )
                             },
                             onFocused = { focusedSection = LayoutSettingsSection.FOCUSED_POSTER }
@@ -1203,6 +1226,16 @@ private fun CompactToggleRow(
         onToggle = onToggle,
         onFocused = onFocused
     )
+}
+
+/** Quarter-second steps: the useful range for focus dwell is well under a second. */
+private const val TRAILER_START_DELAY_STEP_MS = 250
+
+private fun trailerStartDelayLabel(delayMs: Int): String {
+    if (delayMs <= 0) return "Instant"
+    val fraction = (delayMs % 1000).toString().padStart(3, '0').trimEnd('0')
+    val seconds = delayMs / 1000
+    return if (fraction.isEmpty()) "${seconds}s" else "$seconds.${fraction}s"
 }
 
 @Composable

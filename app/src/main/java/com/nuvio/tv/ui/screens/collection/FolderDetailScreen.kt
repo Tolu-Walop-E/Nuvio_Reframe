@@ -143,6 +143,8 @@ fun FolderDetailScreen(
                 posterLabelsEnabled = uiState.posterLabelsEnabled,
                 trailerMuted = uiState.focusedPosterBackdropTrailerMuted,
                 trailerEnabled = uiState.focusedPosterBackdropTrailerEnabled,
+                trailerStartDelayMs = homeState?.trailerStartDelayMs
+                    ?: com.nuvio.tv.ui.screens.home.netflix.NetflixHomeTokens.TrailerStartDelayMs,
                 trailerPreviewUrls = trailerPreviewUrls,
                 trailerPreviewAudioUrls = trailerPreviewAudioUrls,
                 onNavigateToDetail = onNavigateToDetail,

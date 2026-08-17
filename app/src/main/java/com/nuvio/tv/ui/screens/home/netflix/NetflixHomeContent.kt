@@ -717,6 +717,7 @@ fun NetflixHomeContent(
                             (uiState.activeViewPackName.isNullOrBlank() ||
                                 uiState.viewPackHeroTrailerEnabled),
                         trailerPreviewMuted = uiState.focusedPosterBackdropTrailerMuted,
+                        trailerStartDelayMs = uiState.trailerStartDelayMs,
                         onTrailerEnded = {
                             heroItem?.key?.let { playedTrailerKeys[it] = true }
                             previewTrailerHeroKey = null
@@ -860,6 +861,7 @@ fun NetflixHomeContent(
                             trailerEnabled = netflixTrailersEnabled &&
                                 (!packActive || packTrailer),
                             trailerMuted = uiState.focusedPosterBackdropTrailerMuted,
+                            trailerStartDelayMs = uiState.trailerStartDelayMs,
                             onRequestTrailerPreview = { item ->
                                 Log.i(NETFLIX_TRAILER_LOG, "rail request trailer id=${item.id} title=${item.name}")
                                 onRequestTrailerPreview(item.id, item.name, item.releaseInfo, item.apiType)

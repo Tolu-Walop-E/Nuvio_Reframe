@@ -61,6 +61,8 @@ internal fun NetflixHero(
     trailerPreviewAudioUrl: String?,
     playTrailerPreview: Boolean,
     trailerPreviewMuted: Boolean,
+    /** Focus dwell before the trailer is allowed to start. */
+    trailerStartDelayMs: Int = NetflixHomeTokens.TrailerStartDelayMs,
     onTrailerEnded: () -> Unit,
     onFocusedChanged: (Boolean) -> Unit = {},
     onViewDetails: (NetflixHomeTarget) -> Unit
@@ -70,27 +72,14 @@ internal fun NetflixHero(
     var hasTrailerFrame by remember(item?.key) { mutableStateOf(false) }
     var trailerArmed by remember(item?.key) { mutableStateOf(false) }
 
-    // Arm ASAP when the trailer URL is already warm; otherwise wait a short settle.
-    LaunchedEffect(focused, item?.key) {
+    // Settle window measured from focus. Arming without a URL is harmless:
+    // playback still waits for one.
+    LaunchedEffect(focused, item?.key, trailerStartDelayMs) {
         trailerArmed = false
         hasTrailerFrame = false
         if (!focused) return@LaunchedEffect
-        val cached = !trailerPreviewUrl.isNullOrBlank()
-        delay(
-            if (cached) {
-                NetflixHomeTokens.TrailerCachedStartDelayMs
-            } else {
-                NetflixHomeTokens.TrailerStartDelayMs
-            }
-        )
+        delay(trailerStartDelayMs.coerceAtLeast(0).toLong())
         if (focused) {
-            trailerArmed = true
-        }
-    }
-    LaunchedEffect(trailerPreviewUrl, focused, item?.key) {
-        if (!focused || trailerArmed || trailerPreviewUrl.isNullOrBlank()) return@LaunchedEffect
-        delay(NetflixHomeTokens.TrailerCachedStartDelayMs)
-        if (focused && !trailerPreviewUrl.isNullOrBlank()) {
             trailerArmed = true
         }
     }

@@ -215,6 +215,8 @@ internal fun NetflixCatalogRail(
     trailerPreviewAudioUrls: Map<String, String> = emptyMap(),
     trailerEnabled: Boolean = false,
     trailerMuted: Boolean = true,
+    /** Focus dwell before a card trailer starts. */
+    trailerStartDelayMs: Int = NetflixHomeTokens.TrailerStartDelayMs,
     onRequestTrailerPreview: (MetaPreview) -> Unit = {},
     /** Keep titled empty rails (Studio pack) instead of collapsing them. */
     allowEmpty: Boolean = false,
@@ -431,6 +433,7 @@ internal fun NetflixCatalogRail(
                         trailerAudioUrl = trailerPreviewAudioUrls[item.id],
                         playTrailer = playTrailer,
                         trailerMuted = trailerMuted,
+                        trailerStartDelayMs = trailerStartDelayMs,
                         onTrailerEnded = { playedTrailerIds[item.id] = true },
                         onClick = { onItemClick(item, row.addonBaseUrl) },
                         onFocus = {

@@ -145,6 +145,7 @@ fun CatalogSeeAllScreen(
             posterLabelsEnabled = uiState.posterLabelsEnabled,
             trailerMuted = uiState.focusedPosterBackdropTrailerMuted,
             trailerEnabled = uiState.focusedPosterBackdropTrailerEnabled,
+            trailerStartDelayMs = uiState.trailerStartDelayMs,
             trailerPreviewUrls = viewModel.trailerPreviewUrls,
             trailerPreviewAudioUrls = viewModel.trailerPreviewAudioUrls,
             onNavigateToDetail = onNavigateToDetail,

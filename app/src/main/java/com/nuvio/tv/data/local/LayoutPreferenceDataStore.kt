@@ -51,6 +51,9 @@ class LayoutPreferenceDataStore @Inject constructor(
         private const val DEFAULT_POSTER_CARD_CORNER_RADIUS_DP = 12
         private const val DEFAULT_FOCUSED_POSTER_BACKDROP_EXPAND_DELAY_SECONDS = 3
         private const val MIN_FOCUSED_POSTER_BACKDROP_EXPAND_DELAY_SECONDS = 0
+        const val DEFAULT_TRAILER_START_DELAY_MS = 250
+        const val MIN_TRAILER_START_DELAY_MS = 0
+        const val MAX_TRAILER_START_DELAY_MS = 5000
     }
 
     private fun store(profileId: Int = profileManager.activeProfileId.value) =
@@ -83,6 +86,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     private val focusedPosterBackdropTrailerMutedKey = booleanPreferencesKey("focused_poster_backdrop_trailer_muted")
     private val focusedPosterBackdropTrailerPlaybackTargetKey =
         stringPreferencesKey("focused_poster_backdrop_trailer_playback_target")
+    private val trailerStartDelayMsKey = intPreferencesKey("trailer_start_delay_ms")
     private val posterCardWidthDpKey = intPreferencesKey("poster_card_width_dp")
     private val posterCardHeightDpKey = intPreferencesKey("poster_card_height_dp")
     private val posterCardCornerRadiusDpKey = intPreferencesKey("poster_card_corner_radius_dp")
@@ -303,6 +307,12 @@ class LayoutPreferenceDataStore @Inject constructor(
             runCatching { FocusedPosterTrailerPlaybackTarget.valueOf(stored) }
                 .getOrDefault(FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD)
         }
+
+    /** How long a card or hero must hold focus before its trailer starts. */
+    val trailerStartDelayMs: Flow<Int> = profileFlow { prefs ->
+        (prefs[trailerStartDelayMsKey] ?: DEFAULT_TRAILER_START_DELAY_MS)
+            .coerceIn(MIN_TRAILER_START_DELAY_MS, MAX_TRAILER_START_DELAY_MS)
+    }
 
     val posterCardWidthDp: Flow<Int> = profileFlow { prefs ->
         positiveOrDefault(prefs[posterCardWidthDpKey], DEFAULT_POSTER_CARD_WIDTH_DP)
@@ -651,6 +661,13 @@ class LayoutPreferenceDataStore @Inject constructor(
     suspend fun setFocusedPosterBackdropTrailerMuted(muted: Boolean) {
         store().edit { prefs ->
             prefs[focusedPosterBackdropTrailerMutedKey] = muted
+        }
+    }
+
+    suspend fun setTrailerStartDelayMs(delayMs: Int) {
+        store().edit { prefs ->
+            prefs[trailerStartDelayMsKey] =
+                delayMs.coerceIn(MIN_TRAILER_START_DELAY_MS, MAX_TRAILER_START_DELAY_MS)
         }
     }
 

@@ -92,6 +92,8 @@ internal fun NetflixMediaCard(
     trailerAudioUrl: String? = null,
     playTrailer: Boolean = false,
     trailerMuted: Boolean = true,
+    /** Focus dwell before the trailer is allowed to start. */
+    trailerStartDelayMs: Int = NetflixHomeTokens.TrailerStartDelayMs,
     onTrailerEnded: () -> Unit = {},
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
@@ -174,29 +176,14 @@ internal fun NetflixMediaCard(
         holdUntilReadyImageUrl.isNullOrBlank()
     val showText = showLabels || showFallbackTitle
 
-    // Arm ASAP when the trailer URL is already warm; otherwise wait a short settle
-    // so D-pad flits don't start the shared player. URL arrival while focused also
-    // arms quickly without restarting a long timer.
-    LaunchedEffect(focused, mediaKey) {
+    // Settle window measured from focus, so D-pad flits don't start the shared
+    // player. Arming without a URL is harmless: playback still waits for one.
+    LaunchedEffect(focused, mediaKey, trailerStartDelayMs) {
         trailerArmed = false
         hasTrailerFrame = false
         if (!focused) return@LaunchedEffect
-        val cached = !trailerUrl.isNullOrBlank()
-        delay(
-            if (cached) {
-                NetflixHomeTokens.TrailerCachedStartDelayMs
-            } else {
-                NetflixHomeTokens.TrailerStartDelayMs
-            }
-        )
+        delay(trailerStartDelayMs.coerceAtLeast(0).toLong())
         if (focused) {
-            trailerArmed = true
-        }
-    }
-    LaunchedEffect(trailerUrl, focused, mediaKey) {
-        if (!focused || trailerArmed || trailerUrl.isNullOrBlank()) return@LaunchedEffect
-        delay(NetflixHomeTokens.TrailerCachedStartDelayMs)
-        if (focused && !trailerUrl.isNullOrBlank()) {
             trailerArmed = true
         }
     }

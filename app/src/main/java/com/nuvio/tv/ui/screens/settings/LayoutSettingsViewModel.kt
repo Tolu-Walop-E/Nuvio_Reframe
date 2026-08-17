@@ -59,6 +59,7 @@ data class LayoutSettingsUiState(
     val focusedPosterBackdropTrailerMuted: Boolean = true,
     val focusedPosterBackdropTrailerPlaybackTarget: FocusedPosterTrailerPlaybackTarget =
         FocusedPosterTrailerPlaybackTarget.HERO_MEDIA,
+    val trailerStartDelayMs: Int = 250,
     val posterCardWidthDp: Int = 126,
     val posterCardHeightDp: Int = 189,
     val posterCardCornerRadiusDp: Int = 12,
@@ -108,6 +109,7 @@ sealed class LayoutSettingsEvent {
     data class SetFocusedPosterBackdropTrailerPlaybackTarget(
         val target: FocusedPosterTrailerPlaybackTarget
     ) : LayoutSettingsEvent()
+    data class SetTrailerStartDelayMs(val delayMs: Int) : LayoutSettingsEvent()
     data class SetPosterCardWidth(val widthDp: Int) : LayoutSettingsEvent()
     data class SetPosterCardCornerRadius(val cornerRadiusDp: Int) : LayoutSettingsEvent()
     data class SetCardDepthEnabled(val enabled: Boolean) : LayoutSettingsEvent()
@@ -276,6 +278,11 @@ class LayoutSettingsViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            layoutPreferenceDataStore.trailerStartDelayMs.distinctUntilChanged().collectLatest { delayMs ->
+                updateUiStateIfChanged { it.copy(trailerStartDelayMs = delayMs) }
+            }
+        }
+        viewModelScope.launch {
             layoutPreferenceDataStore.posterCardWidthDp.distinctUntilChanged().collectLatest { widthDp ->
                 updateUiStateIfChanged { it.copy(posterCardWidthDp = widthDp) }
             }
@@ -419,6 +426,7 @@ class LayoutSettingsViewModel @Inject constructor(
             is LayoutSettingsEvent.SetFocusedPosterBackdropTrailerMuted -> setFocusedPosterBackdropTrailerMuted(event.muted)
             is LayoutSettingsEvent.SetFocusedPosterBackdropTrailerPlaybackTarget ->
                 setFocusedPosterBackdropTrailerPlaybackTarget(event.target)
+            is LayoutSettingsEvent.SetTrailerStartDelayMs -> setTrailerStartDelayMs(event.delayMs)
             is LayoutSettingsEvent.SetPosterCardWidth -> setPosterCardWidth(event.widthDp)
             is LayoutSettingsEvent.SetPosterCardCornerRadius -> setPosterCardCornerRadius(event.cornerRadiusDp)
             is LayoutSettingsEvent.SetCardDepthEnabled -> setCardDepthEnabled(event.enabled)
@@ -733,6 +741,13 @@ class LayoutSettingsViewModel @Inject constructor(
         if (_uiState.value.focusedPosterBackdropTrailerPlaybackTarget == target) return
         viewModelScope.launch {
             layoutPreferenceDataStore.setFocusedPosterBackdropTrailerPlaybackTarget(target)
+        }
+    }
+
+    private fun setTrailerStartDelayMs(delayMs: Int) {
+        if (_uiState.value.trailerStartDelayMs == delayMs) return
+        viewModelScope.launch {
+            layoutPreferenceDataStore.setTrailerStartDelayMs(delayMs)
         }
     }
 

@@ -43,11 +43,10 @@ internal object NetflixHomeTokens {
     val ProgressBarHorizontalInset = 8.dp
     val ProgressScrimHeight = 32.dp
     /**
-     * Min settle before arming when a trailer URL is already cached.
-     * Longer [TrailerStartDelayMs] only applies while the URL is still loading.
+     * Focus dwell before a trailer is armed, used when no caller supplies the
+     * user's "Trailer Start Delay" setting.
      */
-    const val TrailerCachedStartDelayMs = 120L
-    const val TrailerStartDelayMs = 500L
+    const val TrailerStartDelayMs = 250
     val PortraitCardWidth = 122.dp
     val PortraitCardHeight = 184.dp
     val FocusedPortraitCardWidth = 258.dp

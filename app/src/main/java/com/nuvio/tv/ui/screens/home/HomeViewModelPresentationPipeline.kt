@@ -7,6 +7,7 @@ import com.nuvio.tv.LocaleCache
 import com.nuvio.tv.core.build.AppFeaturePolicy
 import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.core.tmdb.TmdbEnrichment
+import com.nuvio.tv.data.local.LayoutPreferenceDataStore
 import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
 import com.nuvio.tv.domain.model.HomeLayout
 import com.nuvio.tv.domain.model.Meta
@@ -48,7 +49,8 @@ private data class FocusedBackdropPrefs(
     val expandDelaySeconds: Int,
     val trailerEnabled: Boolean,
     val trailerMuted: Boolean,
-    val trailerPlaybackTarget: FocusedPosterTrailerPlaybackTarget
+    val trailerPlaybackTarget: FocusedPosterTrailerPlaybackTarget,
+    val trailerStartDelayMs: Int
 )
 
 private data class LayoutUiPrefs(
@@ -68,6 +70,7 @@ private data class LayoutUiPrefs(
     val focusedBackdropTrailerEnabled: Boolean,
     val focusedBackdropTrailerMuted: Boolean,
     val focusedBackdropTrailerPlaybackTarget: FocusedPosterTrailerPlaybackTarget,
+    val trailerStartDelayMs: Int,
     val posterCardWidthDp: Int,
     val posterCardHeightDp: Int,
     val posterCardCornerRadiusDp: Int
@@ -109,19 +112,25 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
     }
 
     val focusedBackdropPrefsFlow = combine(
-        layoutPreferenceDataStore.focusedPosterBackdropExpandEnabled,
-        layoutPreferenceDataStore.focusedPosterBackdropExpandDelaySeconds,
-        layoutPreferenceDataStore.focusedPosterBackdropTrailerEnabled,
-        layoutPreferenceDataStore.focusedPosterBackdropTrailerMuted,
-        layoutPreferenceDataStore.focusedPosterBackdropTrailerPlaybackTarget
-    ) { expandEnabled, expandDelaySeconds, trailerEnabled, trailerMuted, trailerPlaybackTarget ->
-        FocusedBackdropPrefs(
-            expandEnabled = expandEnabled,
-            expandDelaySeconds = expandDelaySeconds,
-            trailerEnabled = trailerEnabled,
-            trailerMuted = trailerMuted,
-            trailerPlaybackTarget = trailerPlaybackTarget
-        )
+        combine(
+            layoutPreferenceDataStore.focusedPosterBackdropExpandEnabled,
+            layoutPreferenceDataStore.focusedPosterBackdropExpandDelaySeconds,
+            layoutPreferenceDataStore.focusedPosterBackdropTrailerEnabled,
+            layoutPreferenceDataStore.focusedPosterBackdropTrailerMuted,
+            layoutPreferenceDataStore.focusedPosterBackdropTrailerPlaybackTarget
+        ) { expandEnabled, expandDelaySeconds, trailerEnabled, trailerMuted, trailerPlaybackTarget ->
+            FocusedBackdropPrefs(
+                expandEnabled = expandEnabled,
+                expandDelaySeconds = expandDelaySeconds,
+                trailerEnabled = trailerEnabled,
+                trailerMuted = trailerMuted,
+                trailerPlaybackTarget = trailerPlaybackTarget,
+                trailerStartDelayMs = LayoutPreferenceDataStore.DEFAULT_TRAILER_START_DELAY_MS
+            )
+        },
+        layoutPreferenceDataStore.trailerStartDelayMs
+    ) { prefs, trailerStartDelayMs ->
+        prefs.copy(trailerStartDelayMs = trailerStartDelayMs)
     }
 
     val modernLayoutPrefsFlow = combine(
@@ -156,6 +165,7 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
                 AppFeaturePolicy.inAppTrailerPlaybackEnabled,
             focusedBackdropTrailerMuted = focusedBackdropPrefs.trailerMuted,
             focusedBackdropTrailerPlaybackTarget = focusedBackdropPrefs.trailerPlaybackTarget,
+            trailerStartDelayMs = focusedBackdropPrefs.trailerStartDelayMs,
             posterCardWidthDp = posterCardWidthDp,
             posterCardHeightDp = posterCardHeightDp,
             posterCardCornerRadiusDp = posterCardCornerRadiusDp
@@ -221,6 +231,7 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
                         focusedPosterBackdropTrailerEnabled = prefs.focusedBackdropTrailerEnabled,
                         focusedPosterBackdropTrailerMuted = prefs.focusedBackdropTrailerMuted,
                         focusedPosterBackdropTrailerPlaybackTarget = prefs.focusedBackdropTrailerPlaybackTarget,
+                        trailerStartDelayMs = prefs.trailerStartDelayMs,
                         posterCardWidthDp = prefs.posterCardWidthDp,
                         posterCardHeightDp = prefs.posterCardHeightDp,
                         posterCardCornerRadiusDp = prefs.posterCardCornerRadiusDp

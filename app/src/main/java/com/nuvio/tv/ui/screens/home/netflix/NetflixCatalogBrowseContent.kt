@@ -66,6 +66,8 @@ fun NetflixCatalogBrowseContent(
     posterLabelsEnabled: Boolean,
     trailerMuted: Boolean,
     trailerEnabled: Boolean,
+    /** Focus dwell before a card or hero trailer starts. */
+    trailerStartDelayMs: Int = NetflixHomeTokens.TrailerStartDelayMs,
     trailerPreviewUrls: Map<String, String> = emptyMap(),
     trailerPreviewAudioUrls: Map<String, String> = emptyMap(),
     onNavigateToDetail: (String, String, String) -> Unit,
@@ -292,6 +294,7 @@ fun NetflixCatalogBrowseContent(
                             heroItem?.key?.let { playedTrailerKeys[it] } != true &&
                             !heroCatalogId?.let { trailerPreviewUrls[it] }.isNullOrBlank(),
                         trailerPreviewMuted = trailerMuted,
+                        trailerStartDelayMs = trailerStartDelayMs,
                         onTrailerEnded = {
                             heroItem?.key?.let { playedTrailerKeys[it] = true }
                             previewTrailerHeroKey = null
@@ -357,6 +360,7 @@ fun NetflixCatalogBrowseContent(
                     trailerPreviewAudioUrls = trailerPreviewAudioUrls,
                     trailerEnabled = netflixTrailersEnabled,
                     trailerMuted = trailerMuted,
+                    trailerStartDelayMs = trailerStartDelayMs,
                     onRequestTrailerPreview = { item ->
                         Log.i(NETFLIX_TRAILER_LOG, "browse rail request trailer id=${item.id}")
                         onRequestTrailerPreview(item.id, item.name, item.releaseInfo, item.apiType)

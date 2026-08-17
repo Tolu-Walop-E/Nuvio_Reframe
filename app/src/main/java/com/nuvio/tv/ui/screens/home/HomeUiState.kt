@@ -44,6 +44,8 @@ data class HomeUiState(
     val focusedPosterBackdropTrailerMuted: Boolean = true,
     val focusedPosterBackdropTrailerPlaybackTarget: FocusedPosterTrailerPlaybackTarget =
         FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD,
+    /** Focus dwell before a card or hero trailer starts. */
+    val trailerStartDelayMs: Int = 250,
     val posterCardWidthDp: Int = 126,
     val posterCardHeightDp: Int = 189,
     val posterCardCornerRadiusDp: Int = 12,
