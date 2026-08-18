@@ -178,7 +178,7 @@ internal fun ModernHomeRowsList(
             verticalRowListState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
         }
             .distinctUntilChanged()
-            .debounce(120L) // VERTICAL_PREFETCH_DEBOUNCE_MS
+            .debounce(240L) // VERTICAL_PREFETCH_DEBOUNCE_MS
             .collect { lastVisibleRowIndex ->
                 withContext(Dispatchers.IO) {
                     for (rowOffset in 1..prefetchAheadRows) {

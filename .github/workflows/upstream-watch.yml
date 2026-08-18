@@ -1,0 +1,51 @@
+name: Upstream Nuvio watch
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 12 * * *"
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: upstream-nuvio-watch
+  cancel-in-progress: true
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fetch NuvioMedia/NuvioTV
+        run: |
+          git remote add nuvio https://github.com/NuvioMedia/NuvioTV.git || true
+          git fetch nuvio dev --prune
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Score upstream commits
+        run: python scripts/upstream_watch.py --markdown upstream-watch.md
+      - name: Open or update tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TITLE="Upstream Nuvio watch"
+          {
+            echo "Automated scan of \`NuvioMedia/NuvioTV\` \`dev\` vs this Reframe branch."
+            echo
+            echo "Keyword scoring only — do not merge upstream. Port HIGH commits by hand."
+            echo
+            echo '```'
+            cat upstream-watch.md
+            echo '```'
+          } > issue-body.md
+          ISSUE=$(gh issue list --search "$TITLE in:title" --state open --json number --jq '.[0].number')
+          if [ -z "$ISSUE" ]; then
+            gh issue create --title "$TITLE" --body-file issue-body.md
+          else
+            gh issue comment "$ISSUE" --body-file issue-body.md
+          fi

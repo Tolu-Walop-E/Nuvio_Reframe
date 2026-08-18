@@ -1,0 +1,17 @@
+---
+description: Watch upstream Nuvio for performance commits that still apply to Reframe
+alwaysApply: true
+---
+
+# Upstream Nuvio watch
+
+Reframe (`Tolu-Walop-E/Nuvio_Reframe`) forked `NuvioMedia/NuvioTV` at merge-base with `origin/dev` (around 2026-08-07). Nuvio still lands home, Coil, prefetch, and player work on `dev`.
+
+When the user asks about Nuvio updates, performance, or "pulling upstream":
+
+1. Run `python scripts/upstream_watch.py` (it fetches `NuvioMedia/NuvioTV` `dev`).
+2. Port **HIGH** commits by hand, file-by-file, against our Netflix home / trailer / Coil code. Do not `git merge origin/dev`.
+3. Skip **CONFLICT** commits unless the user explicitly wants them. High-resolution trailers fight the Shield 720p cap.
+4. Leave a short note in the reply: what was taken, what was skipped, and the new upstream tip SHA.
+
+The in-app APK updater is unrelated; it only reads Reframe GitHub Releases.

@@ -133,9 +133,15 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
                 val memoryInfo = ActivityManager.MemoryInfo()
                 activityManager.getMemoryInfo(memoryInfo)
                 val totalRamMb = memoryInfo.totalMem / (1024 * 1024)
-                // Low-RAM devices (≤3GB): use 15% to leave headroom for system + player buffers.
-                // Normal devices (>3GB): use 25% for snappy image loading.
-                val cachePercent = if (totalRamMb <= 3072) 0.15 else 0.30
+                // Upstream Nuvio (Aug 18) found TV scrolling evicts too hard at 10–15% and
+                // then GCs. Shield-class boxes sit in the mid bucket. Keep hardware
+                // bitmaps on GPU memory — software-only bitmaps blew the Dalvik heap
+                // when we last tried a larger cache on this fork.
+                val cachePercent = when {
+                    totalRamMb <= 2048 -> 0.15
+                    totalRamMb <= 3072 -> 0.20
+                    else -> 0.25
+                }
                 MemoryCache.Builder()
                     .maxSizePercent(context, cachePercent)
                     .build()

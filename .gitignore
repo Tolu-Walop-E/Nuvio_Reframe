@@ -53,6 +53,8 @@ scripts/*
 !scripts/release_notes/*.py
 !scripts/release-metadata.sh
 !scripts/release_beta.py
+!scripts/upstream_watch.py
+!scripts/upstream_watch.md
 !scripts/tests/
 !scripts/tests/*.py
 tv-samples

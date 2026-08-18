@@ -415,7 +415,8 @@ internal fun HomeViewModel.requestTrailerPreviewPipeline(
     val requestVersion = trailerPreviewRequestVersion
     android.util.Log.i("NetflixTrailer", "fetch-start id=$itemId title=$title version=$requestVersion")
 
-    viewModelScope.launch(Dispatchers.IO) {
+    trailerPreviewJob?.cancel()
+    trailerPreviewJob = viewModelScope.launch(Dispatchers.IO) {
         try {
             delay(16)
 
