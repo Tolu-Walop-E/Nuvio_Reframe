@@ -106,7 +106,12 @@ fun DiscoverScreen(
                     pendingDiscoverRestoreOnResume = true
                     onNavigateToDetail(itemId, itemType, addonBaseUrl)
                 },
-                onDiscoverItemFocused = { discoverFocusedItemIndex = it },
+                onDiscoverItemFocused = { index ->
+                    discoverFocusedItemIndex = index
+                    uiState.discoverResults.getOrNull(index)?.let { item ->
+                        viewModel.prefetchMetaOnFocus(item.id, item.rawType)
+                    }
+                },
                 onSelectType = {
                     discoverFocusedItemIndex = 0
                     viewModel.onEvent(SearchEvent.SelectDiscoverType(it))
@@ -134,7 +139,9 @@ fun DiscoverScreen(
             onNavigateToDetail = { id, type, addonBaseUrl ->
                 pendingDiscoverRestoreOnResume = true
                 val clickedItem = uiState.discoverResults.firstOrNull { it.id == id }
-                HeroBackdropState.update(clickedItem?.backdropUrl)
+                val backdrop = viewModel.getCachedBackdrop(id, type)
+                    ?: clickedItem?.backdropUrl
+                HeroBackdropState.update(backdrop)
                 onNavigateToDetail(id, type, addonBaseUrl)
             }
         )

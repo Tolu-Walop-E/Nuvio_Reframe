@@ -61,6 +61,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import java.util.Collections
+import java.util.LinkedHashMap
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 
@@ -101,6 +102,17 @@ class HomeViewModel @Inject constructor(
         private const val MAX_CATALOG_LOAD_CONCURRENCY = 3
         internal const val EXTERNAL_META_PREFETCH_FOCUS_DEBOUNCE_MS = 220L
         internal const val EXTERNAL_META_PREFETCH_ADJACENT_DEBOUNCE_MS = 120L
+        private const val MAX_ENRICHMENT_CACHE_SIZE = 64
+        private const val MAX_PREFETCH_CACHE_SIZE = 64
+        private const val MAX_CW_CACHE_SIZE = 64
+
+        private fun <K, V> createLruMap(maxSize: Int): MutableMap<K, V> {
+            val lru = object : LinkedHashMap<K, V>(maxSize + 4, 0.75f, true) {
+                override fun removeEldestEntry(eldest: MutableMap.MutableEntry<K, V>?): Boolean =
+                    size > maxSize
+            }
+            return Collections.synchronizedMap(lru)
+        }
     }
 
     internal val _uiState = MutableStateFlow(HomeUiState())
@@ -260,6 +272,14 @@ class HomeViewModel @Inject constructor(
     internal val _enrichedPreviews = MutableStateFlow<Map<String, MetaPreview>>(emptyMap())
     val enrichedPreviews: StateFlow<Map<String, MetaPreview>> = _enrichedPreviews.asStateFlow()
 
+    internal fun addEnrichedPreview(id: String, preview: MetaPreview) {
+        _enrichedPreviews.update { current ->
+            val updated = current + (id to preview)
+            if (updated.size <= MAX_ENRICHMENT_CACHE_SIZE) updated
+            else LinkedHashMap(updated).apply { while (size > MAX_ENRICHMENT_CACHE_SIZE) remove(keys.first()) }
+        }
+    }
+
     /** Items for which enrichment was attempted but produced no enriched data. */
     internal val _failedEnrichmentIds = MutableStateFlow<Set<String>>(emptySet())
     val failedEnrichmentIds: StateFlow<Set<String>> = _failedEnrichmentIds.asStateFlow()
@@ -318,28 +338,33 @@ class HomeViewModel @Inject constructor(
     internal var lastHeroEnrichedItems: List<MetaPreview> = emptyList()
     internal var heroItemOrder: List<String> = emptyList()
     internal val modernCarouselRowBuildCache = ModernCarouselRowBuildCache()
-    internal val prefetchedExternalMetaIds: MutableSet<String> = ConcurrentHashMap.newKeySet()
+    internal val prefetchedExternalMetaIds: MutableSet<String> =
+        Collections.newSetFromMap(createLruMap(MAX_PREFETCH_CACHE_SIZE))
+    internal val backgroundMetaPrefetchedIds: MutableSet<String> =
+        Collections.newSetFromMap(createLruMap(MAX_PREFETCH_CACHE_SIZE))
     internal val externalMetaPrefetchInFlightIds: MutableSet<String> = ConcurrentHashMap.newKeySet()
     internal var externalMetaPrefetchJob: Job? = null
     internal var pendingExternalMetaPrefetchItemId: String? = null
-    internal val prefetchedTmdbIds: MutableSet<String> = ConcurrentHashMap.newKeySet()
-    internal val cwMetaCache = Collections.synchronizedMap(mutableMapOf<String, CwMetaSummary?>())
-    internal val cwMetaNegativeCacheTimestamps = ConcurrentHashMap<String, Long>()
+    internal val prefetchedTmdbIds: MutableSet<String> =
+        Collections.newSetFromMap(createLruMap(MAX_PREFETCH_CACHE_SIZE))
+    internal val cwMetaCache: MutableMap<String, CwMetaSummary?> = createLruMap(MAX_CW_CACHE_SIZE)
+    internal val cwMetaNegativeCacheTimestamps: MutableMap<String, Long> = createLruMap(MAX_CW_CACHE_SIZE)
     /** Ultra-light cache for badge evaluation: contentId → set of aired (season, episode) pairs. */
-    internal val cwBadgeEpisodeCache = Collections.synchronizedMap(mutableMapOf<String, Set<Pair<Int, Int>>?>())
+    internal val cwBadgeEpisodeCache: MutableMap<String, Set<Pair<Int, Int>>?> = createLruMap(MAX_CW_CACHE_SIZE)
     /** Per-series earliest upcoming season release date (epochMs) for smart TTL scheduling. */
-    internal val cwBadgeNextSeasonMs = ConcurrentHashMap<String, Long>()
+    internal val cwBadgeNextSeasonMs: MutableMap<String, Long> = createLruMap(MAX_CW_CACHE_SIZE)
     /** Snapshot of watchedShowEpisodes keys from the last badge evaluation cycle. */
     @Volatile
     internal var cwLastBadgeEpisodeKeys: Set<String> = emptySet()
     /** Cached show ID siblings from the last badge evaluation cycle (for anime ID expansion). */
     @Volatile
     internal var cwLastShowIdSiblings: Map<String, Set<String>> = emptyMap()
-    internal val cwTmdbIdCache = Collections.synchronizedMap(mutableMapOf<String, String?>())
+    internal val cwTmdbIdCache: MutableMap<String, String?> = createLruMap(MAX_CW_CACHE_SIZE)
     internal val cwNextUpResolutionCache = Collections.synchronizedMap(mutableMapOf<String, NextUpResolution?>())
     internal val cwNextUpNegativeCacheTimestamps = ConcurrentHashMap<String, Long>()
     internal val discoveredOlderNextUpItems = Collections.synchronizedList(mutableListOf<ContinueWatchingItem.NextUp>())
     internal val cwLastProcessedNextUpContentIds: MutableSet<String> = ConcurrentHashMap.newKeySet()
+    internal val cwProcessedOlderSeedContentIds: MutableSet<String> = ConcurrentHashMap.newKeySet()
     internal val cwEnrichedNextUpOverlay = ConcurrentHashMap<String, NextUpInfo>()
     /** In-memory cache of enriched InProgress items per contentId+episode key. */
     internal val cwEnrichedInProgressOverlay = ConcurrentHashMap<String, ContinueWatchingItem.InProgress>()
@@ -502,6 +527,7 @@ class HomeViewModel @Inject constructor(
                     cwNextUpNegativeCacheTimestamps.clear()
                     discoveredOlderNextUpItems.clear()
                     cwLastProcessedNextUpContentIds.clear()
+                    cwProcessedOlderSeedContentIds.clear()
                     cwEnrichedNextUpOverlay.clear()
                     cwEnrichedInProgressOverlay.clear()
                     cwLastBadgeEpisodeKeys = emptySet()
@@ -567,6 +593,7 @@ class HomeViewModel @Inject constructor(
         cwNextUpNegativeCacheTimestamps.clear()
         discoveredOlderNextUpItems.clear()
         cwLastProcessedNextUpContentIds.clear()
+        cwProcessedOlderSeedContentIds.clear()
         cwEnrichedNextUpOverlay.clear()
         cwEnrichedInProgressOverlay.clear()
         cwLastBadgeEpisodeKeys = emptySet()
@@ -729,6 +756,7 @@ class HomeViewModel @Inject constructor(
                         cwEnrichedInProgressOverlay.clear()
                         discoveredOlderNextUpItems.clear()
                         cwLastProcessedNextUpContentIds.clear()
+                        cwProcessedOlderSeedContentIds.clear()
                         // Clear disk cache for current profile.
                         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                             runCatching { cwEnrichmentCache.saveNextUpSnapshot(emptyList(), force = true) }

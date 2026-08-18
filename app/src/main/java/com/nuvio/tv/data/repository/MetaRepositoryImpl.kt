@@ -580,4 +580,10 @@ class MetaRepositoryImpl @Inject constructor(
         inFlightAddonMeta.clear()
         inFlightPrimaryMeta.clear()
     }
+
+    override fun getCachedMeta(type: String, id: String): Meta? {
+        val cacheKey = "$type:$id"
+        return addonMetaCache[cacheKey]?.takeIf { !it.isExpired() }?.meta
+            ?: primaryAddonMetaCache[cacheKey]?.takeIf { !it.isExpired() }?.meta
+    }
 }

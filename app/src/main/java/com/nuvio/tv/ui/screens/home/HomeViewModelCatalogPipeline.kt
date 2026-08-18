@@ -306,6 +306,7 @@ internal fun HomeViewModel.observeTmdbSettingsPipeline() {
                     // Allow re-enrichment with the updated TMDB metadata selection on next focus.
                     prefetchedTmdbIds.clear()
                     prefetchedExternalMetaIds.clear()
+                    backgroundMetaPrefetchedIds.clear()
                     _enrichedPreviews.value = emptyMap()
                     _lastEnrichedPreview.value = null
                 }
@@ -376,6 +377,7 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
     activeTrailerPreviewItemId = null
     trailerPreviewRequestVersion = 0L
     prefetchedExternalMetaIds.clear()
+    backgroundMetaPrefetchedIds.clear()
     externalMetaPrefetchInFlightIds.clear()
     externalMetaPrefetchJob?.cancel()
     pendingExternalMetaPrefetchItemId = null
