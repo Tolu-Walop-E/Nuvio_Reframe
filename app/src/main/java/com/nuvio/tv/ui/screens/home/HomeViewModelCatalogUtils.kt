@@ -396,6 +396,13 @@ private fun HomeViewModel.applyActiveViewPackOrderIfNeeded(allAvailable: Set<Str
         val ref = activeViewPackCatalogRefs[key] ?: return@map key
         com.nuvio.tv.core.viewpack.remapPackCatalogRef(ref, installed).orderKey
     }
+    fun remapPackKeys(keys: List<String>?): List<String> =
+        keys.orEmpty().map { key ->
+            val ref = activeViewPackCatalogRefs[key] ?: return@map key
+            com.nuvio.tv.core.viewpack.remapPackCatalogRef(ref, installed).orderKey
+        }
+    val remappedMovies = remapPackKeys(moviesViewPackOrderKeys)
+    val remappedShows = remapPackKeys(showsViewPackOrderKeys)
     activeViewPackRowScales = com.nuvio.tv.core.viewpack.remapPackKeyedMap(
         activeViewPackRowScales,
         activeViewPackCatalogRefs,
@@ -427,7 +434,12 @@ private fun HomeViewModel.applyActiveViewPackOrderIfNeeded(allAvailable: Set<Str
     val available = buildSet {
         addAll(allAvailable)
         addAll(remappedKeys)
-        if (com.nuvio.tv.core.viewpack.PACK_GENRES_ROW_KEY in packKeys) {
+        addAll(remappedMovies)
+        addAll(remappedShows)
+        if (com.nuvio.tv.core.viewpack.PACK_GENRES_ROW_KEY in packKeys ||
+            com.nuvio.tv.core.viewpack.PACK_GENRES_ROW_KEY in remappedMovies ||
+            com.nuvio.tv.core.viewpack.PACK_GENRES_ROW_KEY in remappedShows
+        ) {
             add(com.nuvio.tv.core.viewpack.PACK_GENRES_ROW_KEY)
         }
     }
@@ -435,9 +447,14 @@ private fun HomeViewModel.applyActiveViewPackOrderIfNeeded(allAvailable: Set<Str
         packKeys = remappedKeys,
         availableKeys = available
     )
+    val extras = com.nuvio.tv.core.viewpack.applyStrictPackOrder(
+        packKeys = remappedMovies + remappedShows,
+        availableKeys = available
+    ).filter { it !in ordered }
     synchronized(catalogStateLock) {
         catalogOrder.clear()
         catalogOrder.addAll(ordered)
+        catalogOrder.addAll(extras)
     }
 }
 

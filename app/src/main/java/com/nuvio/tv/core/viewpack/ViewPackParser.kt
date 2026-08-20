@@ -22,10 +22,32 @@ fun parseViewPackJson(raw: String): ViewPack {
     }
     val parsed = gson.fromJson(trimmed, ViewPackDto::class.java)
         ?: throw IllegalArgumentException("Invalid pack JSON")
+    return dtoToViewPack(parsed, includeScreenPacks = true)
+}
+
+fun serializeViewPackJson(pack: ViewPack): String {
+    return gson.toJson(viewPackToDto(pack, includeScreenPacks = true))
+}
+
+private fun dtoToViewPack(parsed: ViewPackDto, includeScreenPacks: Boolean): ViewPack {
     val hours = parsed.rotateIntervalHours
         ?.takeIf { it > 0 }
         ?.let { normalizeRotateIntervalHours(it) }
         ?: MIN_ROTATE_INTERVAL_HOURS
+    val movies = if (includeScreenPacks) {
+        parsed.screens?.movies?.takeIf { !it.blocks.isNullOrEmpty() }?.let {
+            dtoToViewPack(it, includeScreenPacks = false)
+        }
+    } else {
+        null
+    }
+    val shows = if (includeScreenPacks) {
+        parsed.screens?.shows?.takeIf { !it.blocks.isNullOrEmpty() }?.let {
+            dtoToViewPack(it, includeScreenPacks = false)
+        }
+    } else {
+        null
+    }
     return ViewPack(
         schemaVersion = 1,
         id = parsed.id?.trim()?.takeIf { it.isNotEmpty() } ?: "imported",
@@ -69,46 +91,55 @@ fun parseViewPackJson(raw: String): ViewPack {
         rotateUnlocked = parsed.rotateUnlocked == true,
         rotateIntervalHours = hours,
         lastShuffleAt = parsed.lastShuffleAt,
-        shuffleSeed = parsed.shuffleSeed?.trim()?.takeIf { it.isNotEmpty() }
+        shuffleSeed = parsed.shuffleSeed?.trim()?.takeIf { it.isNotEmpty() },
+        moviesScreen = movies,
+        showsScreen = shows
     )
 }
 
-fun serializeViewPackJson(pack: ViewPack): String {
-    return gson.toJson(
-        ViewPackDto(
-            schemaVersion = 1,
-            id = pack.id,
-            name = pack.name,
-            description = pack.description,
-            canvas = CanvasDto(pack.canvas.width, pack.canvas.height),
-            blocks = pack.blocks.map { block ->
-                BlockDto(
-                    id = block.id,
-                    type = block.type,
-                    x = block.x,
-                    y = block.y,
-                    w = block.w,
-                    h = block.h,
-                    dataSource = block.dataSource,
-                    trailer = block.trailer,
-                    label = block.label,
-                    hAlign = block.hAlign,
-                    contentAlign = block.contentAlign,
-                    posterGrow = block.posterGrow,
-                    showPosterLabels = block.showPosterLabels,
-                    locked = block.locked,
-                    collectionOpenStyle = block.collectionOpenStyle
-                )
-            },
-            showFocusedPosterInfo = pack.showFocusedPosterInfo,
-            catalogPosterScale = pack.catalogPosterScale,
-            collectionLandscapeScale = pack.collectionLandscapeScale,
-            collectionsOpenInReframe = pack.collectionsOpenInReframe,
-            rotateUnlocked = pack.rotateUnlocked,
-            rotateIntervalHours = pack.rotateIntervalHours,
-            lastShuffleAt = pack.lastShuffleAt,
-            shuffleSeed = pack.shuffleSeed
+private fun viewPackToDto(pack: ViewPack, includeScreenPacks: Boolean): ViewPackDto {
+    val screens = if (includeScreenPacks && (pack.moviesScreen != null || pack.showsScreen != null)) {
+        ScreensDto(
+            movies = pack.moviesScreen?.let { viewPackToDto(it, includeScreenPacks = false) },
+            shows = pack.showsScreen?.let { viewPackToDto(it, includeScreenPacks = false) }
         )
+    } else {
+        null
+    }
+    return ViewPackDto(
+        schemaVersion = 1,
+        id = pack.id,
+        name = pack.name,
+        description = pack.description,
+        canvas = CanvasDto(pack.canvas.width, pack.canvas.height),
+        blocks = pack.blocks.map { block ->
+            BlockDto(
+                id = block.id,
+                type = block.type,
+                x = block.x,
+                y = block.y,
+                w = block.w,
+                h = block.h,
+                dataSource = block.dataSource,
+                trailer = block.trailer,
+                label = block.label,
+                hAlign = block.hAlign,
+                contentAlign = block.contentAlign,
+                posterGrow = block.posterGrow,
+                showPosterLabels = block.showPosterLabels,
+                locked = block.locked,
+                collectionOpenStyle = block.collectionOpenStyle
+            )
+        },
+        showFocusedPosterInfo = pack.showFocusedPosterInfo,
+        catalogPosterScale = pack.catalogPosterScale,
+        collectionLandscapeScale = pack.collectionLandscapeScale,
+        collectionsOpenInReframe = pack.collectionsOpenInReframe,
+        rotateUnlocked = pack.rotateUnlocked,
+        rotateIntervalHours = pack.rotateIntervalHours,
+        lastShuffleAt = pack.lastShuffleAt,
+        shuffleSeed = pack.shuffleSeed,
+        screens = screens
     )
 }
 
@@ -126,7 +157,13 @@ private data class ViewPackDto(
     val rotateUnlocked: Boolean? = null,
     val rotateIntervalHours: Int? = null,
     val lastShuffleAt: Long? = null,
-    val shuffleSeed: String? = null
+    val shuffleSeed: String? = null,
+    val screens: ScreensDto? = null
+)
+
+private data class ScreensDto(
+    val movies: ViewPackDto? = null,
+    val shows: ViewPackDto? = null
 )
 
 private data class CanvasDto(

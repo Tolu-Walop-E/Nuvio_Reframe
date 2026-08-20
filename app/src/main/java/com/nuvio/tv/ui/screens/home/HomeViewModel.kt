@@ -308,6 +308,8 @@ class HomeViewModel @Inject constructor(
         Map<String, com.nuvio.tv.core.viewpack.PackCollectionHubRef> = emptyMap()
     /** Pack hero dataSource (`featured` / `catalog:…`). */
     internal var activeViewPackHeroDataSource: String? = null
+    internal var moviesViewPackOrderKeys: List<String>? = null
+    internal var showsViewPackOrderKeys: List<String>? = null
     internal var customCatalogTitles: Map<String, String> = emptyMap()
     internal var currentHeroCatalogKeys: List<String> = emptyList()
     internal var catalogUpdateJob: Job? = null

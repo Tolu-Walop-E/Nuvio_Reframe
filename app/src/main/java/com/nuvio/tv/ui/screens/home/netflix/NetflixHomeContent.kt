@@ -48,6 +48,8 @@ import com.nuvio.tv.ui.screens.home.ContinueWatchingItem
 import com.nuvio.tv.ui.screens.home.HomeScreenFocusState
 import com.nuvio.tv.ui.screens.home.HomeRow
 import com.nuvio.tv.ui.screens.home.HomeUiState
+import com.nuvio.tv.ui.screens.home.NetflixScreenPackState
+import com.nuvio.tv.core.viewpack.resolvePackHeroMeta
 import com.nuvio.tv.ui.screens.home.contentId
 import com.nuvio.tv.ui.screens.home.contentType
 import com.nuvio.tv.ui.screens.home.episode
@@ -159,12 +161,36 @@ fun NetflixHomeContent(
     )
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
-    val packActive = !uiState.activeViewPackName.isNullOrBlank()
-    val contentRails = remember(uiState.homeRows, uiState.catalogRows, packActive) {
+    val homePackActive = !uiState.activeViewPackName.isNullOrBlank()
+    val tabScreenPack = when (selectedTab) {
+        NetflixContentTab.HOME -> null
+        NetflixContentTab.MOVIES -> uiState.moviesScreenPack
+        NetflixContentTab.SHOWS -> uiState.showsScreenPack
+    }
+    val packActiveForTab = when (selectedTab) {
+        NetflixContentTab.HOME -> homePackActive
+        NetflixContentTab.MOVIES -> uiState.moviesScreenPack != null
+        NetflixContentTab.SHOWS -> uiState.showsScreenPack != null
+    }
+    val tabOrderKeys = when {
+        selectedTab == NetflixContentTab.HOME && homePackActive -> uiState.viewPackOrderKeys
+        tabScreenPack != null -> tabScreenPack.orderKeys
+        else -> emptyList()
+    }
+    val tabRowScales = tabScreenPack?.rowScales ?: uiState.viewPackRowScales
+    val tabRowShowLabels = tabScreenPack?.rowShowLabels ?: uiState.viewPackRowShowLabels
+    val tabRowTrailers = tabScreenPack?.rowTrailers ?: uiState.viewPackRowTrailers
+    val tabRowPosterGrow = tabScreenPack?.rowPosterGrow ?: uiState.viewPackRowPosterGrow
+    val tabCatalogPosterScale = tabScreenPack?.catalogPosterScale ?: uiState.viewPackCatalogPosterScale
+    val tabCollectionLandscapeScale =
+        tabScreenPack?.collectionLandscapeScale ?: uiState.viewPackCollectionLandscapeScale
+    val tabHeroTrailerEnabled =
+        tabScreenPack?.heroTrailerEnabled ?: uiState.viewPackHeroTrailerEnabled
+    val contentRails = remember(uiState.homeRows, uiState.catalogRows, packActiveForTab) {
         buildNetflixContentRails(
             homeRows = uiState.homeRows,
             fallbackCatalogRows = uiState.catalogRows,
-            keepEmptyRails = packActive
+            keepEmptyRails = packActiveForTab
         )
     }
     // Pack/catalog rails past the first eager loads stay as blank placeholder cards
@@ -244,16 +270,24 @@ fun NetflixHomeContent(
         genreChips,
         uiState.homeCatalogOrderKeys,
         uiState.disabledHomeCatalogKeys,
-        uiState.activeViewPackName,
-        packActive
+        packActiveForTab,
+        tabOrderKeys
     ) {
-        // Pack order already shapes homeRows; homeCatalogOrderKeys mirrors that once applied.
-        insertGenresRail(
+        val withGenres = insertGenresRail(
             contentRails = contentRails,
             hasGenres = genreChips.isNotEmpty(),
-            orderKeys = uiState.homeCatalogOrderKeys,
-            disabledKeys = if (packActive) emptySet() else uiState.disabledHomeCatalogKeys
+            orderKeys = if (packActiveForTab && tabOrderKeys.isNotEmpty()) {
+                tabOrderKeys
+            } else {
+                uiState.homeCatalogOrderKeys
+            },
+            disabledKeys = if (packActiveForTab) emptySet() else uiState.disabledHomeCatalogKeys
         )
+        if (packActiveForTab && tabOrderKeys.isNotEmpty()) {
+            railsInPackOrder(withGenres, tabOrderKeys)
+        } else {
+            withGenres
+        }
     }
     val continueWatchingGenres = remember(uiState.continueWatchingItems) {
         uiState.continueWatchingItems
@@ -274,8 +308,8 @@ fun NetflixHomeContent(
     }
     // Stock Netflix fans For You / New & Latest / Anime into title rails.
     // An active Studio pack is the source of truth — keep authored collection hubs.
-    val fanOutRequests = remember(orderedContentRails, selectedTab, packActive) {
-        if (packActive) {
+    val fanOutRequests = remember(orderedContentRails, selectedTab, packActiveForTab) {
+        if (packActiveForTab) {
             emptyList()
         } else {
             orderedContentRails
@@ -305,8 +339,8 @@ fun NetflixHomeContent(
     LaunchedEffect(fanOutRequests) {
         onEnsureFolderRails(fanOutRequests)
     }
-    val discoveryRails = remember(catalogEntries, continueWatchingGenres, selectedTab, packActive) {
-        if (packActive) {
+    val discoveryRails = remember(catalogEntries, continueWatchingGenres, selectedTab, packActiveForTab) {
+        if (packActiveForTab) {
             emptyList()
         } else {
             NetflixDiscoveryRails.build(
@@ -327,16 +361,17 @@ fun NetflixHomeContent(
         discoveryRails,
         netflixFolderRails,
         fanOutRequests,
-        packActive
+        packActiveForTab,
+        tabScreenPack
     ) {
         val expanded = expandNetflixRails(
             orderedContentRails = orderedContentRails,
-            selectedTab = if (packActive) NetflixContentTab.HOME else selectedTab,
+            selectedTab = if (packActiveForTab) NetflixContentTab.HOME else selectedTab,
             folderRails = netflixFolderRails,
-            fanOutCollections = !packActive
+            fanOutCollections = !packActiveForTab
         )
         val fanOutCatalogIds = fanOutRequests.map { it.source.catalogId }.toSet()
-        val withoutDuplicatePlaceholders = if (packActive || fanOutCatalogIds.isEmpty()) {
+        val withoutDuplicatePlaceholders = if (packActiveForTab || fanOutCatalogIds.isEmpty()) {
             expanded
         } else {
             expanded.filterNot { rail ->
@@ -350,7 +385,16 @@ fun NetflixHomeContent(
             if (genresFirst) {
                 add(NetflixHomeRail.Genres)
             }
-            if (selectedTab == NetflixContentTab.HOME && uiState.continueWatchingItems.isNotEmpty()) {
+            val cwItems = uiState.continueWatchingItems.filter { item ->
+                continueWatchingMatchesTab(item, selectedTab)
+            }
+            val showCw = cwItems.isNotEmpty() && when {
+                packActiveForTab && selectedTab == NetflixContentTab.HOME -> true
+                packActiveForTab -> tabScreenPack?.hasContinueWatching == true
+                selectedTab == NetflixContentTab.HOME -> true
+                else -> true
+            }
+            if (showCw) {
                 add(NetflixHomeRail.ContinueWatching)
             }
             addAll(if (genresFirst) withoutDuplicatePlaceholders.drop(1) else withoutDuplicatePlaceholders)
@@ -402,8 +446,7 @@ fun NetflixHomeContent(
             return@LaunchedEffect
         }
         previewTrailerHeroKey = null
-        val packBlocksHeroTrailer = uiState.activeViewPackName.isNullOrBlank() ||
-            uiState.viewPackHeroTrailerEnabled
+        val packBlocksHeroTrailer = !packActiveForTab || tabHeroTrailerEnabled
         if (!netflixTrailersEnabled || !packBlocksHeroTrailer || listState.isScrollInProgress) {
             return@LaunchedEffect
         }
@@ -583,14 +626,7 @@ fun NetflixHomeContent(
         railFocusJob?.cancel()
         pendingFocusRailKey = null
         lastContentRailKey = null
-        val firstEntry = visibleRails.firstNotNullOfOrNull { rail ->
-            (rail as? NetflixHomeRail.Catalog)?.entry?.takeIf { it.row.items.isNotEmpty() }
-        }
-        pendingHeroItem = if (selectedTab == NetflixContentTab.HOME) {
-            resolveInitialHero(uiState)
-        } else {
-            firstEntry?.row?.items?.firstOrNull()?.toNetflixHeroItem(firstEntry.row.addonBaseUrl)
-        } ?: pendingHeroItem
+        pendingHeroItem = resolveHeroForTab(uiState, selectedTab, visibleRails) ?: pendingHeroItem
         runCatching { listState.scrollToItem(NETFLIX_HOME_HERO_ROW_INDEX) }
     }
 
@@ -599,10 +635,12 @@ fun NetflixHomeContent(
         uiState.viewPackHeroEnabled,
         uiState.viewPackFeaturedMeta?.id,
         uiState.viewPackFeaturedAddonBaseUrl,
+        uiState.moviesScreenPack?.heroDataSource,
+        uiState.showsScreenPack?.heroDataSource,
+        uiState.catalogRows,
         selectedTab
     ) {
-        if (!uiState.viewPackHeroEnabled || selectedTab != NetflixContentTab.HOME) return@LaunchedEffect
-        val packHero = resolveInitialHero(uiState) ?: return@LaunchedEffect
+        val packHero = resolveHeroForTab(uiState, selectedTab, visibleRails) ?: return@LaunchedEffect
         if (heroItem?.key != packHero.key) {
             pendingHeroItem = packHero
         }
@@ -714,8 +752,7 @@ fun NetflixHomeContent(
                             previewTrailerHeroKey == heroItem?.key &&
                             heroItem?.key?.let { playedTrailerKeys[it] } != true &&
                             !heroItem?.catalogItemId()?.let { trailerPreviewUrls[it] }.isNullOrBlank() &&
-                            (uiState.activeViewPackName.isNullOrBlank() ||
-                                uiState.viewPackHeroTrailerEnabled),
+                            (!packActiveForTab || tabHeroTrailerEnabled),
                         trailerPreviewMuted = uiState.focusedPosterBackdropTrailerMuted,
                         trailerStartDelayMs = uiState.trailerStartDelayMs,
                         onTrailerEnded = {
@@ -794,7 +831,9 @@ fun NetflixHomeContent(
                     NetflixHomeRail.ContinueWatching -> NetflixContinueWatchingRail(
                         railKey = railKey,
                         title = "Continue Watching",
-                        items = uiState.continueWatchingItems,
+                        items = uiState.continueWatchingItems.filter { item ->
+                            continueWatchingMatchesTab(item, selectedTab)
+                        },
                         useEpisodeThumbnails = uiState.useEpisodeThumbnailsInCw,
                         pendingFocusRailKey = pendingFocusRailKey,
                         lastFocusedIndex = lastFocusedIndexByRail[railKey] ?: 0,
@@ -812,10 +851,9 @@ fun NetflixHomeContent(
 
                     is NetflixHomeRail.Catalog -> {
                         val row = rail.entry.row
-                        val packActive = !uiState.activeViewPackName.isNullOrBlank()
-                        val packShowMeta = uiState.viewPackRowShowLabels[rail.orderKey]
-                        val packTrailer = uiState.viewPackRowTrailers[rail.orderKey] == true
-                        val packPosterGrow = uiState.viewPackRowPosterGrow[rail.orderKey] != false
+                        val packShowMeta = tabRowShowLabels[rail.orderKey]
+                        val packTrailer = tabRowTrailers[rail.orderKey] == true
+                        val packPosterGrow = tabRowPosterGrow[rail.orderKey] != false
                         NetflixCatalogRail(
                             railKey = railKey,
                             row = row,
@@ -838,35 +876,35 @@ fun NetflixHomeContent(
                             onFirstCardRequesterReady = registerRequester,
                             onMoveUp = moveUp,
                             onMoveDown = moveDown,
-                            posterLabelsEnabled = if (packActive) {
+                            posterLabelsEnabled = if (packActiveForTab) {
                                 packShowMeta == true
                             } else {
                                 uiState.posterLabelsEnabled
                             },
-                            railScale = if (packActive) {
-                                (uiState.viewPackRowScales[rail.orderKey] ?: 1f) *
-                                    uiState.viewPackCatalogPosterScale
+                            railScale = if (packActiveForTab) {
+                                (tabRowScales[rail.orderKey] ?: 1f) *
+                                    tabCatalogPosterScale
                             } else {
                                 1f
                             },
                             // Stock Netflix always shows the catalogue footer; packs opt in/out.
-                            showFocusedMetadata = if (packActive) {
+                            showFocusedMetadata = if (packActiveForTab) {
                                 packShowMeta == true
                             } else {
                                 true
                             },
-                            posterGrow = if (packActive) packPosterGrow else true,
+                            posterGrow = if (packActiveForTab) packPosterGrow else true,
                             trailerPreviewUrls = trailerPreviewUrls,
                             trailerPreviewAudioUrls = trailerPreviewAudioUrls,
                             trailerEnabled = netflixTrailersEnabled &&
-                                (!packActive || packTrailer),
+                                (!packActiveForTab || packTrailer),
                             trailerMuted = uiState.focusedPosterBackdropTrailerMuted,
                             trailerStartDelayMs = uiState.trailerStartDelayMs,
                             onRequestTrailerPreview = { item ->
                                 Log.i(NETFLIX_TRAILER_LOG, "rail request trailer id=${item.id} title=${item.name}")
                                 onRequestTrailerPreview(item.id, item.name, item.releaseInfo, item.apiType)
                             },
-                            allowEmpty = packActive
+                            allowEmpty = packActiveForTab
                         )
                     }
 
@@ -885,12 +923,12 @@ fun NetflixHomeContent(
                         onFirstCardRequesterReady = registerRequester,
                         onMoveUp = moveUp,
                         onMoveDown = moveDown,
-                        landscapeScale = if (!uiState.activeViewPackName.isNullOrBlank()) {
-                            uiState.viewPackCollectionLandscapeScale
+                        landscapeScale = if (packActiveForTab) {
+                            tabCollectionLandscapeScale
                         } else {
                             1f
                         },
-                        allowEmpty = packActive
+                        allowEmpty = packActiveForTab
                     )
                 }
             }
@@ -1004,6 +1042,65 @@ private sealed interface NetflixHomeRail {
     ) : NetflixHomeRail {
         override val railKey: String = "collection_${collection.id}"
         override val orderKey: String = railKey
+    }
+}
+
+private fun resolveHeroForTab(
+    uiState: HomeUiState,
+    tab: NetflixContentTab,
+    visibleRails: List<NetflixHomeRail>
+): NetflixHeroItem? {
+    when (tab) {
+        NetflixContentTab.HOME -> return resolveInitialHero(uiState)
+        NetflixContentTab.MOVIES ->
+            resolveScreenPackHero(uiState, uiState.moviesScreenPack)?.let { return it }
+        NetflixContentTab.SHOWS ->
+            resolveScreenPackHero(uiState, uiState.showsScreenPack)?.let { return it }
+    }
+    val firstEntry = visibleRails.firstNotNullOfOrNull { rail ->
+        (rail as? NetflixHomeRail.Catalog)?.entry?.takeIf { it.row.items.isNotEmpty() }
+    }
+    return firstEntry?.row?.items?.firstOrNull()?.toNetflixHeroItem(firstEntry.row.addonBaseUrl)
+}
+
+private fun resolveScreenPackHero(
+    uiState: HomeUiState,
+    screen: NetflixScreenPackState?
+): NetflixHeroItem? {
+    if (screen == null || !screen.heroEnabled) return null
+    val byKey = uiState.catalogRows.associateBy { it.legacyKey() }
+    val meta = resolvePackHeroMeta(screen.heroDataSource, screen.orderKeys, byKey) ?: return null
+    val row = byKey.values.firstOrNull { candidate ->
+        candidate.items.any { it.id == meta.id && it.apiType == meta.apiType }
+    }
+    return meta.toNetflixHeroItem(row?.addonBaseUrl.orEmpty())
+}
+
+private fun railsInPackOrder(
+    rails: List<NetflixHomeRail>,
+    keys: List<String>
+): List<NetflixHomeRail> {
+    val byKey = rails.groupBy { it.orderKey }
+    val used = LinkedHashSet<String>()
+    return buildList {
+        for (key in keys) {
+            if (!used.add(key)) continue
+            val matches = byKey[key] ?: continue
+            addAll(matches)
+        }
+    }
+}
+
+private fun continueWatchingMatchesTab(
+    item: ContinueWatchingItem,
+    tab: NetflixContentTab
+): Boolean {
+    if (tab == NetflixContentTab.HOME) return true
+    val type = item.contentType()
+    return when (tab) {
+        NetflixContentTab.MOVIES -> type.equals("movie", ignoreCase = true)
+        NetflixContentTab.SHOWS -> type.equals("series", ignoreCase = true)
+        NetflixContentTab.HOME -> true
     }
 }
 

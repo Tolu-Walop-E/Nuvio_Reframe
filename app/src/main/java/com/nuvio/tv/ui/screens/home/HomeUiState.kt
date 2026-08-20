@@ -79,6 +79,8 @@ data class HomeUiState(
     /** Active Studio view pack name when imported; null = default catalog order. */
     val activeViewPackName: String? = null,
     val activeViewPackRotateEnabled: Boolean = false,
+    /** Home-tab pack rail order (excludes nested Movies/Shows extras). */
+    val viewPackOrderKeys: List<String> = emptyList(),
     /** Per-rail card size scales from the active view pack, keyed by home order key. */
     val viewPackRowScales: Map<String, Float> = emptyMap(),
     /** Per-rail poster title visibility from the active view pack. */
@@ -105,7 +107,28 @@ data class HomeUiState(
     val viewPackFeaturedMeta: MetaPreview? = null,
     val viewPackFeaturedAddonBaseUrl: String = "",
     /** Studio hero block height in canvas px (e.g. 520 of 1080). */
-    val viewPackFeaturedHeightPx: Int? = null
+    val viewPackFeaturedHeightPx: Int? = null,
+    /** Studio Movies tab pack; null = type-filter / discovery fallback. */
+    val moviesScreenPack: NetflixScreenPackState? = null,
+    /** Studio TV Shows tab pack; null = type-filter / discovery fallback. */
+    val showsScreenPack: NetflixScreenPackState? = null
+)
+
+@Immutable
+data class NetflixScreenPackState(
+    val orderKeys: List<String>,
+    val rowScales: Map<String, Float> = emptyMap(),
+    val rowShowLabels: Map<String, Boolean> = emptyMap(),
+    val rowTrailers: Map<String, Boolean> = emptyMap(),
+    val rowPosterGrow: Map<String, Boolean> = emptyMap(),
+    val catalogPosterScale: Float = 1f,
+    val collectionLandscapeScale: Float = 1f,
+    val heroEnabled: Boolean = false,
+    val heroTrailerEnabled: Boolean = false,
+    val heroLabel: String = "Featured",
+    val heroDataSource: String? = null,
+    val featuredHeightPx: Int? = null,
+    val hasContinueWatching: Boolean = false
 )
 
 @Immutable

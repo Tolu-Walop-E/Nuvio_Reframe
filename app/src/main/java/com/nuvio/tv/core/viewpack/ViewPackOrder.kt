@@ -64,7 +64,24 @@ fun homeOrderKeysFromPack(pack: ViewPack): List<String> {
     return keys.toList()
 }
 
-/** True when the pack includes a Studio hero block. */
+/** True when the pack includes a Continue Watching rail. */
+fun packHasContinueWatching(pack: ViewPack): Boolean =
+    pack.blocks.any {
+        it.type == "mediaRail" && it.dataSource.trim() == "continueWatching"
+    }
+
+fun mergePackCatalogRefs(vararg packs: ViewPack?): Map<String, PackCatalogRef> {
+    val out = LinkedHashMap<String, PackCatalogRef>()
+    packs.filterNotNull().forEach { pack -> out.putAll(packCatalogRefs(pack)) }
+    return out
+}
+
+fun mergePackCollectionHubRefs(vararg packs: ViewPack?): Map<String, PackCollectionHubRef> {
+    val out = LinkedHashMap<String, PackCollectionHubRef>()
+    packs.filterNotNull().forEach { pack -> out.putAll(packCollectionHubRefs(pack)) }
+    return out
+}
+
 fun packHasHero(pack: ViewPack): Boolean =
     pack.blocks.any { it.type == "hero" || it.dataSource.trim() == "featured" }
 

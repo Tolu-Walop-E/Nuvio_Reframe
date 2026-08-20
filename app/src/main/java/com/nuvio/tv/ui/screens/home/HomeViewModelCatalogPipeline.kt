@@ -96,17 +96,22 @@ internal fun HomeViewModel.loadActiveViewPackPipeline() {
                 activeViewPackCatalogRefs = emptyMap()
                 activeViewPackCollectionHubRefs = emptyMap()
                 activeViewPackHeroDataSource = null
+                moviesViewPackOrderKeys = null
+                showsViewPackOrderKeys = null
                 _uiState.update { state ->
                     if (state.activeViewPackName == null &&
                         !state.activeViewPackRotateEnabled &&
                         state.viewPackRowShowLabels.isEmpty() &&
-                        !state.viewPackHeroEnabled
+                        !state.viewPackHeroEnabled &&
+                        state.moviesScreenPack == null &&
+                        state.showsScreenPack == null
                     ) {
                         state
                     } else {
                         state.copy(
                             activeViewPackName = null,
                             activeViewPackRotateEnabled = false,
+                            viewPackOrderKeys = emptyList(),
                             viewPackRowScales = emptyMap(),
                             viewPackRowShowLabels = emptyMap(),
                             viewPackRowTrailers = emptyMap(),
@@ -120,7 +125,9 @@ internal fun HomeViewModel.loadActiveViewPackPipeline() {
                             viewPackFeaturedPreview = null,
                             viewPackFeaturedMeta = null,
                             viewPackFeaturedAddonBaseUrl = "",
-                            viewPackFeaturedHeightPx = null
+                            viewPackFeaturedHeightPx = null,
+                            moviesScreenPack = null,
+                            showsScreenPack = null
                         )
                     }
                 }
@@ -136,28 +143,46 @@ internal fun HomeViewModel.loadActiveViewPackPipeline() {
                     layoutPreferenceDataStore.setViewPackRotationState(rotation.state)
                 }
                 val rotated = parsed.copy(blocks = rotation.blocks)
+                val moviesPack = rotated.moviesScreen
+                val showsPack = rotated.showsScreen
                 activeViewPackOrderKeys = com.nuvio.tv.core.viewpack.homeOrderKeysFromPack(rotated)
                 activeViewPackRowScales = com.nuvio.tv.core.viewpack.homeRowScalesFromPack(rotated)
                 activeViewPackRowShowLabels = com.nuvio.tv.core.viewpack.homeRowShowLabelsFromPack(rotated)
                 activeViewPackRowTrailers = com.nuvio.tv.core.viewpack.homeRowTrailersFromPack(rotated)
                 activeViewPackRowPosterGrow = com.nuvio.tv.core.viewpack.homeRowPosterGrowFromPack(rotated)
-                activeViewPackCatalogRefs = com.nuvio.tv.core.viewpack.packCatalogRefs(rotated)
+                activeViewPackCatalogRefs = com.nuvio.tv.core.viewpack.mergePackCatalogRefs(
+                    rotated,
+                    moviesPack,
+                    showsPack
+                )
                 activeViewPackCollectionHubRefs =
-                    com.nuvio.tv.core.viewpack.packCollectionHubRefs(rotated)
+                    com.nuvio.tv.core.viewpack.mergePackCollectionHubRefs(
+                        rotated,
+                        moviesPack,
+                        showsPack
+                    )
                 activeViewPackHeroDataSource = com.nuvio.tv.core.viewpack.packHeroDataSource(rotated)
+                moviesViewPackOrderKeys = moviesPack?.let {
+                    com.nuvio.tv.core.viewpack.homeOrderKeysFromPack(it)
+                }
+                showsViewPackOrderKeys = showsPack?.let {
+                    com.nuvio.tv.core.viewpack.homeOrderKeysFromPack(it)
+                }
                 // Expanded folder / catalog rails need their backing catalogs fetched
                 // even when those catalogs are not in the default home set.
-                val folderRefs = com.nuvio.tv.core.viewpack.packFolderCatalogRefs(
-                    pack = rotated,
-                    collectionsById = collectionsCache.associateBy { it.id }
-                )
-                folderRefs.values.forEach { ref ->
-                    ensureCatalogLoaded(
-                        ref.addonId,
-                        ref.type,
-                        ref.catalogId,
-                        extraArgs = folderCatalogExtraArgs(ref.genre)
-                    )
+                val collectionsById = collectionsCache.associateBy { it.id }
+                listOfNotNull(rotated, moviesPack, showsPack).forEach { pack ->
+                    com.nuvio.tv.core.viewpack.packFolderCatalogRefs(
+                        pack = pack,
+                        collectionsById = collectionsById
+                    ).values.forEach { ref ->
+                        ensureCatalogLoaded(
+                            ref.addonId,
+                            ref.type,
+                            ref.catalogId,
+                            extraArgs = folderCatalogExtraArgs(ref.genre)
+                        )
+                    }
                 }
                 activeViewPackCatalogRefs.values.forEach { ref ->
                     val resolved = resolvedPackCatalogForOrderKey(ref.orderKey) ?: ref
@@ -171,6 +196,7 @@ internal fun HomeViewModel.loadActiveViewPackPipeline() {
                     state.copy(
                         activeViewPackName = rotated.name,
                         activeViewPackRotateEnabled = rotated.rotateUnlocked,
+                        viewPackOrderKeys = activeViewPackOrderKeys.orEmpty(),
                         viewPackRowScales = activeViewPackRowScales,
                         viewPackRowShowLabels = activeViewPackRowShowLabels,
                         viewPackRowTrailers = activeViewPackRowTrailers,
@@ -188,7 +214,9 @@ internal fun HomeViewModel.loadActiveViewPackPipeline() {
                             com.nuvio.tv.core.viewpack.packHeroTrailerEnabled(rotated),
                         viewPackHeroLabel = com.nuvio.tv.core.viewpack.packHeroLabel(rotated),
                         viewPackHeroDataSource = activeViewPackHeroDataSource,
-                        viewPackFeaturedHeightPx = com.nuvio.tv.core.viewpack.packHeroHeightPx(rotated)
+                        viewPackFeaturedHeightPx = com.nuvio.tv.core.viewpack.packHeroHeightPx(rotated),
+                        moviesScreenPack = moviesPack?.toNetflixScreenPackState(),
+                        showsScreenPack = showsPack?.toNetflixScreenPackState()
                     )
                 }
             } catch (e: Exception) {
@@ -201,10 +229,13 @@ internal fun HomeViewModel.loadActiveViewPackPipeline() {
                 activeViewPackCatalogRefs = emptyMap()
                 activeViewPackCollectionHubRefs = emptyMap()
                 activeViewPackHeroDataSource = null
+                moviesViewPackOrderKeys = null
+                showsViewPackOrderKeys = null
                 _uiState.update { state ->
                     state.copy(
                         activeViewPackName = null,
                         activeViewPackRotateEnabled = false,
+                        viewPackOrderKeys = emptyList(),
                         viewPackRowScales = emptyMap(),
                         viewPackRowShowLabels = emptyMap(),
                         viewPackRowTrailers = emptyMap(),
@@ -218,7 +249,9 @@ internal fun HomeViewModel.loadActiveViewPackPipeline() {
                         viewPackFeaturedPreview = null,
                         viewPackFeaturedMeta = null,
                         viewPackFeaturedAddonBaseUrl = "",
-                        viewPackFeaturedHeightPx = null
+                        viewPackFeaturedHeightPx = null,
+                        moviesScreenPack = null,
+                        showsScreenPack = null
                     )
                 }
             }
@@ -1446,4 +1479,24 @@ private fun HomeViewModel.reconcileFullyWatchedFromLocalItems(
         fullyWatchedSeriesIds.updateWithValidation(mergedHolderIds, cacheResolvedIds)
     }
     return mergedHolderIds
+}
+
+private fun com.nuvio.tv.core.viewpack.ViewPack.toNetflixScreenPackState(): NetflixScreenPackState {
+    return NetflixScreenPackState(
+        orderKeys = com.nuvio.tv.core.viewpack.homeOrderKeysFromPack(this),
+        rowScales = com.nuvio.tv.core.viewpack.homeRowScalesFromPack(this),
+        rowShowLabels = com.nuvio.tv.core.viewpack.homeRowShowLabelsFromPack(this),
+        rowTrailers = com.nuvio.tv.core.viewpack.homeRowTrailersFromPack(this),
+        rowPosterGrow = com.nuvio.tv.core.viewpack.homeRowPosterGrowFromPack(this),
+        catalogPosterScale = com.nuvio.tv.core.viewpack.normalizePackCardScale(catalogPosterScale),
+        collectionLandscapeScale = com.nuvio.tv.core.viewpack.normalizePackCardScale(
+            collectionLandscapeScale
+        ),
+        heroEnabled = com.nuvio.tv.core.viewpack.packHasHero(this),
+        heroTrailerEnabled = com.nuvio.tv.core.viewpack.packHeroTrailerEnabled(this),
+        heroLabel = com.nuvio.tv.core.viewpack.packHeroLabel(this),
+        heroDataSource = com.nuvio.tv.core.viewpack.packHeroDataSource(this),
+        featuredHeightPx = com.nuvio.tv.core.viewpack.packHeroHeightPx(this),
+        hasContinueWatching = com.nuvio.tv.core.viewpack.packHasContinueWatching(this)
+    )
 }

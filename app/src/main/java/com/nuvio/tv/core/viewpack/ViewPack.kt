@@ -30,7 +30,11 @@ data class ViewPack(
     val rotateUnlocked: Boolean = false,
     val rotateIntervalHours: Int = MIN_ROTATE_INTERVAL_HOURS,
     val lastShuffleAt: Long? = null,
-    val shuffleSeed: String? = null
+    val shuffleSeed: String? = null,
+    /** Nested Movies layout from Studio `screens.movies`. */
+    val moviesScreen: ViewPack? = null,
+    /** Nested TV Shows layout from Studio `screens.shows`. */
+    val showsScreen: ViewPack? = null
 )
 
 data class ViewPackCanvas(
