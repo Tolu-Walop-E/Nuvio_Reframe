@@ -57,6 +57,10 @@ internal fun PlayerRuntimeController.skipInterval(interval: SkipInterval): Boole
         (interval.endTime * 1000).toLong()
     }
     seekPlaybackTo(seekMs.coerceAtMost(duration), SeekParameters.NEXT_SYNC)
+    Log.i(
+        PlayerRuntimeController.TAG,
+        "SKIP_INTRO: type=${interval.type} start=${interval.startTime} end=${interval.endTime} seekMs=$seekMs"
+    )
     scheduleProgressSyncAfterSeek()
     _uiState.update { it.copy(activeSkipInterval = null, skipIntervalDismissed = true) }
     return true

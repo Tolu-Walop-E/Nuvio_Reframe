@@ -302,20 +302,6 @@ object NuvioExoPlayerPerformanceHelper {
     // ─── Seek / Scrubbing ─────────────────────────────────────────────────────
 
     /**
-     * Seek-while-playing profile: skip the codec flush that stutters Shield after
-     * skip-intro, but keep audio on and leave the operating rate alone.
-     */
-    fun buildPlaybackSeekParams(): ScrubbingModeParameters {
-        return ScrubbingModeParameters.Builder()
-            .setDisabledTrackTypes(emptySet())
-            .setShouldIncreaseCodecOperatingRate(false)
-            .setAllowSkippingMediaCodecFlush(true)
-            .setIsMediaCodecFlushEnabled(false)
-            .setShouldEnableDynamicScheduling(true)
-            .build()
-    }
-
-    /**
      * Returns [ScrubbingModeParameters] that disable audio/metadata decoding and
      * boost codec operating rate for the fastest possible seek, or `null` when
      * performance mode is off.

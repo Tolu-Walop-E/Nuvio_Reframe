@@ -596,17 +596,14 @@ internal fun PlayerRuntimeController.seekPlaybackTo(
                 }
             }
             player.setSeekParameters(seekParameters)
-            val seekWhilePlaying = player.playWhenReady || player.isPlaying
-            if (seekWhilePlaying) {
-                // Skip-intro / live skip: enable scrubbing mode with audio still on
-                // so Media3 can skip the hardware codec flush. Parameters alone do
-                // nothing until setScrubbingModeEnabled(true).
-                player.setScrubbingModeParameters(
-                    NuvioExoPlayerPerformanceHelper.buildPlaybackSeekParams()
-                )
-                player.setScrubbingModeEnabled(true)
-                isScrubbingModeActive = true
-            } else if (NuvioExoPlayerPerformanceHelper.enabled) {
+            // Do not enable scrubbing/skip-flush while playing. On Shield HDMI
+            // passthrough (DTS-HD) that leaves AudioTrack timestamps stuck after
+            // skip-intro and the video clock stutters for the rest of playback.
+            if (
+                NuvioExoPlayerPerformanceHelper.enabled &&
+                !player.isPlaying &&
+                !player.playWhenReady
+            ) {
                 NuvioExoPlayerPerformanceHelper.buildScrubbingParams()?.let { params ->
                     isScrubbingModeActive = true
                     player.setScrubbingModeParameters(params)

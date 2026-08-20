@@ -18,6 +18,17 @@ class PlayerScrobblePolicyTest {
     }
 
     @Test
+    fun `ready stall while playWhenReady does not emit pause`() {
+        assertNull(
+            trackingActionForNonPlayingState(
+                playbackState = Player.STATE_READY,
+                playWhenReady = true,
+                userPausedManually = false
+            )
+        )
+    }
+
+    @Test
     fun `ended and idle states emit stop`() {
         assertEquals(
             TrackingScrobbleAction.STOP,

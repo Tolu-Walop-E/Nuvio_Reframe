@@ -1276,7 +1276,11 @@ internal fun PlayerRuntimeController.initializePlayer(
                             if (playbackState == Player.STATE_BUFFERING) {
                                 saveWatchProgressIfNeeded()
                             } else {
-                                when (trackingActionForNonPlayingState(playbackState)) {
+                                when (trackingActionForNonPlayingState(
+                                    playbackState = playbackState,
+                                    playWhenReady = playWhenReady,
+                                    userPausedManually = userPausedManually
+                                )) {
                                     TrackingScrobbleAction.PAUSE -> emitPauseScrobbleForCurrentProgress()
                                     TrackingScrobbleAction.STOP -> emitStopScrobbleForCurrentProgress()
                                     TrackingScrobbleAction.START, null -> Unit
@@ -2215,7 +2219,10 @@ private class SubtitleOffsetRenderersFactory(
             else -> DefaultAudioSink.Builder(context)
         }
             .setEnableFloatOutput(enableFloatOutput)
-            .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+            // AudioTrack.setPlaybackParams after a live seek glitches Shield HDMI
+            // passthrough timestamps (DTS-HD) and the video clock stutters with them.
+            .setEnableAudioTrackPlaybackParams(false)
+            .setEnableOnAudioPositionAdvancingFix(true)
             .setAudioProcessors(arrayOf(gainAudioProcessor))
         val baseAudioSink = builder.build()
         val playbackSpeedAwareAudioSink = PlaybackSpeedAwareAudioSink(
