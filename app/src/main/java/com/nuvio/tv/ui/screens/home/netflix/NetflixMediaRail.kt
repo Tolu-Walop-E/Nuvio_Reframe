@@ -67,7 +67,7 @@ import androidx.compose.ui.zIndex
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import coil3.imageLoader
-import coil3.memory.MemoryCache
+import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.MetaPreview
@@ -357,15 +357,21 @@ internal fun NetflixCatalogRail(
                         )
                         val size = if (url == restUrl) portraitCacheSizePx else focusCacheSizePx
                         val cacheKey = netflixArtworkCacheKey(url, size) ?: continue
-                        if (imageLoader.memoryCache?.get(MemoryCache.Key(cacheKey)) != null) {
+                        if (netflixArtworkIsCachedInMemory(imageLoader, url, size)) {
                             continue
                         }
+                        val diskCached = netflixArtworkIsCachedOnDisk(imageLoader, url)
                         imageLoader.enqueue(
                             ImageRequest.Builder(context)
                                 .data(url)
                                 .memoryCacheKey(cacheKey)
                                 .diskCacheKey(url)
                                 .size(width = size.width, height = size.height)
+                                .memoryCachePolicy(CachePolicy.ENABLED)
+                                .diskCachePolicy(CachePolicy.ENABLED)
+                                .networkCachePolicy(
+                                    if (diskCached) CachePolicy.DISABLED else CachePolicy.ENABLED
+                                )
                                 .build()
                         )
                     }

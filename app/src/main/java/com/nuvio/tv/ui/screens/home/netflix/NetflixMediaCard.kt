@@ -54,6 +54,9 @@ import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
 import coil3.compose.rememberAsyncImagePainter
+import coil3.imageLoader
+import coil3.memory.MemoryCache
+import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import com.nuvio.tv.ui.components.TrailerPlayer
 import kotlinx.coroutines.delay
@@ -128,7 +131,16 @@ internal fun NetflixMediaCard(
     // that don't pass one.
     val cacheSizePx = artworkCacheSizePx ?: cardSizePx
     val holdCacheSizePx = holdArtworkCacheSizePx ?: cacheSizePx
-    val desiredImageRequest = remember(imageUrl, cacheSizePx) {
+    val imageLoader = context.imageLoader
+    val landscapeMemoryCached = remember(imageUrl, cacheSizePx) {
+        val url = imageUrl ?: return@remember false
+        netflixArtworkIsCachedInMemory(imageLoader, url, cacheSizePx)
+    }
+    val landscapeDiskCached = remember(imageUrl) {
+        val url = imageUrl ?: return@remember false
+        netflixArtworkIsCachedOnDisk(imageLoader, url)
+    }
+    val desiredImageRequest = remember(imageUrl, cacheSizePx, landscapeMemoryCached, landscapeDiskCached) {
         val url = imageUrl ?: return@remember null
         ImageRequest.Builder(context)
             .data(url)
@@ -138,6 +150,16 @@ internal fun NetflixMediaCard(
                     diskCacheKey(url)
                     size(width = cacheSizePx.width, height = cacheSizePx.height)
                 }
+                memoryCachePolicy(CachePolicy.ENABLED)
+                diskCachePolicy(CachePolicy.ENABLED)
+                // Skip HTTP revalidation when we already have this artwork.
+                networkCachePolicy(
+                    if (landscapeMemoryCached || landscapeDiskCached) {
+                        CachePolicy.DISABLED
+                    } else {
+                        CachePolicy.ENABLED
+                    }
+                )
             }
             .build()
     }
@@ -146,7 +168,7 @@ internal fun NetflixMediaCard(
         contentScale = ContentScale.Crop
     )
     val desiredState by desiredPainter.state.collectAsState()
-    val desiredReady = desiredState is AsyncImagePainter.State.Success
+    val desiredReady = landscapeMemoryCached || desiredState is AsyncImagePainter.State.Success
     // Each URL keeps the size of the box it fills, so the held portrait reuses the
     // bitmap the unfocused card already decoded instead of asking for a new one.
     val holdImageRequest = remember(holdUntilReadyImageUrl, holdCacheSizePx) {
@@ -159,6 +181,9 @@ internal fun NetflixMediaCard(
                     diskCacheKey(url)
                     size(width = holdCacheSizePx.width, height = holdCacheSizePx.height)
                 }
+                memoryCachePolicy(CachePolicy.ENABLED)
+                diskCachePolicy(CachePolicy.ENABLED)
+                networkCachePolicy(CachePolicy.ENABLED)
             }
             .build()
     }
@@ -407,4 +432,22 @@ private fun NetflixResumeBar(
 internal fun netflixArtworkCacheKey(url: String, size: IntSize): String? {
     if (size.width <= 0 || size.height <= 0) return null
     return "netflix-land|$url|${size.width}x${size.height}"
+}
+
+internal fun netflixArtworkIsCachedInMemory(
+    imageLoader: coil3.ImageLoader,
+    url: String,
+    size: IntSize
+): Boolean {
+    val key = netflixArtworkCacheKey(url, size) ?: return false
+    return imageLoader.memoryCache?.get(MemoryCache.Key(key)) != null
+}
+
+internal fun netflixArtworkIsCachedOnDisk(
+    imageLoader: coil3.ImageLoader,
+    url: String
+): Boolean {
+    val snapshot = imageLoader.diskCache?.openSnapshot(url) ?: return false
+    snapshot.close()
+    return true
 }

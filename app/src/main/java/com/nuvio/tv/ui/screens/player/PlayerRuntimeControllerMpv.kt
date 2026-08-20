@@ -594,12 +594,21 @@ internal fun PlayerRuntimeController.seekPlaybackTo(
                     seekBufferingUiJob?.cancel()
                     _uiState.update { it.copy(isBuffering = true) }
                 }
+            }
+            player.setSeekParameters(seekParameters)
+            // Scrubbing mode disables audio and bumps codec rate. That is for
+            // paused thumbnail scrub, not skip-intro / live skip while playing —
+            // toggling it mid-playback stutters on Shield after the jump.
+            if (
+                NuvioExoPlayerPerformanceHelper.enabled &&
+                !player.isPlaying &&
+                !player.playWhenReady
+            ) {
                 NuvioExoPlayerPerformanceHelper.buildScrubbingParams()?.let { params ->
                     isScrubbingModeActive = true
                     player.setScrubbingModeParameters(params)
                 }
             }
-            player.setSeekParameters(seekParameters)
             player.seekTo(positionMs)
         }
     }

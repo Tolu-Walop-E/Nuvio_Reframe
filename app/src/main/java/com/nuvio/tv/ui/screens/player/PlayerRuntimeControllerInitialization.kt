@@ -1207,7 +1207,9 @@ internal fun PlayerRuntimeController.initializePlayer(
                                 _uiState.update { it.copy(pendingSeekPosition = null) }
                             }
                             tryAutoSelectPreferredSubtitleFromAvailableTracks()
-                            if (!NuvioExoPlayerPerformanceHelper.shouldGuardTrackRebuild() || !hasRenderedFirstFrame) {
+                            // Rebuild tracks only on the first READY. Doing it again after
+                            // skip-intro / live seek flushes the Shield decoder and stutters.
+                            if (!hasRenderedFirstFrame) {
                                 trackSelectionParameters = trackSelectionParameters.buildUpon().build()
                             }
                             maybeScheduleFirstFrameWatchdog()
