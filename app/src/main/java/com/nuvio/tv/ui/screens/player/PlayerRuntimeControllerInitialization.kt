@@ -27,7 +27,6 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.DecoderCounters
 import androidx.media3.exoplayer.DecoderReuseEvaluation
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.ScrubbingModeParameters
 import androidx.media3.exoplayer.ForwardingRenderer
 import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.audio.AudioRendererEventListener
@@ -1080,11 +1079,20 @@ internal fun PlayerRuntimeController.initializePlayer(
                             playbackAnalyticsDiagnostics.onRebufferEnded(this@apply, rebufferTotalMs, lastRebufferMs)
                         }
 
-                        if (isScrubbingModeActive) {
+                        if (
+                            isScrubbingModeActive &&
+                            (
+                                playbackState == Player.STATE_READY ||
+                                    playbackState == Player.STATE_ENDED ||
+                                    playbackState == Player.STATE_IDLE
+                                )
+                        ) {
                             isScrubbingModeActive = false
-                            _exoPlayer?.setScrubbingModeParameters(
-                                ScrubbingModeParameters.Builder().build()
-                            )
+                            _exoPlayer?.let { exo ->
+                                if (exo.isScrubbingModeEnabled) {
+                                    exo.setScrubbingModeEnabled(false)
+                                }
+                            }
                         }
 
                         if (playbackState == Player.STATE_BUFFERING && !hasRenderedFirstFrame) {
@@ -1300,8 +1308,9 @@ internal fun PlayerRuntimeController.initializePlayer(
                         }
                         updateAudioControlAvailability()
                         // Start playback now that the first video frame is
-                        // visible: audio and video begin in sync.
-                        if (!startPaused && !userPausedManually) {
+                        // visible: audio and video begin in sync. Later seeks also
+                        // fire this callback — calling play() again stutters Shield.
+                        if (isFirstFrame && !startPaused && !userPausedManually) {
                             playWhenReady = true
                             play()
                         }

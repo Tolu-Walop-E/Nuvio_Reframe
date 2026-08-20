@@ -596,20 +596,27 @@ internal fun PlayerRuntimeController.seekPlaybackTo(
                 }
             }
             player.setSeekParameters(seekParameters)
-            // Scrubbing mode disables audio and bumps codec rate. That is for
-            // paused thumbnail scrub, not skip-intro / live skip while playing —
-            // toggling it mid-playback stutters on Shield after the jump.
-            if (
-                NuvioExoPlayerPerformanceHelper.enabled &&
-                !player.isPlaying &&
-                !player.playWhenReady
-            ) {
+            val seekWhilePlaying = player.playWhenReady || player.isPlaying
+            if (seekWhilePlaying) {
+                // Skip-intro / live skip: enable scrubbing mode with audio still on
+                // so Media3 can skip the hardware codec flush. Parameters alone do
+                // nothing until setScrubbingModeEnabled(true).
+                player.setScrubbingModeParameters(
+                    NuvioExoPlayerPerformanceHelper.buildPlaybackSeekParams()
+                )
+                player.setScrubbingModeEnabled(true)
+                isScrubbingModeActive = true
+            } else if (NuvioExoPlayerPerformanceHelper.enabled) {
                 NuvioExoPlayerPerformanceHelper.buildScrubbingParams()?.let { params ->
                     isScrubbingModeActive = true
                     player.setScrubbingModeParameters(params)
+                    player.setScrubbingModeEnabled(true)
                 }
             }
             player.seekTo(positionMs)
+            // NEXT_SYNC must not stick — ABR quality switches reuse seek params
+            // and would keep jumping to the next keyframe after skip intro.
+            player.setSeekParameters(SeekParameters.DEFAULT)
         }
     }
 }

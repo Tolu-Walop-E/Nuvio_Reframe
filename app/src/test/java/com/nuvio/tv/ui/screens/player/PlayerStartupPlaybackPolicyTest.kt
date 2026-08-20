@@ -67,7 +67,7 @@ class PlayerStartupPlaybackPolicyTest {
     }
 
     @Test
-    fun secondReadyAfterFirstFrameCallsPlayOnly() {
+    fun secondReadyAfterFirstFrameDoesNotCallPlay() {
         val transition = PlayerStartupPlaybackPolicy.onStateReady(
             baseState(
                 shouldEnforceAutoplayOnFirstReady = false,
@@ -75,8 +75,7 @@ class PlayerStartupPlaybackPolicyTest {
             )
         )
 
-        val action = transition.action as PlayerStartupPlaybackPolicy.ReadyAction.PostFirstFrameResume
-        assertTrue(action.callPlay)
+        assertEquals(PlayerStartupPlaybackPolicy.ReadyAction.None, transition.action)
     }
 
     @Test

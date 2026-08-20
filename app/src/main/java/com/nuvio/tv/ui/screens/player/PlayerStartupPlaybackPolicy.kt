@@ -70,7 +70,9 @@ internal object PlayerStartupPlaybackPolicy {
         }
 
         return if (state.hasRenderedFirstFrame) {
-            ReadyTransition(state, ReadyAction.PostFirstFrameResume(callPlay = true))
+            // ExoPlayer already resumes when playWhenReady is true. Calling play()
+            // again after skip-intro / live seek restarts the Shield decoder.
+            ReadyTransition(state, ReadyAction.None)
         } else {
             ReadyTransition(
                 state,
