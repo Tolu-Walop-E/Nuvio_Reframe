@@ -111,7 +111,9 @@ data class HomeUiState(
     /** Studio Movies tab pack; null = type-filter / discovery fallback. */
     val moviesScreenPack: NetflixScreenPackState? = null,
     /** Studio TV Shows tab pack; null = type-filter / discovery fallback. */
-    val showsScreenPack: NetflixScreenPackState? = null
+    val showsScreenPack: NetflixScreenPackState? = null,
+    /** Home-pack text-pill rail bound to `collection:id`; null = catalog-derived chips. */
+    val viewPackGenreCollectionId: String? = null
 )
 
 @Immutable
@@ -128,7 +130,9 @@ data class NetflixScreenPackState(
     val heroLabel: String = "Featured",
     val heroDataSource: String? = null,
     val featuredHeightPx: Int? = null,
-    val hasContinueWatching: Boolean = false
+    val hasContinueWatching: Boolean = false,
+    /** Text-pill `genreRail` bound to `collection:id`; null = catalog-derived chips. */
+    val genreCollectionId: String? = null
 )
 
 @Immutable

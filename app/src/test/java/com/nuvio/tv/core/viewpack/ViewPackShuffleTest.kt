@@ -116,4 +116,23 @@ class ViewPackShuffleTest {
             keys
         )
     }
+
+    @Test
+    fun genreRailOnCollectionMapsToPillsNotHub() {
+        val json = """
+            {
+              "schemaVersion": 1,
+              "id": "demo",
+              "name": "Demo",
+              "canvas": { "width": 1920, "height": 1080 },
+              "blocks": [
+                { "id": "g", "type": "genreRail", "x": 0, "y": 200, "w": 1920, "h": 100, "dataSource": "collection:abc", "trailer": false }
+              ]
+            }
+        """.trimIndent()
+        val pack = parseViewPackJson(json)
+        assertEquals(listOf("_special_genres"), homeOrderKeysFromPack(pack))
+        assertTrue(packCollectionHubRefs(pack).isEmpty())
+        assertEquals("abc", packGenreCollectionId(pack))
+    }
 }

@@ -218,6 +218,27 @@ internal fun buildGenreChipsFromCollections(
     )
 }
 
+/**
+ * Text pills from a collection's folders (Studio "Turn into text pills").
+ * Labels are folder titles; selecting a pill opens that folder.
+ */
+internal fun buildGenrePillsFromCollection(collection: Collection): List<NetflixGenreChip> {
+    return collection.folders.mapNotNull { folder ->
+        val label = folder.title.trim().ifBlank { return@mapNotNull null }
+        val source = folder.catalogSources.firstOrNull()
+        NetflixGenreChip(
+            key = "folder|${collection.id}|${folder.id}",
+            label = label,
+            catalogId = source?.catalogId.orEmpty(),
+            addonId = source?.addonId.orEmpty(),
+            type = source?.type.orEmpty(),
+            genreFilter = source?.genre,
+            collectionId = collection.id,
+            folderId = folder.id
+        )
+    }
+}
+
 private fun buildGenreChipsFromCollectionsFallback(
     collections: List<Collection>,
     candidates: List<GenreCatalogCandidate>,

@@ -186,6 +186,11 @@ fun NetflixHomeContent(
         tabScreenPack?.collectionLandscapeScale ?: uiState.viewPackCollectionLandscapeScale
     val tabHeroTrailerEnabled =
         tabScreenPack?.heroTrailerEnabled ?: uiState.viewPackHeroTrailerEnabled
+    val tabGenreCollectionId = when {
+        selectedTab == NetflixContentTab.HOME && homePackActive -> uiState.viewPackGenreCollectionId
+        tabScreenPack != null -> tabScreenPack.genreCollectionId
+        else -> null
+    }
     val contentRails = remember(uiState.homeRows, uiState.catalogRows, packActiveForTab) {
         buildNetflixContentRails(
             homeRows = uiState.homeRows,
@@ -235,12 +240,26 @@ fun NetflixHomeContent(
             }
         }
     }
-    val genreChips = remember(uiState.genreCatalogCandidates, uiState.collections, selectedTab) {
-        buildGenreChipsFromAvailableCatalogs(
-            candidates = uiState.genreCatalogCandidates,
-            collections = uiState.collections,
-            tab = selectedTab
-        )
+    val genreChips = remember(
+        uiState.genreCatalogCandidates,
+        uiState.collections,
+        selectedTab,
+        tabGenreCollectionId
+    ) {
+        val collectionId = tabGenreCollectionId?.trim().orEmpty()
+        if (collectionId.isNotEmpty()) {
+            val collection = uiState.collections.firstOrNull { it.id == collectionId }
+            if (collection != null) {
+                return@remember buildGenrePillsFromCollection(collection)
+            }
+            emptyList()
+        } else {
+            buildGenreChipsFromAvailableCatalogs(
+                candidates = uiState.genreCatalogCandidates,
+                collections = uiState.collections,
+                tab = selectedTab
+            )
+        }
     }
     val genreTargetOptions = remember(uiState.collections, catalogEntries, selectedTab, context) {
         buildGenreTargetOptions(uiState.collections, catalogEntries, selectedTab) { resourceId, value ->
@@ -822,7 +841,8 @@ fun NetflixHomeContent(
                                 genre = genre,
                                 selectedTab = selectedTab,
                                 mappedTarget = uiState.genreRowTargets[genre.key],
-                                onNavigateToGenre = onNavigateToGenre
+                                onNavigateToGenre = onNavigateToGenre,
+                                onNavigateToFolderDetail = onNavigateToFolderDetail
                             )
                         },
                         onGenreLongPressed = { genre -> genreTargetPickerChip = genre }
@@ -1291,7 +1311,8 @@ private fun openGenreChip(
     genre: NetflixGenreChip,
     selectedTab: NetflixContentTab,
     mappedTarget: SyncGenreRowTarget?,
-    onNavigateToGenre: (String, String, String, String?) -> Unit
+    onNavigateToGenre: (String, String, String, String?) -> Unit,
+    onNavigateToFolderDetail: (String, String) -> Unit
 ) {
     when (mappedTarget?.kind) {
         GENRE_ROW_TARGET_CATALOG -> {
@@ -1310,9 +1331,13 @@ private fun openGenreChip(
                 return
             }
         }
-        // Folder remaps stay available via long-press, but default genre chips
-        // must not open the multi-source folder board (too slow / empty-looking).
         else -> Unit
+    }
+    val collectionId = genre.collectionId
+    val folderId = genre.folderId
+    if (!collectionId.isNullOrBlank() && !folderId.isNullOrBlank()) {
+        onNavigateToFolderDetail(collectionId, folderId)
+        return
     }
     onNavigateToGenre(genre.catalogId, genre.addonId, genre.type, genre.genreFilter)
 }

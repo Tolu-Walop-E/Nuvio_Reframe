@@ -8,8 +8,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -92,7 +94,7 @@ internal fun NetflixGenreRail(
         modifier = modifier.padding(top = NetflixHomeSpacing.RailTopPadding),
         state = rowState,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
-        // No vertical padding: chips are fixed-size with an in-box focus ring (no scale),
+        // No vertical padding: chips wrap to text width with an in-box focus ring (no scale),
         // so padding here only added empty space that neighbors scrolled against.
         contentPadding = PaddingValues(horizontal = NetflixHomeTokens.PageHorizontalPadding)
     ) {
@@ -127,7 +129,7 @@ private fun NetflixGenreCard(
     onLongClick: () -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(13.dp)
+    val shape = RoundedCornerShape(percent = 50)
     val longPressKeyTracker = rememberLongPressKeyTracker()
     // Keep border width constant so focus never changes measured size / nudges
     // rails above or below while scrolling Left/Right.
@@ -135,7 +137,9 @@ private fun NetflixGenreCard(
 
     Box(
         modifier = Modifier
-            .size(NetflixHomeTokens.GenreCardWidth, NetflixHomeTokens.GenreCardHeight)
+            .height(NetflixHomeTokens.GenrePillHeight)
+            .wrapContentWidth()
+            .defaultMinSize(minWidth = 72.dp)
             .focusRequester(focusRequester)
             .onPreviewKeyEvent { keyEvent ->
                 val native = keyEvent.nativeKeyEvent
@@ -194,7 +198,7 @@ private fun NetflixGenreCard(
                 shape = shape
             )
             .clickable(onClick = onClick)
-            .padding(horizontal = 18.dp, vertical = 14.dp),
+            .padding(horizontal = 16.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(

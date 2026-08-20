@@ -58,6 +58,10 @@ fun homeOrderKeysFromPack(pack: ViewPack): List<String> {
     val keys = LinkedHashSet<String>()
     for (block in ordered) {
         if (block.type == "topNav" || block.type == "hero" || block.type == "spacer") continue
+        if (block.type == "genreRail") {
+            keys.add(PACK_GENRES_ROW_KEY)
+            continue
+        }
         val key = homeOrderKeyForDataSource(block.dataSource) ?: continue
         keys.add(key)
     }
@@ -113,6 +117,22 @@ fun packHasGenresRail(pack: ViewPack): Boolean =
     pack.blocks.any {
         it.type == "genreRail" || it.dataSource.trim() == "genres"
     }
+
+/**
+ * Collection id for a text-pill `genreRail` bound to `collection:id`.
+ * Null for the legacy builtin `genres` source (TV fills from catalogs).
+ */
+fun packGenreCollectionId(pack: ViewPack): String? {
+    val ordered = pack.blocks.sortedWith(compareBy({ it.y }, { it.x }, { it.id }))
+    for (block in ordered) {
+        if (block.type != "genreRail") continue
+        val ds = block.dataSource.trim()
+        if (!ds.startsWith("collection:") || ds.contains(":folder:")) continue
+        val collectionId = ds.removePrefix("collection:").trim()
+        if (collectionId.isNotEmpty()) return collectionId
+    }
+    return null
+}
 
 /**
  * Studio canvas px reserved for the rail title row when focused poster info is on.
@@ -470,6 +490,7 @@ fun packCatalogRefs(pack: ViewPack): Map<String, PackCatalogRef> {
 fun packCollectionHubRefs(pack: ViewPack): Map<String, PackCollectionHubRef> {
     val out = LinkedHashMap<String, PackCollectionHubRef>()
     for (block in pack.blocks.sortedWith(compareBy({ it.y }, { it.x }, { it.id }))) {
+        if (block.type == "genreRail") continue
         val ds = block.dataSource.trim()
         if (!ds.startsWith("collection:") || ds.contains(":folder:")) continue
         val collectionId = ds.removePrefix("collection:").trim()

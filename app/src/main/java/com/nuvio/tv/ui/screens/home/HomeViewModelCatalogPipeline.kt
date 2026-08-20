@@ -127,7 +127,8 @@ internal fun HomeViewModel.loadActiveViewPackPipeline() {
                             viewPackFeaturedAddonBaseUrl = "",
                             viewPackFeaturedHeightPx = null,
                             moviesScreenPack = null,
-                            showsScreenPack = null
+                            showsScreenPack = null,
+                            viewPackGenreCollectionId = null
                         )
                     }
                 }
@@ -216,7 +217,9 @@ internal fun HomeViewModel.loadActiveViewPackPipeline() {
                         viewPackHeroDataSource = activeViewPackHeroDataSource,
                         viewPackFeaturedHeightPx = com.nuvio.tv.core.viewpack.packHeroHeightPx(rotated),
                         moviesScreenPack = moviesPack?.toNetflixScreenPackState(),
-                        showsScreenPack = showsPack?.toNetflixScreenPackState()
+                        showsScreenPack = showsPack?.toNetflixScreenPackState(),
+                        viewPackGenreCollectionId =
+                            com.nuvio.tv.core.viewpack.packGenreCollectionId(rotated)
                     )
                 }
             } catch (e: Exception) {
@@ -251,7 +254,8 @@ internal fun HomeViewModel.loadActiveViewPackPipeline() {
                         viewPackFeaturedAddonBaseUrl = "",
                         viewPackFeaturedHeightPx = null,
                         moviesScreenPack = null,
-                        showsScreenPack = null
+                        showsScreenPack = null,
+                        viewPackGenreCollectionId = null
                     )
                 }
             }
@@ -1497,6 +1501,7 @@ private fun com.nuvio.tv.core.viewpack.ViewPack.toNetflixScreenPackState(): Netf
         heroLabel = com.nuvio.tv.core.viewpack.packHeroLabel(this),
         heroDataSource = com.nuvio.tv.core.viewpack.packHeroDataSource(this),
         featuredHeightPx = com.nuvio.tv.core.viewpack.packHeroHeightPx(this),
-        hasContinueWatching = com.nuvio.tv.core.viewpack.packHasContinueWatching(this)
+        hasContinueWatching = com.nuvio.tv.core.viewpack.packHasContinueWatching(this),
+        genreCollectionId = com.nuvio.tv.core.viewpack.packGenreCollectionId(this)
     )
 }

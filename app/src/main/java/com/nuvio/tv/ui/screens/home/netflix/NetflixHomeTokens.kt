@@ -60,8 +60,7 @@ internal object NetflixHomeTokens {
     val ContinueCardHeight = 146.dp
     val FocusedContinueCardWidth = ContinueCardWidth
     val FocusedContinueCardHeight = ContinueCardHeight
-    val GenreCardWidth = 150.dp
-    val GenreCardHeight = 54.dp
+    val GenrePillHeight = 40.dp
     const val ShowCataloguePosterLabels = false
 }
 
