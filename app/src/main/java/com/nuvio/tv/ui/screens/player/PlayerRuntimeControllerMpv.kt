@@ -596,9 +596,16 @@ internal fun PlayerRuntimeController.seekPlaybackTo(
                 }
             }
             player.setSeekParameters(seekParameters)
-            // Do not enable scrubbing/skip-flush while playing. On Shield HDMI
-            // passthrough (DTS-HD) that leaves AudioTrack timestamps stuck after
-            // skip-intro and the video clock stutters for the rest of playback.
+            // HDMI DTS-HD passthrough keeps a broken AudioTrack clock after a live
+            // jump; video follows that clock and glitches. Switch to PCM first.
+            if (player.playWhenReady || player.isPlaying) {
+                if (playbackSpeedAwareAudioSink?.enablePcmClockAfterLiveSeek() == true) {
+                    Log.i(
+                        PlayerRuntimeController.TAG,
+                        "SEEK_PCM: replaced HDMI passthrough clock after live seek"
+                    )
+                }
+            }
             if (
                 NuvioExoPlayerPerformanceHelper.enabled &&
                 !player.isPlaying &&

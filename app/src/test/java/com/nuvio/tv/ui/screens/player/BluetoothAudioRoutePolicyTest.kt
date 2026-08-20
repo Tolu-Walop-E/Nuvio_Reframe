@@ -79,6 +79,37 @@ class BluetoothAudioRoutePolicyTest {
         assertEquals(AudioSink.SINK_FORMAT_UNSUPPORTED, sink.getFormatSupport(eac3))
     }
 
+    @Test
+    fun `live seek forces pcm for dts hd passthrough and keeps it at 1x speed`() {
+        val sink = PlaybackSpeedAwareAudioSink(
+            sink = AlwaysSupportedDelegateSink(),
+            initialForcePcm = false,
+            forcePcmForBluetooth = false
+        )
+        val dtsHd = mime(MimeTypes.AUDIO_DTS_HD)
+        sink.configure(dtsHd, 0, null)
+        assertFalse(sink.shouldForcePcmForFormat(dtsHd))
+        assertTrue(sink.enablePcmClockAfterLiveSeek())
+        assertTrue(sink.shouldForcePcmForFormat(dtsHd))
+        assertEquals(AudioSink.SINK_FORMAT_UNSUPPORTED, sink.getFormatSupport(dtsHd))
+        sink.setPlaybackParameters(PlaybackParameters(1f))
+        assertTrue(sink.shouldForcePcmForFormat(dtsHd))
+        assertFalse(sink.enablePcmClockAfterLiveSeek())
+    }
+
+    @Test
+    fun `live seek does not force pcm for aac`() {
+        val sink = PlaybackSpeedAwareAudioSink(
+            sink = AlwaysSupportedDelegateSink(),
+            initialForcePcm = false,
+            forcePcmForBluetooth = false
+        )
+        val aac = mime(MimeTypes.AUDIO_AAC)
+        sink.configure(aac, 0, null)
+        assertFalse(sink.enablePcmClockAfterLiveSeek())
+        assertFalse(sink.shouldForcePcmForFormat(aac))
+    }
+
     private fun mime(sampleMimeType: String): Format {
         return Format.Builder()
             .setSampleMimeType(sampleMimeType)

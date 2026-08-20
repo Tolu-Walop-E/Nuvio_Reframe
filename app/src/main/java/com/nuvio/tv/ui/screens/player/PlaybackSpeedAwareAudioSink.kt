@@ -34,6 +34,9 @@ internal class PlaybackSpeedAwareAudioSink(
     private var bluetoothForcePcm: Boolean = forcePcmForBluetooth
 
     @Volatile
+    private var forcePcmAfterLiveSeek: Boolean = false
+
+    @Volatile
     private var currentInputFormat: Format? = null
 
     @Volatile
@@ -58,6 +61,23 @@ internal class PlaybackSpeedAwareAudioSink(
 
     fun isBluetoothForcePcm(): Boolean = bluetoothForcePcm
 
+    /**
+     * HDMI bitstream (DTS-HD / E-AC-3) leaves AudioTrack timestamps stuck after a
+     * live seek on Shield. Video then syncs to that clock and glitches while audio
+     * still sounds fine. Latch PCM decode for the rest of this session.
+     */
+    fun enablePcmClockAfterLiveSeek(): Boolean {
+        val format = currentInputFormat ?: return false
+        if (!isEncodedPassthroughCandidate(format)) return false
+        if (forcePcmAfterLiveSeek || bluetoothForcePcm || startedWithForcedPcm) {
+            return false
+        }
+        forcePcmAfterLiveSeek = true
+        forcePcmForCurrentSession = true
+        listener?.onAudioCapabilitiesChanged()
+        return true
+    }
+
     override fun setListener(listener: AudioSink.Listener) {
         this.listener = listener
         super.setListener(listener)
@@ -74,7 +94,7 @@ internal class PlaybackSpeedAwareAudioSink(
         var shouldNotify = markPcmFallbackIfNeeded(currentInputFormat, playbackSpeed)
         // Going above 1x latches forcePcm for the session. Clear it when back at 1.0x
         // so passthrough can recover (unless recovery built us with forcePcm).
-        if (playbackSpeed == 1f && forcePcmForCurrentSession && !startedWithForcedPcm) {
+        if (playbackSpeed == 1f && forcePcmForCurrentSession && !startedWithForcedPcm && !forcePcmAfterLiveSeek) {
             forcePcmForCurrentSession = false
             shouldNotify = true
         }
@@ -111,7 +131,7 @@ internal class PlaybackSpeedAwareAudioSink(
             return false
         }
         // Bluetooth: always decode to PCM (Media3 DEFAULT_AUDIO_CAPABILITIES policy).
-        if (bluetoothForcePcm || forcePcmForCurrentSession) {
+        if (bluetoothForcePcm || forcePcmForCurrentSession || forcePcmAfterLiveSeek) {
             return true
         }
         // Non-1x speed cannot be applied to bitstream passthrough tracks.
