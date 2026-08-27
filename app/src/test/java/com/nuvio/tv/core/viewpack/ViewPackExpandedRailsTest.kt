@@ -56,6 +56,50 @@ class ViewPackExpandedRailsTest {
     }
 
     @Test
+    fun remapPackOrderKeys_rewritesStudioAddonUuidOntoInstalledAddon() {
+        val studioKey = "app.xperience.old_movie_snoak_top100_movies"
+        val refs = mapOf(
+            studioKey to PackCatalogRef(
+                orderKey = studioKey,
+                addonId = "app.xperience.old",
+                type = "movie",
+                catalogId = "snoak_top100_movies",
+                label = "For You · Movies"
+            )
+        )
+        val installed = listOf(Triple("app.xperience.new", "movie", "snoak_top100_movies"))
+        val remapped = remapPackOrderKeys(
+            listOf("_special_genres", studioKey, "collection_hub1"),
+            refs,
+            installed
+        )
+        assertEquals(
+            listOf(
+                "_special_genres",
+                "app.xperience.new_movie_snoak_top100_movies",
+                "collection_hub1"
+            ),
+            remapped
+        )
+    }
+
+    @Test
+    fun packOrderKeyMatchesRail_ignoresAddonUuid() {
+        assertTrue(
+            packOrderKeyMatchesRail(
+                "app.xperience.old_movie_snoak_top100_movies",
+                "app.xperience.new_movie_snoak_top100_movies"
+            )
+        )
+        assertTrue(
+            !packOrderKeyMatchesRail(
+                "app.xperience.old_movie_snoak_top100_movies",
+                "app.xperience.new_series_snoak_top100_series"
+            )
+        )
+    }
+
+    @Test
     fun applyStrictPackOrder_keepsFolderAndCatalogKeysWhenUnioned() {
         val packKeys = listOf(
             PACK_GENRES_ROW_KEY,

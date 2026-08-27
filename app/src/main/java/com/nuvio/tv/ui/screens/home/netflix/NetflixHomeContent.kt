@@ -49,6 +49,7 @@ import com.nuvio.tv.ui.screens.home.HomeScreenFocusState
 import com.nuvio.tv.ui.screens.home.HomeRow
 import com.nuvio.tv.ui.screens.home.HomeUiState
 import com.nuvio.tv.ui.screens.home.NetflixScreenPackState
+import com.nuvio.tv.core.viewpack.packOrderKeyMatchesRail
 import com.nuvio.tv.core.viewpack.resolvePackHeroMeta
 import com.nuvio.tv.ui.screens.home.contentId
 import com.nuvio.tv.ui.screens.home.contentType
@@ -1100,13 +1101,17 @@ private fun railsInPackOrder(
     rails: List<NetflixHomeRail>,
     keys: List<String>
 ): List<NetflixHomeRail> {
-    val byKey = rails.groupBy { it.orderKey }
-    val used = LinkedHashSet<String>()
+    val unused = rails.toMutableList()
     return buildList {
         for (key in keys) {
-            if (!used.add(key)) continue
-            val matches = byKey[key] ?: continue
-            addAll(matches)
+            val exactIndex = unused.indexOfFirst { it.orderKey == key }
+            val matchIndex = if (exactIndex >= 0) {
+                exactIndex
+            } else {
+                unused.indexOfFirst { packOrderKeyMatchesRail(key, it.orderKey) }
+            }
+            if (matchIndex < 0) continue
+            add(unused.removeAt(matchIndex))
         }
     }
 }

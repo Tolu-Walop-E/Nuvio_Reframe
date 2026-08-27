@@ -415,9 +415,62 @@ data class PackCollectionHubRef(
     val label: String? = null
 )
 
+private val PACK_CATALOG_TYPES = listOf("movie", "series", "channel", "tv", "anime", "other")
+
+/** `type` + `catalogId` encoded in `addonId_type_catalogId` (addon id may contain underscores). */
+fun catalogIdentityFromOrderKey(key: String): Pair<String, String>? {
+    for (type in PACK_CATALOG_TYPES) {
+        val marker = "_${type}_"
+        val idx = key.indexOf(marker)
+        if (idx <= 0) continue
+        val catalogId = key.substring(idx + marker.length).trim()
+        if (catalogId.isNotEmpty()) return type to catalogId
+    }
+    return null
+}
+
 /**
- * Map pack `catalog:…` dataSources → load refs (first occurrence wins).
+ * True when a Netflix rail's order key is the same catalog as a Studio pack key,
+ * even if the addon UUID changed after a reinstall.
  */
+fun packOrderKeyMatchesRail(packKey: String, railOrderKey: String): Boolean {
+    if (packKey == railOrderKey) return true
+    val packId = catalogIdentityFromOrderKey(packKey) ?: return false
+    val railId = catalogIdentityFromOrderKey(railOrderKey) ?: return false
+    return packId.first.equals(railId.first, ignoreCase = true) && packId.second == railId.second
+}
+
+fun remapPackOrderKey(
+    key: String,
+    catalogRefs: Map<String, PackCatalogRef>,
+    installed: List<Triple<String, String, String>>
+): String {
+    catalogRefs[key]?.let { return remapPackCatalogRef(it, installed).orderKey }
+    catalogRefs.values.firstOrNull { it.orderKey == key }?.let {
+        return remapPackCatalogRef(it, installed).orderKey
+    }
+    val identity = catalogIdentityFromOrderKey(key) ?: return key
+    val hit = installed.firstOrNull { (_, type, catalogId) ->
+        type.equals(identity.first, ignoreCase = true) && catalogId == identity.second
+    } ?: return key
+    return "${hit.first}_${hit.second}_${hit.third}"
+}
+
+fun remapPackOrderKeys(
+    keys: List<String>,
+    catalogRefs: Map<String, PackCatalogRef>,
+    installed: List<Triple<String, String, String>>
+): List<String> {
+    if (keys.isEmpty()) return keys
+    val seen = LinkedHashSet<String>()
+    val out = ArrayList<String>(keys.size)
+    for (key in keys) {
+        val remapped = remapPackOrderKey(key, catalogRefs, installed)
+        if (seen.add(remapped)) out.add(remapped)
+    }
+    return out
+}
+
 fun remapPackCatalogRef(
     ref: PackCatalogRef,
     installed: List<Triple<String, String, String>>
@@ -449,16 +502,19 @@ fun <T> remapPackKeyedMap(
     catalogRefs: Map<String, PackCatalogRef>,
     installed: List<Triple<String, String, String>>
 ): Map<String, T> {
-    if (map.isEmpty() || catalogRefs.isEmpty()) return map
+    if (map.isEmpty()) return map
     val out = LinkedHashMap<String, T>()
     for ((key, value) in map) {
-        val remapped = catalogRefs[key]?.let { remapPackCatalogRef(it, installed).orderKey } ?: key
+        val remapped = remapPackOrderKey(key, catalogRefs, installed)
         if (remapped !in out) out[remapped] = value
         if (key !in out) out[key] = value
     }
     return out
 }
 
+/**
+ * Map pack `catalog:…` dataSources → load refs (first occurrence wins).
+ */
 fun packCatalogRefs(pack: ViewPack): Map<String, PackCatalogRef> {
     val out = LinkedHashMap<String, PackCatalogRef>()
     for (block in pack.blocks.sortedWith(compareBy({ it.y }, { it.x }, { it.id }))) {

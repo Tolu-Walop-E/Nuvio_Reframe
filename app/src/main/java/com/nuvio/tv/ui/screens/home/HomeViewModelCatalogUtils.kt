@@ -392,17 +392,28 @@ private fun HomeViewModel.applyActiveViewPackOrderIfNeeded(allAvailable: Set<Str
     val installed = addonsCache.flatMap { addon ->
         addon.catalogs.map { catalog -> Triple(addon.id, catalog.apiType, catalog.id) }
     }
-    val remappedKeys = packKeys.map { key ->
-        val ref = activeViewPackCatalogRefs[key] ?: return@map key
-        com.nuvio.tv.core.viewpack.remapPackCatalogRef(ref, installed).orderKey
+    val remappedKeys = com.nuvio.tv.core.viewpack.remapPackOrderKeys(
+        packKeys,
+        activeViewPackCatalogRefs,
+        installed
+    )
+    val remappedMovies = moviesViewPackOrderKeys?.let { keys ->
+        com.nuvio.tv.core.viewpack.remapPackOrderKeys(
+            keys,
+            activeViewPackCatalogRefs,
+            installed
+        )
     }
-    fun remapPackKeys(keys: List<String>?): List<String> =
-        keys.orEmpty().map { key ->
-            val ref = activeViewPackCatalogRefs[key] ?: return@map key
-            com.nuvio.tv.core.viewpack.remapPackCatalogRef(ref, installed).orderKey
-        }
-    val remappedMovies = remapPackKeys(moviesViewPackOrderKeys)
-    val remappedShows = remapPackKeys(showsViewPackOrderKeys)
+    val remappedShows = showsViewPackOrderKeys?.let { keys ->
+        com.nuvio.tv.core.viewpack.remapPackOrderKeys(
+            keys,
+            activeViewPackCatalogRefs,
+            installed
+        )
+    }
+    activeViewPackOrderKeys = remappedKeys
+    moviesViewPackOrderKeys = remappedMovies
+    showsViewPackOrderKeys = remappedShows
     activeViewPackRowScales = com.nuvio.tv.core.viewpack.remapPackKeyedMap(
         activeViewPackRowScales,
         activeViewPackCatalogRefs,
@@ -424,21 +435,54 @@ private fun HomeViewModel.applyActiveViewPackOrderIfNeeded(allAvailable: Set<Str
         installed
     )
     _uiState.update { state ->
+        fun remapScreen(pack: NetflixScreenPackState?): NetflixScreenPackState? {
+            if (pack == null) return null
+            return pack.copy(
+                orderKeys = com.nuvio.tv.core.viewpack.remapPackOrderKeys(
+                    pack.orderKeys,
+                    activeViewPackCatalogRefs,
+                    installed
+                ),
+                rowScales = com.nuvio.tv.core.viewpack.remapPackKeyedMap(
+                    pack.rowScales,
+                    activeViewPackCatalogRefs,
+                    installed
+                ),
+                rowShowLabels = com.nuvio.tv.core.viewpack.remapPackKeyedMap(
+                    pack.rowShowLabels,
+                    activeViewPackCatalogRefs,
+                    installed
+                ),
+                rowTrailers = com.nuvio.tv.core.viewpack.remapPackKeyedMap(
+                    pack.rowTrailers,
+                    activeViewPackCatalogRefs,
+                    installed
+                ),
+                rowPosterGrow = com.nuvio.tv.core.viewpack.remapPackKeyedMap(
+                    pack.rowPosterGrow,
+                    activeViewPackCatalogRefs,
+                    installed
+                )
+            )
+        }
         state.copy(
+            viewPackOrderKeys = remappedKeys,
             viewPackRowScales = activeViewPackRowScales,
             viewPackRowShowLabels = activeViewPackRowShowLabels,
             viewPackRowTrailers = activeViewPackRowTrailers,
-            viewPackRowPosterGrow = activeViewPackRowPosterGrow
+            viewPackRowPosterGrow = activeViewPackRowPosterGrow,
+            moviesScreenPack = remapScreen(state.moviesScreenPack),
+            showsScreenPack = remapScreen(state.showsScreenPack)
         )
     }
     val available = buildSet {
         addAll(allAvailable)
         addAll(remappedKeys)
-        addAll(remappedMovies)
-        addAll(remappedShows)
+        addAll(remappedMovies.orEmpty())
+        addAll(remappedShows.orEmpty())
         if (com.nuvio.tv.core.viewpack.PACK_GENRES_ROW_KEY in packKeys ||
-            com.nuvio.tv.core.viewpack.PACK_GENRES_ROW_KEY in remappedMovies ||
-            com.nuvio.tv.core.viewpack.PACK_GENRES_ROW_KEY in remappedShows
+            com.nuvio.tv.core.viewpack.PACK_GENRES_ROW_KEY in remappedMovies.orEmpty() ||
+            com.nuvio.tv.core.viewpack.PACK_GENRES_ROW_KEY in remappedShows.orEmpty()
         ) {
             add(com.nuvio.tv.core.viewpack.PACK_GENRES_ROW_KEY)
         }
@@ -448,7 +492,7 @@ private fun HomeViewModel.applyActiveViewPackOrderIfNeeded(allAvailable: Set<Str
         availableKeys = available
     )
     val extras = com.nuvio.tv.core.viewpack.applyStrictPackOrder(
-        packKeys = remappedMovies + remappedShows,
+        packKeys = remappedMovies.orEmpty() + remappedShows.orEmpty(),
         availableKeys = available
     ).filter { it !in ordered }
     synchronized(catalogStateLock) {
