@@ -270,6 +270,7 @@ data class PlayerSettings(
     val stillWatchingEnabled: Boolean = false,
     val stillWatchingEpisodeThreshold: Int = DEFAULT_STILL_WATCHING_EPISODE_THRESHOLD,
     val rateAfterWatchingEnabled: Boolean = true,
+    val postPlayRecommendationsEnabled: Boolean = true,
     val nextEpisodeThresholdMode: NextEpisodeThresholdMode = NextEpisodeThresholdMode.PERCENTAGE,
     val nextEpisodeThresholdPercent: Float = 99f,
     val nextEpisodeThresholdMinutesBeforeEnd: Float = 2f,
@@ -533,6 +534,7 @@ class PlayerSettingsDataStore @Inject constructor(
     private val streamAutoPlayTimeoutSecondsKey = intPreferencesKey("stream_auto_play_timeout_seconds")
     private val stillWatchingEnabledKey = booleanPreferencesKey("still_watching_enabled")
     private val rateAfterWatchingEnabledKey = booleanPreferencesKey("rate_after_watching_enabled")
+    private val postPlayRecommendationsEnabledKey = booleanPreferencesKey("post_play_recommendations_enabled")
     private val stillWatchingEpisodeThresholdKey = intPreferencesKey("still_watching_episode_threshold")
     private val nextEpisodeThresholdModeKey = stringPreferencesKey("next_episode_threshold_mode")
     private val nextEpisodeThresholdPercentLegacyKey = intPreferencesKey("next_episode_threshold_percent")
@@ -901,6 +903,7 @@ class PlayerSettingsDataStore @Inject constructor(
                     )
                     ?: PlayerSettings.DEFAULT_STILL_WATCHING_EPISODE_THRESHOLD,
                 rateAfterWatchingEnabled = prefs[rateAfterWatchingEnabledKey] ?: true,
+                postPlayRecommendationsEnabled = prefs[postPlayRecommendationsEnabledKey] ?: true,
                 nextEpisodeThresholdMode = prefs[nextEpisodeThresholdModeKey]?.let {
                     runCatching { NextEpisodeThresholdMode.valueOf(it) }.getOrDefault(NextEpisodeThresholdMode.PERCENTAGE)
                 } ?: NextEpisodeThresholdMode.PERCENTAGE,
@@ -1285,6 +1288,12 @@ class PlayerSettingsDataStore @Inject constructor(
     suspend fun setRateAfterWatchingEnabled(enabled: Boolean) {
         store().edit { prefs ->
             prefs[rateAfterWatchingEnabledKey] = enabled
+        }
+    }
+
+    suspend fun setPostPlayRecommendationsEnabled(enabled: Boolean) {
+        store().edit { prefs ->
+            prefs[postPlayRecommendationsEnabledKey] = enabled
         }
     }
 

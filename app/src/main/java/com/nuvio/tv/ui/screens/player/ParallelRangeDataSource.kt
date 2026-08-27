@@ -418,7 +418,16 @@ internal class ParallelRangeDataSource(
             } else {
                 position / chunkSize
             }
-        val maxAhead = parallelConnections + 1
+        val configuredDepth = parallelConnections + 1
+        fun chunkComplete(index: Long): Boolean {
+            val future = chunks[index] ?: return false
+            return future.isDone && !future.isCancelled && !future.isCompletedExceptionally
+        }
+        val maxAhead = if (!chunkComplete(currentChunkIdx) || !chunkComplete(currentChunkIdx + 1)) {
+            2.coerceAtMost(configuredDepth)
+        } else {
+            configuredDepth
+        }
 
         for (i in 0 until maxAhead) {
             val ci = currentChunkIdx + i

@@ -11,7 +11,8 @@ python scripts/upstream_watch.py
 - **MEDIUM** — player, TMDB, subtitles, watched. Review.
 - Never `git merge origin/dev` onto a Netflix-home branch.
 
-Last reviewed upstream tip: `082af4e29` (2026-08-18). Merge-base with this branch: `f6dc2f1c7` (2026-08-07).
+Last reviewed upstream tip: `3f44c404a` (2026-08-27). Merge-base with this branch: `f6dc2f1c7` (2026-08-07).
+Previous review was `082af4e29` (2026-08-18).
 
 Taken in 0.8.25-reframe:
 

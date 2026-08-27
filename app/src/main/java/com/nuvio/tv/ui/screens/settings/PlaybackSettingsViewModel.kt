@@ -493,6 +493,10 @@ class PlaybackSettingsViewModel @Inject constructor(
         playerSettingsDataStore.setRateAfterWatchingEnabled(enabled)
     }
 
+    suspend fun setPostPlayRecommendationsEnabled(enabled: Boolean) {
+        playerSettingsDataStore.setPostPlayRecommendationsEnabled(enabled)
+    }
+
     suspend fun setStillWatchingEpisodeThreshold(threshold: Int) {
         playerSettingsDataStore.setStillWatchingEpisodeThreshold(threshold)
     }

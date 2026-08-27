@@ -29,6 +29,7 @@ import com.nuvio.tv.ui.screens.addon.CatalogOrderScreen
 import com.nuvio.tv.ui.screens.library.LibraryScreen
 import com.nuvio.tv.ui.screens.player.PlayerExitReason
 import com.nuvio.tv.ui.screens.player.PlayerScreen
+import com.nuvio.tv.ui.screens.player.PostPlayRecommendation
 import com.nuvio.tv.ui.screens.plugin.PluginScreen
 import com.nuvio.tv.ui.screens.search.DiscoverScreen
 import com.nuvio.tv.ui.screens.search.SearchScreen
@@ -745,6 +746,53 @@ fun NuvioNavHost(
                 }
             )
         ) { backStackEntry ->
+            fun navigateFromPostPlay(
+                recommendation: PostPlayRecommendation,
+                play: Boolean,
+                manualSelection: Boolean = false
+            ) {
+                val returnToHomeOnBack = backStackEntry.arguments
+                    ?.getString("returnToHomeOnBack")
+                    ?.toBooleanStrictOrNull() == true
+                val playbackRootRoute = postPlayRecommendationPopUpRoute(
+                    navController.previousBackStackEntry?.destination?.route
+                )
+                if (play) {
+                    navController.navigate(
+                        Screen.Stream.createRoute(
+                            videoId = recommendation.id,
+                            contentType = recommendation.contentType,
+                            title = recommendation.title,
+                            poster = recommendation.poster,
+                            backdrop = recommendation.backdrop,
+                            logo = recommendation.logo,
+                            year = recommendation.releaseInfo,
+                            contentId = recommendation.id,
+                            contentName = recommendation.title,
+                            runtime = recommendation.runtime?.toIntOrNull(),
+                            genres = recommendation.genres.takeIf { it.isNotEmpty() }?.joinToString(","),
+                            manualSelection = manualSelection,
+                            returnToHomeOnBack = returnToHomeOnBack,
+                            contentLanguage = recommendation.contentLanguage
+                        )
+                    ) {
+                        popUpTo(playbackRootRoute) { inclusive = true }
+                    }
+                } else {
+                    navController.navigate(
+                        Screen.Detail.createRoute(
+                            itemId = recommendation.id,
+                            itemType = recommendation.contentType,
+                            addonBaseUrl = recommendation.sourceAddonBaseUrl,
+                            returnToHomeOnBack = returnToHomeOnBack,
+                            heroBackdropUrl = recommendation.backdrop
+                        )
+                    ) {
+                        popUpTo(playbackRootRoute) { inclusive = true }
+                    }
+                }
+            }
+
             PlayerScreen(
                 onBackPress = { currentVideoId, currentSeason, currentEpisode, autoPlayEnabled, playbackCompleted ->
                     val args = backStackEntry.arguments
@@ -846,6 +894,19 @@ fun NuvioNavHost(
                             }
                         }
                     }
+                },
+                onPlayRecommendation = { recommendation, manualSelection ->
+                    navigateFromPostPlay(
+                        recommendation = recommendation,
+                        play = true,
+                        manualSelection = manualSelection
+                    )
+                },
+                onOpenRecommendationDetails = { recommendation ->
+                    navigateFromPostPlay(
+                        recommendation = recommendation,
+                        play = false
+                    )
                 },
                 onPlaybackEnded = { nextVideoId, nextSeason, nextEpisode, exitReason ->
                     val args = backStackEntry.arguments

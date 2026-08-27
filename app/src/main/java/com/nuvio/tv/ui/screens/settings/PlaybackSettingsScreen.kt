@@ -266,6 +266,9 @@ fun PlaybackSettingsContent(
                 onSetStillWatchingEpisodeThreshold = { threshold ->
                     coroutineScope.launch { viewModel.setStillWatchingEpisodeThreshold(threshold) }
                 },
+                onSetPostPlayRecommendationsEnabled = { enabled ->
+                    coroutineScope.launch { viewModel.setPostPlayRecommendationsEnabled(enabled) }
+                },
                 onSetRateAfterWatchingEnabled = { enabled ->
                     coroutineScope.launch { viewModel.setRateAfterWatchingEnabled(enabled) }
                 },

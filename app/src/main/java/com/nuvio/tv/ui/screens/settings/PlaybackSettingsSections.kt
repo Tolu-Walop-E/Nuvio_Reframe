@@ -144,6 +144,7 @@ internal fun PlaybackSettingsSections(
     onSetReuseLastLinkEnabled: (Boolean) -> Unit,
     onSetStillWatchingEnabled: (Boolean) -> Unit,
     onSetStillWatchingEpisodeThreshold: (Int) -> Unit,
+    onSetPostPlayRecommendationsEnabled: (Boolean) -> Unit,
     onSetRateAfterWatchingEnabled: (Boolean) -> Unit,
     onSetShowPlayerLoadingStatus: (Boolean) -> Unit,
     onSetLoadingOverlayEnabled: (Boolean) -> Unit,
@@ -545,6 +546,7 @@ internal fun PlaybackSettingsSections(
                 onSetReuseLastLinkEnabled = onSetReuseLastLinkEnabled,
                 onSetStillWatchingEnabled = onSetStillWatchingEnabled,
                 onSetStillWatchingEpisodeThreshold = onSetStillWatchingEpisodeThreshold,
+                onSetPostPlayRecommendationsEnabled = onSetPostPlayRecommendationsEnabled,
                 onSetRateAfterWatchingEnabled = onSetRateAfterWatchingEnabled,
                 onItemFocused = { focusedSection = PlaybackSection.STREAM_SELECTION }
             )

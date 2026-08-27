@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Recommend
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Star
@@ -94,6 +95,7 @@ internal fun LazyListScope.autoPlaySettingsItems(
     onSetReuseLastLinkEnabled: (Boolean) -> Unit,
     onSetStillWatchingEnabled: (Boolean) -> Unit,
     onSetStillWatchingEpisodeThreshold: (Int) -> Unit,
+    onSetPostPlayRecommendationsEnabled: (Boolean) -> Unit,
     onSetRateAfterWatchingEnabled: (Boolean) -> Unit,
     onItemFocused: () -> Unit = {}
 ) {
@@ -160,6 +162,17 @@ internal fun LazyListScope.autoPlaySettingsItems(
             selected = timeoutSec,
             valueText = valueText,
             onValueChange = { onSetStreamAutoPlayTimeoutSeconds(it) },
+            onFocused = onItemFocused
+        )
+    }
+
+    item(key = "post_play_recommendations") {
+        ToggleSettingsItem(
+            icon = Icons.Default.Recommend,
+            title = stringResource(R.string.autoplay_post_play_recommendations),
+            subtitle = stringResource(R.string.autoplay_post_play_recommendations_sub),
+            isChecked = playerSettings.postPlayRecommendationsEnabled,
+            onCheckedChange = onSetPostPlayRecommendationsEnabled,
             onFocused = onItemFocused
         )
     }
