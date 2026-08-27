@@ -93,6 +93,8 @@ data class HomeUiState(
     val viewPackCatalogPosterScale: Float = 1f,
     /** Pack-global collection landscape tile scale (1 = default). */
     val viewPackCollectionLandscapeScale: Float = 1f,
+    /** Pack-global collection rail title text scale (1 = default). */
+    val viewPackCollectionTitleScale: Float = 1f,
     /** Studio pack includes a hero block — show inset Featured banner. */
     val viewPackHeroEnabled: Boolean = false,
     /** Pack hero block `trailer` — when pack active, gates hero trailer autoplay. */
@@ -125,6 +127,7 @@ data class NetflixScreenPackState(
     val rowPosterGrow: Map<String, Boolean> = emptyMap(),
     val catalogPosterScale: Float = 1f,
     val collectionLandscapeScale: Float = 1f,
+    val collectionTitleScale: Float = 1f,
     val heroEnabled: Boolean = false,
     val heroTrailerEnabled: Boolean = false,
     val heroLabel: String = "Featured",

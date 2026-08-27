@@ -185,6 +185,8 @@ fun NetflixHomeContent(
     val tabCatalogPosterScale = tabScreenPack?.catalogPosterScale ?: uiState.viewPackCatalogPosterScale
     val tabCollectionLandscapeScale =
         tabScreenPack?.collectionLandscapeScale ?: uiState.viewPackCollectionLandscapeScale
+    val tabCollectionTitleScale =
+        tabScreenPack?.collectionTitleScale ?: uiState.viewPackCollectionTitleScale
     val tabHeroTrailerEnabled =
         tabScreenPack?.heroTrailerEnabled ?: uiState.viewPackHeroTrailerEnabled
     val tabGenreCollectionId = when {
@@ -946,6 +948,11 @@ fun NetflixHomeContent(
                         onMoveDown = moveDown,
                         landscapeScale = if (packActiveForTab) {
                             tabCollectionLandscapeScale
+                        } else {
+                            1f
+                        },
+                        titleScale = if (packActiveForTab) {
+                            tabCollectionTitleScale
                         } else {
                             1f
                         },

@@ -45,6 +45,8 @@ private const val TRAILER_LOG = "NetflixTrailer"
 /** How long we wait for a real video frame before rebuilding the video surface. */
 private const val FIRST_FRAME_TIMEOUT_MS = 700L
 private const val SURFACE_RECOVERY_ATTEMPTS = 3
+/** Ramp trailer audio after the first video frame so playback does not slam in. */
+private const val AUDIO_FADE_IN_MS = 550L
 
 /**
  * Stable identity for a trailer source.
@@ -115,6 +117,7 @@ fun TrailerPlayer(
     val currentOnFirstFrameRendered by rememberUpdatedState(onFirstFrameRendered)
     val currentOnProgressChanged by rememberUpdatedState(onProgressChanged)
     val currentOnRemoteKey by rememberUpdatedState(onRemoteKey)
+    val currentMuted by rememberUpdatedState(muted)
     val zoomScale = if (cropToFill) overscanZoom.coerceAtLeast(1f) else 1f
     val mediaIdentity = remember(trailerUrl, trailerAudioUrl) {
         trailerMediaIdentity(trailerUrl, trailerAudioUrl)
@@ -163,7 +166,7 @@ fun TrailerPlayer(
             android.util.Log.i(TRAILER_LOG, "first-frame owner=${poolOwner.hashCode()}")
             trailerPlayer?.let { player ->
                 if (resolvedPool?.isOwnedBy(poolOwner) != false) {
-                    player.volume = if (muted) 0f else 1f
+                    player.volume = 0f
                 }
             }
             currentOnFirstFrameRendered()
@@ -181,15 +184,26 @@ fun TrailerPlayer(
         }
     }
 
-    LaunchedEffect(trailerPlayer, muted, cropToFill, hasRenderedFirstFrame) {
+    LaunchedEffect(trailerPlayer, muted, hasRenderedFirstFrame, isPlaying) {
         val player = trailerPlayer ?: return@LaunchedEffect
         if (resolvedPool?.isOwnedBy(poolOwner) == false) return@LaunchedEffect
-        // Don't unmute before a frame — avoids audio-only on late/broken surfaces.
-        player.volume = if (muted || !hasRenderedFirstFrame) 0f else 1f
-        player.videoScalingMode = if (cropToFill) {
-            C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
-        } else {
-            C.VIDEO_SCALING_MODE_SCALE_TO_FIT
+        if (muted || !hasRenderedFirstFrame || !isPlaying) {
+            player.volume = 0f
+            return@LaunchedEffect
+        }
+        val steps = 16
+        val stepMs = AUDIO_FADE_IN_MS / steps
+        for (i in 1..steps) {
+            if (currentMuted || !currentIsPlaying) {
+                player.volume = 0f
+                return@LaunchedEffect
+            }
+            if (resolvedPool?.isOwnedBy(poolOwner) == false) return@LaunchedEffect
+            player.volume = i / steps.toFloat()
+            delay(stepMs)
+        }
+        if (!currentMuted && currentIsPlaying && resolvedPool?.isOwnedBy(poolOwner) != false) {
+            player.volume = 1f
         }
     }
 

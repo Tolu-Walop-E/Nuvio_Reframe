@@ -21,6 +21,8 @@ data class ViewPack(
     val catalogPosterScale: Float = 1f,
     /** Global collection hub landscape tile scale (1 = Netflix default). */
     val collectionLandscapeScale: Float = 1f,
+    /** Global collection rail title text scale (1 = Netflix default 26sp). */
+    val collectionTitleScale: Float = 1f,
     /**
      * When true, collection folders open in this pack's Netflix / Reframe
      * presentation instead of the collection's own tabbed grid. Per-block

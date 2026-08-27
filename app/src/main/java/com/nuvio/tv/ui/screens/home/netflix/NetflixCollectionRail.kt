@@ -30,6 +30,8 @@ internal fun NetflixCollectionRail(
     onMoveDown: () -> Boolean,
     /** Pack-global landscape tile scale (1 = Netflix default). */
     landscapeScale: Float = 1f,
+    /** Pack-global collection rail title text scale (1 = Netflix default). */
+    titleScale: Float = 1f,
     /** Keep titled empty hubs (Studio pack) instead of collapsing them. */
     allowEmpty: Boolean = false,
     modifier: Modifier = Modifier
@@ -46,7 +48,8 @@ internal fun NetflixCollectionRail(
             itemRequesters = listOf(emptyRequester),
             onPendingFocusConsumed = onPendingFocusConsumed,
             onFirstCardRequesterReady = onFirstCardRequesterReady,
-            modifier = modifier
+            modifier = modifier,
+            titleScale = titleScale
         ) { _, _, _, _, _, _ ->
             Box(
                 modifier = Modifier
@@ -77,7 +80,8 @@ internal fun NetflixCollectionRail(
         itemRequesters = itemRequesters,
         onPendingFocusConsumed = onPendingFocusConsumed,
         onFirstCardRequesterReady = onFirstCardRequesterReady,
-        modifier = modifier
+        modifier = modifier,
+        titleScale = titleScale
     ) { rowState, focusedIndex, onCardFocused, onMoveLeft, onMoveRight, railHasFocus ->
         val density = androidx.compose.ui.platform.LocalDensity.current
         // Size to the focused card so the grow animation reuses one decoded bitmap.

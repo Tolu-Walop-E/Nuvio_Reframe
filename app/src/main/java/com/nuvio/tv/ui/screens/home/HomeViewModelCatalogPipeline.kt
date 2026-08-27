@@ -118,6 +118,7 @@ internal fun HomeViewModel.loadActiveViewPackPipeline() {
                             viewPackRowPosterGrow = emptyMap(),
                             viewPackCatalogPosterScale = 1f,
                             viewPackCollectionLandscapeScale = 1f,
+                            viewPackCollectionTitleScale = 1f,
                             viewPackHeroEnabled = false,
                             viewPackHeroTrailerEnabled = false,
                             viewPackHeroLabel = "Featured",
@@ -210,6 +211,10 @@ internal fun HomeViewModel.loadActiveViewPackPipeline() {
                             com.nuvio.tv.core.viewpack.normalizePackCardScale(
                                 rotated.collectionLandscapeScale
                             ),
+                        viewPackCollectionTitleScale =
+                            com.nuvio.tv.core.viewpack.normalizePackCardScale(
+                                rotated.collectionTitleScale
+                            ),
                         viewPackHeroEnabled = com.nuvio.tv.core.viewpack.packHasHero(rotated),
                         viewPackHeroTrailerEnabled =
                             com.nuvio.tv.core.viewpack.packHeroTrailerEnabled(rotated),
@@ -245,6 +250,7 @@ internal fun HomeViewModel.loadActiveViewPackPipeline() {
                         viewPackRowPosterGrow = emptyMap(),
                         viewPackCatalogPosterScale = 1f,
                         viewPackCollectionLandscapeScale = 1f,
+                        viewPackCollectionTitleScale = 1f,
                         viewPackHeroEnabled = false,
                         viewPackHeroTrailerEnabled = false,
                         viewPackHeroLabel = "Featured",
@@ -1495,6 +1501,9 @@ private fun com.nuvio.tv.core.viewpack.ViewPack.toNetflixScreenPackState(): Netf
         catalogPosterScale = com.nuvio.tv.core.viewpack.normalizePackCardScale(catalogPosterScale),
         collectionLandscapeScale = com.nuvio.tv.core.viewpack.normalizePackCardScale(
             collectionLandscapeScale
+        ),
+        collectionTitleScale = com.nuvio.tv.core.viewpack.normalizePackCardScale(
+            collectionTitleScale
         ),
         heroEnabled = com.nuvio.tv.core.viewpack.packHasHero(this),
         heroTrailerEnabled = com.nuvio.tv.core.viewpack.packHeroTrailerEnabled(this),

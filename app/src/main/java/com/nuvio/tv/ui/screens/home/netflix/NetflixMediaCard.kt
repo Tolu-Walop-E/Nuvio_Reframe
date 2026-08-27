@@ -49,6 +49,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
@@ -90,6 +91,9 @@ internal fun NetflixMediaCard(
     progress: Float? = null,
     showLabels: Boolean = true,
     showFallbackTitleWhenArtworkMissing: Boolean = true,
+    /** ClearArt / title treatment drawn bottom-left on expanded landscape art. */
+    logoUrl: String? = null,
+    showLogo: Boolean = false,
     focusRequester: FocusRequester? = null,
     trailerUrl: String? = null,
     trailerAudioUrl: String? = null,
@@ -200,6 +204,8 @@ internal fun NetflixMediaCard(
         imageUrl.isNullOrBlank() &&
         holdUntilReadyImageUrl.isNullOrBlank()
     val showText = showLabels || showFallbackTitle
+    var logoLoadFailed by remember(logoUrl) { mutableStateOf(false) }
+    val showLogoOverlay = showLogo && !logoUrl.isNullOrBlank() && !logoLoadFailed
 
     // Settle window measured from focus, so D-pad flits don't start the shared
     // player. Arming without a URL is harmless: playback still waits for one.
@@ -306,6 +312,34 @@ internal fun NetflixMediaCard(
                     modifier = Modifier.fillMaxSize(),
                     enter = fadeIn(animationSpec = tween(80)),
                     exit = fadeOut(animationSpec = tween(80))
+                )
+            }
+            if (showLogoOverlay) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth()
+                        .fillMaxHeight(0.42f)
+                        .zIndex(2f)
+                        .background(
+                            Brush.verticalGradient(
+                                0f to Color.Transparent,
+                                1f to Color.Black.copy(alpha = 0.62f)
+                            )
+                        )
+                )
+                AsyncImage(
+                    model = logoUrl,
+                    contentDescription = title,
+                    onError = { logoLoadFailed = true },
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(start = 14.dp, end = 14.dp, bottom = 12.dp)
+                        .fillMaxWidth(0.56f)
+                        .height(height * 0.26f)
+                        .zIndex(3f),
+                    contentScale = ContentScale.Fit,
+                    alignment = Alignment.BottomStart
                 )
             }
             // Soft focus wash only before the trailer is armed — lifting it under a

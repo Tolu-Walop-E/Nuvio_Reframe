@@ -305,19 +305,12 @@ internal fun NetflixCatalogRail(
                     maxAbsoluteRailHeight = maxPosterHeight
                 )
             }
-            // Two stable decode sizes: the narrow box a poster rests in, and the wide
-            // box the focused card grows into. Artwork must be requested at the size it
-            // actually fills, otherwise a portrait poster is decoded for a landscape
-            // box and every read misses the cache.
-            val portraitCacheSizePx = remember(density, geometry.portraitWidth, geometry.railHeight) {
+            // Keep every catalog card at the pivot selector size so left/right D-pad
+            // does not reflow neighbours the way portrait→landscape grow used to.
+            val cardWidth = if (posterGrow) geometry.focusedWidth else geometry.portraitWidth
+            val cardCacheSizePx = remember(density, cardWidth, geometry.railHeight) {
                 IntSize(
-                    width = with(density) { geometry.portraitWidth.roundToPx().coerceAtLeast(1) },
-                    height = with(density) { geometry.railHeight.roundToPx().coerceAtLeast(1) }
-                )
-            }
-            val focusCacheSizePx = remember(density, geometry.focusedWidth, geometry.railHeight) {
-                IntSize(
-                    width = with(density) { geometry.focusedWidth.roundToPx().coerceAtLeast(1) },
+                    width = with(density) { cardWidth.roundToPx().coerceAtLeast(1) },
                     height = with(density) { geometry.railHeight.roundToPx().coerceAtLeast(1) }
                 )
             }
@@ -330,8 +323,8 @@ internal fun NetflixCatalogRail(
                 focusedIndex,
                 row.items,
                 useLandscapeCards,
-                portraitCacheSizePx,
-                focusCacheSizePx,
+                posterGrow,
+                cardCacheSizePx,
                 railHasFocus
             ) {
                 withContext(Dispatchers.IO) {
@@ -347,15 +340,12 @@ internal fun NetflixCatalogRail(
                         if (index !in 0..lastIndex) continue
                         val item = row.items[index]
                         val landscape = useLandscapeCards || item.posterShape == PosterShape.LANDSCAPE
+                        val preferLandscape = landscape || posterGrow
                         val url = item.netflixCatalogueArtwork(
                             focused = true,
-                            preferLandscapeWhenUnfocused = landscape
+                            preferLandscapeWhenUnfocused = preferLandscape
                         ) ?: continue
-                        val restUrl = item.netflixCatalogueArtwork(
-                            focused = false,
-                            preferLandscapeWhenUnfocused = landscape
-                        )
-                        val size = if (url == restUrl) portraitCacheSizePx else focusCacheSizePx
+                        val size = cardCacheSizePx
                         val cacheKey = netflixArtworkCacheKey(url, size) ?: continue
                         if (netflixArtworkIsCachedInMemory(imageLoader, url, size)) {
                             continue
@@ -380,20 +370,21 @@ internal fun NetflixCatalogRail(
             NetflixPivotLazyRow(
                 state = rowState,
                 selectorVisible = railHasFocus,
-                selectorWidth = if (posterGrow) geometry.focusedWidth else geometry.portraitWidth,
+                selectorWidth = cardWidth,
                 selectorHeight = geometry.railHeight
             ) {
                 itemsIndexed(row.items, key = { index, item -> item.netflixCatalogItemKey(row, index) }) { index, item ->
                     val landscape = useLandscapeCards || item.posterShape == PosterShape.LANDSCAPE
                     val focused = index == focusedIndex
                     val itemKey = item.netflixCatalogItemKey(row, index)
+                    val preferLandscape = landscape || posterGrow
                     val portraitArtwork = item.netflixCatalogueArtwork(
                         focused = false,
-                        preferLandscapeWhenUnfocused = landscape
+                        preferLandscapeWhenUnfocused = preferLandscape
                     )
                     val focusArtwork = item.netflixCatalogueArtwork(
                         focused = true,
-                        preferLandscapeWhenUnfocused = landscape
+                        preferLandscapeWhenUnfocused = preferLandscape
                     )
                     val artwork = if (focused) focusArtwork else portraitArtwork
                     val trailerUrl = trailerPreviewUrls[item.id]
@@ -420,18 +411,12 @@ internal fun NetflixCatalogRail(
                         } else {
                             null
                         },
-                        artworkCacheSizePx = if (artwork == portraitArtwork) {
-                            portraitCacheSizePx
-                        } else {
-                            focusCacheSizePx
-                        },
-                        holdArtworkCacheSizePx = portraitCacheSizePx,
-                        width = if (focused && posterGrow) {
-                            geometry.focusedWidth
-                        } else {
-                            geometry.portraitWidth
-                        },
+                        artworkCacheSizePx = cardCacheSizePx,
+                        holdArtworkCacheSizePx = cardCacheSizePx,
+                        width = cardWidth,
                         height = geometry.railHeight,
+                        logoUrl = item.logo,
+                        showLogo = focused && preferLandscape,
                         showLabels = posterLabelsEnabled && NetflixHomeTokens.ShowCataloguePosterLabels,
                         showFallbackTitleWhenArtworkMissing = focused,
                         focusRequester = itemRequesters[index],
@@ -502,6 +487,7 @@ internal fun NetflixRailScaffold(
     onPendingFocusConsumed: () -> Unit,
     onFirstCardRequesterReady: (FocusRequester) -> Unit,
     modifier: Modifier = Modifier,
+    titleScale: Float = 1f,
     content: @Composable (
         LazyListState,
         Int,
@@ -611,10 +597,14 @@ internal fun NetflixRailScaffold(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column {
+                val scale = titleScale.coerceIn(0.7f, 2f)
                 Text(
                     text = title,
                     color = NetflixThemeChrome.textPrimary,
-                    style = NetflixHomeTypography.RowTitle,
+                    style = NetflixHomeTypography.RowTitle.copy(
+                        fontSize = NetflixHomeTypography.RowTitle.fontSize * scale,
+                        lineHeight = NetflixHomeTypography.RowTitle.lineHeight * scale
+                    ),
                     maxLines = 1
                 )
                 if (!subtitle.isNullOrBlank()) {
