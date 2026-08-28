@@ -1,10 +1,12 @@
 package com.nuvio.tv.data.trailer
 
 import android.net.Uri
+import android.util.Log
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
+import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.TransferListener
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import com.nuvio.tv.core.network.IPv4FirstDns
@@ -15,8 +17,9 @@ import java.util.concurrent.TimeUnit
  * Trailer googlevideo playback on one HTTP request.
  *
  * Re-opening a new `range=` chunk every 512 KB 403s after ~11.5 MB (the Knight
- * trailer freeze). YouTube allows the first connection and rejects later ones
- * without an n-sig refresh. A trailer is short enough to finish on the first GET.
+ * trailer freeze). A single `range=0-(clen-1)` 403s on open. One unbounded GET
+ * (no `range=` query, no HTTP Range header) keeps the first connection alive
+ * for the whole trailer.
  */
 @UnstableApi
 class YoutubeChunkedDataSourceFactory : DataSource.Factory {
@@ -65,14 +68,21 @@ class YoutubeChunkedDataSourceFactory : DataSource.Factory {
             if (!uri.host.orEmpty().contains("googlevideo.com")) {
                 return upstream.open(dataSpec)
             }
-            val playUri = singleRequestUri(uri)
+            val playUri = unboundedPlaybackUri(uri)
             val openSpec = dataSpec.buildUpon()
                 .setUri(playUri)
                 .setPosition(0)
                 .setLength(C.LENGTH_UNSET.toLong())
                 .setHttpRequestHeaders(emptyMap())
                 .build()
-            return upstream.open(openSpec)
+            return try {
+                val opened = upstream.open(openSpec)
+                Log.i(TAG, "open-ok bytes=$opened host=${playUri.host}")
+                opened
+            } catch (e: HttpDataSource.InvalidResponseCodeException) {
+                Log.w(TAG, "open-fail code=${e.responseCode} host=${playUri.host}")
+                throw e
+            }
         }
 
         override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
@@ -87,18 +97,16 @@ class YoutubeChunkedDataSourceFactory : DataSource.Factory {
     }
 }
 
-/** Prefer one `range=0-(clen-1)` so YouTube knows the full object; never stack extra ranges. */
-private fun singleRequestUri(uri: Uri): Uri {
-    val clen = uri.getQueryParameter("clen")?.toLongOrNull()
+private const val TAG = "YTChunkedDS"
+
+/** Strip `range=` so this GET is the only googlevideo request for the stream. */
+internal fun unboundedPlaybackUri(uri: Uri): Uri {
     val builder = uri.buildUpon().clearQuery()
     for (name in uri.queryParameterNames) {
         if (name.equals("range", ignoreCase = true)) continue
         for (value in uri.getQueryParameters(name)) {
             builder.appendQueryParameter(name, value)
         }
-    }
-    if (clen != null && clen > 0) {
-        builder.appendQueryParameter("range", "0-${clen - 1}")
     }
     return builder.build()
 }
