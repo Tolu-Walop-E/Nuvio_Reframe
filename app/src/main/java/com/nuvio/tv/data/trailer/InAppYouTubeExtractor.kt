@@ -32,6 +32,8 @@ private const val EXTRACTOR_TIMEOUT_MS = 30_000L
 private const val DEFAULT_USER_AGENT =
     "Mozilla/5.0 (Linux; Android 12; Android TV) AppleWebKit/537.36 " +
         "(KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
+private const val IOS_USER_AGENT =
+    "com.google.ios.youtube/20.10.1 (iPhone16,2; U; CPU iOS 17_4 like Mac OS X)"
 private const val PREFERRED_SEPARATE_CLIENT = "ios"
 /** Total time allowed for probing adaptive candidates before falling back to HLS. */
 private const val ADAPTIVE_VERIFY_BUDGET_MS = 4_000L
@@ -95,7 +97,7 @@ private val CLIENTS = listOf(
         key = "ios",
         id = "5",
         version = "20.10.1",
-        userAgent = "com.google.ios.youtube/20.10.1 (iPhone16,2; U; CPU iOS 17_4 like Mac OS X)",
+        userAgent = IOS_USER_AGENT,
         context = mapOf(
             "clientName" to "IOS",
             "clientVersion" to "20.10.1",
@@ -109,6 +111,20 @@ private val CLIENTS = listOf(
         priority = 0
     ),
     YouTubeClient(
+        key = "tvhtml5",
+        id = "7",
+        version = "7.20250323.00.00",
+        userAgent = "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version",
+        context = mapOf(
+            "clientName" to "TVHTML5",
+            "clientVersion" to "7.20250323.00.00",
+            "hl" to "en",
+            "gl" to "US",
+            "platform" to "TV"
+        ),
+        priority = 1
+    ),
+    YouTubeClient(
         key = "android",
         id = "3",
         version = "20.10.35",
@@ -120,26 +136,6 @@ private val CLIENTS = listOf(
             "osVersion" to "14",
             "platform" to "MOBILE",
             "androidSdkVersion" to 34,
-            "hl" to "en",
-            "gl" to "US"
-        ),
-        priority = 1
-    ),
-    YouTubeClient(
-        key = "android_vr",
-        id = "28",
-        version = "1.56.21",
-        userAgent = "com.google.android.apps.youtube.vr.oculus/1.56.21 " +
-            "(Linux; U; Android 12; en_US; Quest 3; Build/SQ3A.220605.009.A1) gzip",
-        context = mapOf(
-            "clientName" to "ANDROID_VR",
-            "clientVersion" to "1.56.21",
-            "deviceMake" to "Oculus",
-            "deviceModel" to "Quest 3",
-            "osName" to "Android",
-            "osVersion" to "12",
-            "platform" to "MOBILE",
-            "androidSdkVersion" to 32,
             "hl" to "en",
             "gl" to "US"
         ),
@@ -430,9 +426,6 @@ class InAppYouTubeExtractor @Inject constructor(
                 if (status == "LOGIN_REQUIRED") {
                     loginRequiredCount++
                     Log.w(TAG, "Client ${client.key}: LOGIN_REQUIRED")
-                    // android_vr almost always returns LOGIN_REQUIRED without a
-                    // po_token. Invalidating visitor_data here cancelled iOS/Android
-                    // extracts that were already in flight on Shield.
                     continue
                 }
                 if (status != null && status != "OK") {
@@ -553,7 +546,7 @@ class InAppYouTubeExtractor @Inject constructor(
         var bestManifest: ManifestCandidate? = null
         for ((clientKey, priority, manifestUrl) in manifestUrls) {
             try {
-                val variant = parseHlsManifest(manifestUrl) ?: continue
+                val variant = parseHlsManifest(manifestUrl, clientUserAgent(clientKey)) ?: continue
                 val candidate = ManifestCandidate(
                     client = clientKey,
                     priority = priority,
@@ -600,7 +593,9 @@ class InAppYouTubeExtractor @Inject constructor(
             return TrailerPlaybackSource(videoUrl = verifiedPair.first, audioUrl = verifiedPair.second)
         }
 
-        val resolvedProgressive = bestProgressive?.url?.let { resolveReachableUrl(it) }
+        val resolvedProgressive = bestProgressive?.url?.let {
+            resolveReachableUrl(it, clientUserAgent(bestProgressive.client))
+        }
         if (resolvedProgressive != null) {
             Log.d(TAG, "Using progressive muxed ${bestProgressive.height}p itag=${bestProgressive.itag}")
             return TrailerPlaybackSource(videoUrl = resolvedProgressive, audioUrl = null)
@@ -682,7 +677,11 @@ class InAppYouTubeExtractor @Inject constructor(
             put("videoId", videoId)
             put("contentCheckOk", true)
             put("racyCheckOk", true)
-            put("context", mapOf("client" to client.context))
+            val clientContext = client.context.toMutableMap()
+            if (!visitorData.isNullOrBlank()) {
+                clientContext["visitorData"] = visitorData
+            }
+            put("context", mapOf("client" to clientContext))
             put("playbackContext", mapOf(
                 "contentPlaybackContext" to mapOf("html5Preference" to "HTML5_PREF_WANTS")
             ))
@@ -702,11 +701,15 @@ class InAppYouTubeExtractor @Inject constructor(
         return parsed ?: emptyMap<String, Any>()
     }
 
-    private fun parseHlsManifest(manifestUrl: String): ManifestBestVariant? {
+    private fun parseHlsManifest(manifestUrl: String, userAgent: String): ManifestBestVariant? {
         val response = performRequest(
             url = manifestUrl,
             method = "GET",
-            headers = DEFAULT_HEADERS
+            headers = mapOf(
+                "accept-language" to "en-US,en;q=0.9",
+                "user-agent" to userAgent,
+                "origin" to "https://www.youtube.com"
+            )
         )
         if (!response.ok) {
             throw IllegalStateException("Failed to fetch HLS manifest (${response.status})")
@@ -898,9 +901,9 @@ class InAppYouTubeExtractor @Inject constructor(
                 .take(2)
             if (audioCandidates.isEmpty()) continue
 
-            val resolvedVideo = resolveReachableUrl(video.url) ?: continue
+            val resolvedVideo = resolveReachableUrl(video.url, clientUserAgent(video.client)) ?: continue
             for (audio in audioCandidates) {
-                val resolvedAudio = resolveReachableUrl(audio.url) ?: continue
+                val resolvedAudio = resolveReachableUrl(audio.url, clientUserAgent(audio.client)) ?: continue
                 Log.d(
                     TAG,
                     "Verified adaptive pair ${video.height}p v=${video.itag} " +
@@ -915,9 +918,13 @@ class InAppYouTubeExtractor @Inject constructor(
     /** Lower is more likely to play without a po_token. */
     private fun clientTrust(client: String): Int = when (client) {
         PREFERRED_SEPARATE_CLIENT -> 0
-        "android" -> 1
-        "android_vr" -> 2
+        "tvhtml5" -> 1
+        "android" -> 2
         else -> 3
+    }
+
+    private fun clientUserAgent(clientKey: String): String {
+        return CLIENTS.firstOrNull { it.key == clientKey }?.userAgent ?: IOS_USER_AGENT
     }
 
     private fun audioCompatibility(videoExt: String, audioExt: String): Int = when {
@@ -967,8 +974,12 @@ class InAppYouTubeExtractor @Inject constructor(
     /**
      * Probes CDN nodes for the given googlevideo URL and returns the first reachable one.
      * Returns null if no CDN node responds successfully (all return 403/timeout).
+     *
+     * YouTube signs URLs to the InnerTube client that minted them. Probing with a
+     * Chrome TV user-agent against an iOS URL is why official trailers listed
+     * 720p and then failed the probe.
      */
-    private suspend fun resolveReachableUrl(url: String): String? {
+    private suspend fun resolveReachableUrl(url: String, userAgent: String): String? {
         if (!url.contains("googlevideo.com")) return url
         val candidates = cdnCandidates(url)
 
@@ -976,14 +987,14 @@ class InAppYouTubeExtractor @Inject constructor(
         // URL advertised only one CDN node is how 403 video tracks reached the
         // player: the card got audio and a stuck 0x0 picture.
         if (candidates.size == 1) {
-            return if (isUrlReachable(candidates[0])) candidates[0] else null
+            return if (isUrlReachable(candidates[0], userAgent)) candidates[0] else null
         }
 
         val result = CompletableDeferred<String>()
         val probeScope = CoroutineScope(Dispatchers.IO)
         candidates.forEach { candidate ->
             probeScope.launch {
-                val reachable = isUrlReachable(candidate)
+                val reachable = isUrlReachable(candidate, userAgent)
                 if (reachable) result.complete(candidate)
             }
         }
@@ -1027,18 +1038,41 @@ class InAppYouTubeExtractor @Inject constructor(
             .build()
     }
 
-    private fun isUrlReachable(url: String): Boolean {
+    private fun isUrlReachable(url: String, userAgent: String): Boolean {
         return runCatching {
             val request = Request.Builder()
-                .url(url)
+                .url(googlevideoRangeProbeUrl(url))
                 .get()
-                .header("Range", "bytes=0-0")
-                .headers(buildHeaders(DEFAULT_HEADERS))
+                .headers(
+                    buildHeaders(
+                        mapOf(
+                            "accept-language" to "en-US,en;q=0.9",
+                            "user-agent" to userAgent,
+                            "origin" to "https://www.youtube.com",
+                            "referer" to "https://www.youtube.com/"
+                        )
+                    )
+                )
                 .build()
             probeClient.newCall(request).execute().use { response ->
-                response.code == 200 || response.code == 206
+                val ok = response.code == 200 || response.code == 206
+                if (!ok) {
+                    Log.d(TAG, "probe ${response.code} ${summarizeUrl(url)}")
+                }
+                ok
             }
         }.getOrDefault(false)
+    }
+
+    /**
+     * Playback uses YouTube's `range=` query param, not an HTTP Range header.
+     * A `Range: bytes=0-0` probe is what 403'd official 720p URLs on Shield.
+     */
+    private fun googlevideoRangeProbeUrl(url: String): String {
+        if (!url.contains("googlevideo.com")) return url
+        if (url.contains("range=")) return url
+        val sep = if (url.contains('?')) "&" else "?"
+        return "$url${sep}range=0-1023"
     }
 
     private fun absolutizeUrl(baseUrl: String, maybeRelative: String): String {

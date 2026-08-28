@@ -26,10 +26,14 @@ class YoutubeChunkedDataSourceFactory(
         private const val TAG = "YTChunkedDS"
         /** 10 MB chunks – large enough to avoid too many requests, small enough to dodge throttle. */
         private const val CHUNK_SIZE = 10L * 1024 * 1024
+        /** iOS InnerTube mints the streams we play; googlevideo 403s a Chrome TV UA. */
+        private const val PLAYBACK_USER_AGENT =
+            "com.google.ios.youtube/20.10.1 (iPhone16,2; U; CPU iOS 17_4 like Mac OS X)"
     }
 
     override fun createDataSource(): DataSource {
         val upstream = DefaultHttpDataSource.Factory()
+            .setUserAgent(PLAYBACK_USER_AGENT)
             .setConnectTimeoutMs(15_000)
             .setReadTimeoutMs(15_000)
             .setAllowCrossProtocolRedirects(true)
