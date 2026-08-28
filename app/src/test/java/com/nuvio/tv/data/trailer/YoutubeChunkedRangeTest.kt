@@ -11,9 +11,9 @@ class YoutubeChunkedRangeTest {
     }
 
     @Test
-    fun `short audio starts with proven 512KB cadence`() {
+    fun `short audio starts with a 1MB trailer-sized range`() {
         assertEquals(
-            listOf(512L * 1024),
+            listOf(1024L * 1024),
             youtubeChunkSizes(1_956_089L, 0L, shortResource = true)
         )
     }

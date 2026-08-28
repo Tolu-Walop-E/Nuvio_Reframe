@@ -19,10 +19,10 @@ import kotlin.math.min
 /**
  * Trailer googlevideo playback via YouTube `range=` query chunks.
  *
- * Video accepts 2 MB ranges. Audio itag 140 is often ~1 MB: a 2 MB range 403s,
- * and a second range past `clen` 403s. ExoPlayer then retries that 403 until
- * the trailer freezes. Never request past `clen`, and treat a 403 after the
- * first byte as end-of-stream instead of a fatal error.
+ * Video accepts 2 MB ranges. Audio itag 140 is often ~2 MB but YouTube accepts
+ * only its first 1 MiB when the URL has no n-sig. A second range 403s and
+ * ExoPlayer then retries until the trailer freezes. Short trailer audio does
+ * not need the remainder, so expose a clean EOF after the first 1 MiB.
  */
 @UnstableApi
 class YoutubeChunkedDataSourceFactory : DataSource.Factory {
@@ -214,6 +214,14 @@ class YoutubeChunkedDataSourceFactory : DataSource.Factory {
                     return C.RESULT_END_OF_INPUT
                 }
 
+                if (resourceLength in 1L..SHORT_RESOURCE_MAX) {
+                    Log.i(
+                        TAG,
+                        "short-track-eof bytes=$chunkBytesReceived clen=$resourceLength"
+                    )
+                    return C.RESULT_END_OF_INPUT
+                }
+
                 currentChunkStart += chunkBytesReceived
                 if (resourceLength != C.LENGTH_UNSET.toLong() && currentChunkStart >= resourceLength) {
                     return C.RESULT_END_OF_INPUT
@@ -246,7 +254,7 @@ class YoutubeChunkedDataSourceFactory : DataSource.Factory {
 }
 
 private const val SHORT_RESOURCE_MAX = 4L * 1024 * 1024
-private const val SHORT_RESOURCE_CHUNK = 512L * 1024
+private const val SHORT_RESOURCE_CHUNK = 1024L * 1024
 
 internal val CHUNK_SIZES = longArrayOf(
     2L * 1024 * 1024,
