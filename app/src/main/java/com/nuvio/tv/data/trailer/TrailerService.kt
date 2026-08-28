@@ -530,13 +530,13 @@ class TrailerService(
     }
 
     /**
-     * Extracts the YouTube URL expiration timestamp from the `/expire/EPOCH/` path segment.
+     * Extracts the YouTube URL expiration timestamp from `/expire/EPOCH/` or `expire=EPOCH`.
      */
     private fun extractUrlExpireInstant(source: TrailerPlaybackSource): Instant? {
         val url = source.videoUrl
-        val expireRegex = Regex("/expire/(\\d+)/")
-        val match = expireRegex.find(url) ?: return null
-        val epoch = match.groupValues[1].toLongOrNull() ?: return null
+        val epoch = Regex("/expire/(\\d+)/").find(url)?.groupValues?.get(1)?.toLongOrNull()
+            ?: Regex("[?&]expire=(\\d+)").find(url)?.groupValues?.get(1)?.toLongOrNull()
+            ?: return null
         return Instant.ofEpochSecond(epoch)
     }
 
