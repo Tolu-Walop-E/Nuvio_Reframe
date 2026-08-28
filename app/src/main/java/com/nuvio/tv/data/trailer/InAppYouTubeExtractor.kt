@@ -35,7 +35,8 @@ private const val DEFAULT_USER_AGENT =
 private const val PREFERRED_SEPARATE_CLIENT = "android_vr"
 /** Total time allowed for probing adaptive candidates before falling back to HLS. */
 private const val ADAPTIVE_VERIFY_BUDGET_MS = 4_000L
-private const val MAX_ADAPTIVE_VERIFY_CANDIDATES = 4
+private const val MAX_ADAPTIVE_VERIFY_CANDIDATES = 8
+private const val SEARCH_TIMEOUT_MS = 8_000L
 
 private val VIDEO_ID_REGEX = Regex("^[a-zA-Z0-9_-]{11}$")
 private val API_KEY_REGEX = Regex("\"INNERTUBE_API_KEY\":\"([^\"]+)\"")
@@ -291,6 +292,109 @@ class InAppYouTubeExtractor @Inject constructor(
         }
 
         source
+    }
+
+    /**
+     * InnerTube search for a query like "Dune 2021 official trailer".
+     * Returns raw hits; [TrailerOfficialSearch] ranks them.
+     */
+    internal suspend fun searchTrailerVideos(query: String): List<YouTubeTrailerSearchHit> = withContext(Dispatchers.IO) {
+        if (query.isBlank()) return@withContext emptyList()
+        try {
+            withTimeout(SEARCH_TIMEOUT_MS) {
+                searchTrailerVideosInternal(query)
+            }
+        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+            Log.w(TAG, "YouTube trailer search timed out for '$query'")
+            emptyList()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (error: Exception) {
+            Log.w(TAG, "YouTube trailer search failed for '$query': ${error.message}")
+            emptyList()
+        }
+    }
+
+    private suspend fun searchTrailerVideosInternal(query: String): List<YouTubeTrailerSearchHit> {
+        val config = ensureWatchConfig(forceRefresh = false)
+        val client = CLIENTS.firstOrNull { it.key == "android" } ?: CLIENTS.first()
+        val endpoint = "https://www.youtube.com/youtubei/v1/search?key=${Uri.encode(config.apiKey)}"
+        val headers = buildMap {
+            putAll(DEFAULT_HEADERS)
+            put("content-type", "application/json")
+            put("origin", "https://www.youtube.com")
+            put("x-youtube-client-name", client.id)
+            put("x-youtube-client-version", client.version)
+            put("user-agent", client.userAgent)
+            if (!config.visitorData.isNullOrBlank()) put("x-goog-visitor-id", config.visitorData)
+        }
+        val payload = buildMap<String, Any> {
+            put("query", query)
+            put("params", "EgIQAQ==")
+            put("context", mapOf("client" to client.context))
+        }
+        val response = performRequest(
+            url = endpoint,
+            method = "POST",
+            headers = headers,
+            body = gson.toJson(payload)
+        )
+        if (!response.ok) {
+            Log.w(TAG, "YouTube search API failed (${response.status}) for '$query'")
+            return emptyList()
+        }
+        val parsed = gson.fromJson(response.body, Map::class.java) ?: return emptyList()
+        val hits = mutableListOf<YouTubeTrailerSearchHit>()
+        collectSearchHits(parsed, hits)
+        Log.d(TAG, "YouTube search '$query' returned ${hits.size} video hits")
+        return hits.distinctBy { it.videoId }
+    }
+
+    private fun collectSearchHits(node: Any?, out: MutableList<YouTubeTrailerSearchHit>) {
+        when (node) {
+            is Map<*, *> -> {
+                val videoId = node["videoId"] as? String
+                if (videoId != null && VIDEO_ID_REGEX.matches(videoId)) {
+                    val title = richText(node, "title").ifBlank { richText(node, "headline") }
+                    if (title.isNotBlank() && !isLiveSearchResult(node)) {
+                        out += YouTubeTrailerSearchHit(
+                            videoId = videoId,
+                            title = title,
+                            channel = richText(node, "ownerText").ifBlank {
+                                richText(node, "shortBylineText")
+                            },
+                            durationSeconds = TrailerOfficialSearch.parseDurationSeconds(
+                                richText(node, "lengthText")
+                            )
+                        )
+                    }
+                }
+                node.values.forEach { collectSearchHits(it, out) }
+            }
+            is List<*> -> node.forEach { collectSearchHits(it, out) }
+        }
+    }
+
+    private fun isLiveSearchResult(node: Map<*, *>): Boolean {
+        return node.listMapValue("badges").any { badge ->
+            badge.toString().contains("LIVE", ignoreCase = true)
+        }
+    }
+
+    private fun richText(node: Map<*, *>, key: String): String {
+        val value = node[key] ?: return ""
+        return when (value) {
+            is String -> value
+            is Map<*, *> -> {
+                val simple = value["simpleText"]?.toString().orEmpty()
+                if (simple.isNotBlank()) return simple
+                val runs = value["runs"] as? List<*> ?: return ""
+                runs.mapNotNull { run ->
+                    (run as? Map<*, *>)?.get("text")?.toString()
+                }.joinToString("")
+            }
+            else -> ""
+        }
     }
 
     private suspend fun extractPlaybackSourceInternal(

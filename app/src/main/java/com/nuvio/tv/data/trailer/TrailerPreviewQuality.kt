@@ -15,7 +15,8 @@ internal data class TrailerPreviewQualityPolicy(
     val maxHeight: Int
 ) {
     companion object {
-        val P720 = TrailerPreviewQualityPolicy(minHeight = 720, maxHeight = 720)
+        /** Floor 720p, cap 1080p. Prefer 720 when both exist (safer on Shield). */
+        val P720 = TrailerPreviewQualityPolicy(minHeight = 720, maxHeight = 1080)
         val P1080 = TrailerPreviewQualityPolicy(minHeight = 1080, maxHeight = 1080)
 
         fun from(resolution: TrailerMinResolution): TrailerPreviewQualityPolicy = when (resolution) {
@@ -41,7 +42,11 @@ internal object TrailerPreviewQuality {
     fun heightScore(height: Int, fps: Int, bitrate: Double, policy: TrailerPreviewQualityPolicy): Double {
         val heightScore = when {
             height <= 0 -> 0.0
-            isPreferred(height, policy) -> height * 1_000_000_000.0
+            isPreferred(height, policy) -> {
+                val closeness = (policy.maxHeight - kotlin.math.abs(height - policy.minHeight))
+                    .coerceAtLeast(0)
+                1_000_000_000_000.0 + closeness * 1_000_000.0 + height
+            }
             isBelowFloor(height, policy) -> height * 1_000_000.0
             else -> 1_000.0 - (height - policy.maxHeight).toDouble()
         }
@@ -57,9 +62,13 @@ internal object TrailerPreviewQuality {
         val bRank = rank(b, policy)
         if (cRank != bRank) return cRank < bRank
         return when (cRank) {
+            0 -> {
+                val cDist = kotlin.math.abs(c - policy.minHeight)
+                val bDist = kotlin.math.abs(b - policy.minHeight)
+                if (cDist != bDist) cDist < bDist else c > b
+            }
             1 -> c > b
-            2 -> c < b
-            else -> c > b
+            else -> c < b
         }
     }
 

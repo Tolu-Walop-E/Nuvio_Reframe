@@ -147,18 +147,31 @@ class TrailerService(
 
             // TMDB-first path. Gated on `useTrailers` above so the
             // user's toggle in TMDB enrichment settings is honored.
+            val triedVideoIds = mutableSetOf<String>()
             val tmdbSource = getTrailerPlaybackSourceFromTmdbId(
                 tmdbId = tmdbId,
                 type = type,
                 title = title,
                 year = year,
-                languageOverride = tmdbLanguage
+                languageOverride = tmdbLanguage,
+                triedVideoIds = triedVideoIds
             )
             if (tmdbSource != null) {
                 cache[cacheKey] = tmdbSource
                 return@withContext tmdbSource
             }
-            Log.w(TAG, "TMDB path exhausted; no YouTube trailer key resolved for backend /trailer fallback")
+
+            val searchSource = getTrailerPlaybackSourceFromYouTubeSearch(
+                title = title,
+                year = year,
+                skipVideoIds = triedVideoIds
+            )
+            if (searchSource != null) {
+                cache[cacheKey] = searchSource
+                return@withContext searchSource
+            }
+
+            Log.w(TAG, "No official trailer resolved via TMDB or YouTube search for $title")
             // Only cache negative result if tmdbId was available — if null, enrichment
             // may not have completed yet and a retry with tmdbId could succeed.
             if (tmdbId != null) {
@@ -224,7 +237,8 @@ class TrailerService(
         type: String?,
         title: String? = null,
         year: String? = null,
-        languageOverride: String? = null
+        languageOverride: String? = null,
+        triedVideoIds: MutableSet<String>? = null
     ): TrailerPlaybackSource? = withContext(Dispatchers.IO) {
         val numericTmdbId = tmdbId?.toIntOrNull() ?: return@withContext null
         val mediaType = normalizeTmdbMediaType(type)
@@ -240,16 +254,18 @@ class TrailerService(
             else -> fetchTmdbMovieVideos(numericTmdbId, tmdbLanguage) + fetchTmdbTvVideos(numericTmdbId, tmdbLanguage)
         }
 
-        val candidates = rankTmdbVideoCandidates(tmdbResults)
+        val candidates = rankTmdbVideoCandidates(tmdbResults, title, year)
         Log.d(TAG, "TMDB candidate count: ${candidates.size}")
 
         for (candidate in candidates) {
             val key = candidate.key?.trim().orEmpty()
             if (key.isBlank()) continue
+            triedVideoIds?.add(key)
             Log.d(
                 TAG,
                 "TMDB selected candidate: type=${candidate.type.orEmpty()} " +
-                    "official=${candidate.official == true} key=${obfuscateYoutubeKey(key)}"
+                    "name=${candidate.name.orEmpty()} official=${candidate.official == true} " +
+                    "key=${obfuscateYoutubeKey(key)}"
             )
 
             val youtubeUrl = "https://www.youtube.com/watch?v=$key"
@@ -269,6 +285,54 @@ class TrailerService(
         }
 
         null
+    }
+
+    private suspend fun getTrailerPlaybackSourceFromYouTubeSearch(
+        title: String,
+        year: String?,
+        skipVideoIds: Set<String>
+    ): TrailerPlaybackSource? {
+        if (title.isBlank()) return null
+        val collected = mutableListOf<YouTubeTrailerSearchHit>()
+        val seenHits = mutableSetOf<String>()
+        val attempted = skipVideoIds.toMutableSet()
+        var extracts = 0
+        for (query in TrailerOfficialSearch.searchQueries(title, year)) {
+            val page = try {
+                inAppYouTubeExtractor.searchTrailerVideos(query)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                emptyList()
+            }
+            for (hit in page) {
+                if (seenHits.add(hit.videoId)) {
+                    collected += hit
+                }
+            }
+            val ranked = TrailerOfficialSearch.rankYouTubeHits(collected, title, year)
+            if (ranked.isEmpty()) continue
+            Log.d(
+                TAG,
+                "YouTube search ranked ${ranked.size} trailer hits for '$query' " +
+                    "(top=${ranked.first().title})"
+            )
+            for (hit in ranked) {
+                if (!attempted.add(hit.videoId)) continue
+                val source = getTrailerPlaybackSourceFromYouTubeUrl(
+                    youtubeUrl = "https://www.youtube.com/watch?v=${hit.videoId}",
+                    title = title,
+                    year = year
+                )
+                extracts++
+                if (source != null) {
+                    Log.d(TAG, "Using YouTube search hit: ${hit.title}")
+                    return source
+                }
+                if (extracts >= TrailerOfficialSearch.MAX_SEARCH_EXTRACTS) return null
+            }
+        }
+        return null
     }
 
     /**
@@ -559,33 +623,8 @@ internal fun normalizeTmdbMediaType(type: String?): String? {
     }
 }
 
-internal fun rankTmdbVideoCandidates(results: List<TmdbVideoResult>): List<TmdbVideoResult> {
-    return results
-        .asSequence()
-        .filter { (it.site ?: "").equals("YouTube", ignoreCase = true) }
-        .filter { !it.key.isNullOrBlank() }
-        .filter {
-            val normalizedType = it.type?.trim()?.lowercase()
-            normalizedType == "trailer" || normalizedType == "teaser"
-        }
-        .sortedWith(
-            compareBy<TmdbVideoResult> { videoTypePriority(it.type) }
-                .thenBy { if (it.official == true) 0 else 1 }
-                .thenByDescending { it.size ?: 0 }
-                .thenByDescending { parsePublishedAtEpoch(it.publishedAt) }
-        )
-        .toList()
-}
-
-private fun videoTypePriority(type: String?): Int {
-    return when (type?.trim()?.lowercase()) {
-        "trailer" -> 0
-        "teaser" -> 1
-        else -> 2
-    }
-}
-
-private fun parsePublishedAtEpoch(value: String?): Long {
-    if (value.isNullOrBlank()) return Long.MIN_VALUE
-    return runCatching { Instant.parse(value).toEpochMilli() }.getOrDefault(Long.MIN_VALUE)
-}
+internal fun rankTmdbVideoCandidates(
+    results: List<TmdbVideoResult>,
+    title: String? = null,
+    year: String? = null
+): List<TmdbVideoResult> = TrailerOfficialSearch.rankTmdb(results, title, year)

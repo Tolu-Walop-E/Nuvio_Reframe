@@ -61,6 +61,8 @@ class TrailerPlayerPool @Inject constructor(
 
     private val minResolutionHeight = AtomicInteger(TrailerMinResolution.P720.height)
     private val minResolutionWidth = AtomicInteger(TrailerMinResolution.P720.width)
+    private val capResolutionHeight = AtomicInteger(TrailerMinResolution.P720.capHeight)
+    private val capResolutionWidth = AtomicInteger(TrailerMinResolution.P720.capWidth)
 
     init {
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
@@ -75,6 +77,8 @@ class TrailerPlayerPool @Inject constructor(
                 .collect { resolution ->
                     minResolutionWidth.set(resolution.width)
                     minResolutionHeight.set(resolution.height)
+                    capResolutionWidth.set(resolution.capWidth)
+                    capResolutionHeight.set(resolution.capHeight)
                     rebuildPlayer()
                 }
         }
@@ -207,18 +211,20 @@ class TrailerPlayerPool @Inject constructor(
             loadControlBuilder.setAllocator(allocator)
         }
         val loadControl = loadControlBuilder.build()
-        val maxWidth = minResolutionWidth.get()
-        val maxHeight = minResolutionHeight.get()
+        val minWidth = minResolutionWidth.get()
+        val minHeight = minResolutionHeight.get()
+        val maxWidth = capResolutionWidth.get()
+        val maxHeight = capResolutionHeight.get()
         val trackSelector = DefaultTrackSelector(context).apply {
             setParameters(
                 buildUponParameters()
                     .setMaxVideoSize(maxWidth, maxHeight)
-                    .setMinVideoSize(maxWidth, maxHeight)
+                    .setMinVideoSize(minWidth, minHeight)
                     .setExceedVideoConstraintsIfNecessary(false)
                     .setForceHighestSupportedBitrate(false)
             )
         }
-        val initialBitrate = if (maxHeight >= 1080) 8_000_000L else 4_000_000L
+        val initialBitrate = if (minHeight >= 1080) 8_000_000L else 4_000_000L
         return ExoPlayer.Builder(context)
             .setLoadControl(loadControl)
             .setTrackSelector(trackSelector)
