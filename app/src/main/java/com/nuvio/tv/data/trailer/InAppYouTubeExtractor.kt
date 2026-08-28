@@ -32,7 +32,7 @@ private const val EXTRACTOR_TIMEOUT_MS = 30_000L
 private const val DEFAULT_USER_AGENT =
     "Mozilla/5.0 (Linux; Android 12; Android TV) AppleWebKit/537.36 " +
         "(KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
-private const val PREFERRED_SEPARATE_CLIENT = "android_vr"
+private const val PREFERRED_SEPARATE_CLIENT = "ios"
 /** Total time allowed for probing adaptive candidates before falling back to HLS. */
 private const val ADAPTIVE_VERIFY_BUDGET_MS = 4_000L
 private const val MAX_ADAPTIVE_VERIFY_CANDIDATES = 8
@@ -92,20 +92,17 @@ private val DEFAULT_HEADERS = mapOf(
 
 private val CLIENTS = listOf(
     YouTubeClient(
-        key = "android_vr",
-        id = "28",
-        version = "1.56.21",
-        userAgent = "com.google.android.apps.youtube.vr.oculus/1.56.21 " +
-            "(Linux; U; Android 12; en_US; Quest 3; Build/SQ3A.220605.009.A1) gzip",
+        key = "ios",
+        id = "5",
+        version = "20.10.1",
+        userAgent = "com.google.ios.youtube/20.10.1 (iPhone16,2; U; CPU iOS 17_4 like Mac OS X)",
         context = mapOf(
-            "clientName" to "ANDROID_VR",
-            "clientVersion" to "1.56.21",
-            "deviceMake" to "Oculus",
-            "deviceModel" to "Quest 3",
-            "osName" to "Android",
-            "osVersion" to "12",
+            "clientName" to "IOS",
+            "clientVersion" to "20.10.1",
+            "deviceModel" to "iPhone16,2",
+            "osName" to "iPhone",
+            "osVersion" to "17.4.0.21E219",
             "platform" to "MOBILE",
-            "androidSdkVersion" to 32,
             "hl" to "en",
             "gl" to "US"
         ),
@@ -129,17 +126,20 @@ private val CLIENTS = listOf(
         priority = 1
     ),
     YouTubeClient(
-        key = "ios",
-        id = "5",
-        version = "20.10.1",
-        userAgent = "com.google.ios.youtube/20.10.1 (iPhone16,2; U; CPU iOS 17_4 like Mac OS X)",
+        key = "android_vr",
+        id = "28",
+        version = "1.56.21",
+        userAgent = "com.google.android.apps.youtube.vr.oculus/1.56.21 " +
+            "(Linux; U; Android 12; en_US; Quest 3; Build/SQ3A.220605.009.A1) gzip",
         context = mapOf(
-            "clientName" to "IOS",
-            "clientVersion" to "20.10.1",
-            "deviceModel" to "iPhone16,2",
-            "osName" to "iPhone",
-            "osVersion" to "17.4.0.21E219",
+            "clientName" to "ANDROID_VR",
+            "clientVersion" to "1.56.21",
+            "deviceMake" to "Oculus",
+            "deviceModel" to "Quest 3",
+            "osName" to "Android",
+            "osVersion" to "12",
             "platform" to "MOBILE",
+            "androidSdkVersion" to 32,
             "hl" to "en",
             "gl" to "US"
         ),
@@ -429,12 +429,10 @@ class InAppYouTubeExtractor @Inject constructor(
                 val status = playabilityStatus?.stringValue("status")
                 if (status == "LOGIN_REQUIRED") {
                     loginRequiredCount++
-                    Log.w(TAG, "Client ${client.key}: LOGIN_REQUIRED (visitor may be stale)")
-                    if (client.key == PREFERRED_SEPARATE_CLIENT) {
-                        // Losing our most reliable client leaves only 403-prone
-                        // streams, so refresh visitor data for the next extraction.
-                        invalidateConfig()
-                    }
+                    Log.w(TAG, "Client ${client.key}: LOGIN_REQUIRED")
+                    // android_vr almost always returns LOGIN_REQUIRED without a
+                    // po_token. Invalidating visitor_data here cancelled iOS/Android
+                    // extracts that were already in flight on Shield.
                     continue
                 }
                 if (status != null && status != "OK") {
@@ -572,19 +570,28 @@ class InAppYouTubeExtractor @Inject constructor(
                     bestManifest = candidate
                 }
             } catch (error: Exception) {
-                if (BuildConfig.DEBUG) {
-                    Log.w(TAG, "Manifest parse failed: ${error.message}")
-                }
+                Log.w(TAG, "Manifest parse failed client=$clientKey: ${error.message}")
             }
         }
 
         val bestProgressive = sortCandidates(progressive)
             .firstOrNull { TrailerPreviewQuality.isPreferred(it.height, policy()) }
 
-        // Adaptive DASH is video-only + audio-only, and YouTube 403s many of these
-        // URLs depending on the client that minted them. Only a pair we verified may
-        // reach the player: an unreachable video track left cards with audio over the
-        // poster until playback died with ERROR_CODE_IO_BAD_HTTP_STATUS.
+        val preferredAdaptive = adaptiveVideo.count { TrailerPreviewQuality.isPreferred(it.height, policy()) }
+        Log.i(
+            TAG,
+            "Streams for $videoId: hlsHeight=${bestManifest?.height ?: 0} " +
+                "adaptive=${adaptiveVideo.size} preferredAdaptive=$preferredAdaptive " +
+                "progressive=${progressive.size} policy=${policy().minHeight}-${policy().maxHeight}"
+        )
+
+        // iOS HLS is muxed and survives on Shield when googlevideo adaptive URLs 403.
+        // Try it before spending the adaptive probe budget.
+        if (bestManifest != null && TrailerPreviewQuality.isPreferred(bestManifest.height, policy())) {
+            Log.i(TAG, "Using HLS muxed manifest height=${bestManifest.height} client=${bestManifest.client}")
+            return TrailerPlaybackSource(videoUrl = bestManifest.selectedVariantUrl, audioUrl = null)
+        }
+
         kotlinx.coroutines.yield()
         val verifiedPair = withTimeoutOrNull(ADAPTIVE_VERIFY_BUDGET_MS) {
             pickVerifiedAdaptivePair(adaptiveVideo, adaptiveAudio)
@@ -593,20 +600,17 @@ class InAppYouTubeExtractor @Inject constructor(
             return TrailerPlaybackSource(videoUrl = verifiedPair.first, audioUrl = verifiedPair.second)
         }
 
-        // HLS carries muxed audio and keeps working when adaptive URLs are rejected.
-        // Only play it when the selected variant meets the minimum; otherwise skip.
-        if (bestManifest != null && TrailerPreviewQuality.isPreferred(bestManifest.height, policy())) {
-            Log.d(TAG, "Using HLS muxed manifest height=${bestManifest.height}")
-            return TrailerPlaybackSource(videoUrl = bestManifest.selectedVariantUrl, audioUrl = null)
-        }
-
         val resolvedProgressive = bestProgressive?.url?.let { resolveReachableUrl(it) }
         if (resolvedProgressive != null) {
             Log.d(TAG, "Using progressive muxed ${bestProgressive.height}p itag=${bestProgressive.itag}")
             return TrailerPlaybackSource(videoUrl = resolvedProgressive, audioUrl = null)
         }
 
-        Log.w(TAG, "No verified trailer source for $videoId")
+        Log.w(
+            TAG,
+            "No verified trailer source for $videoId " +
+                "(hls=${bestManifest?.height ?: 0} adaptivePreferred=$preferredAdaptive)"
+        )
         return null
     }
 
@@ -911,8 +915,8 @@ class InAppYouTubeExtractor @Inject constructor(
     /** Lower is more likely to play without a po_token. */
     private fun clientTrust(client: String): Int = when (client) {
         PREFERRED_SEPARATE_CLIENT -> 0
-        "ios" -> 1
-        "android" -> 2
+        "android" -> 1
+        "android_vr" -> 2
         else -> 3
     }
 
