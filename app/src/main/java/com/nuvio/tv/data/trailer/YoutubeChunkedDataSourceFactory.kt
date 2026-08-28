@@ -14,17 +14,18 @@ import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
 /**
- * Trailer googlevideo playback on one HTTP request.
+ * Trailer googlevideo playback via YouTube `range=` query chunks.
  *
- * Re-opening a new `range=` chunk every 512 KB 403s after ~11.5 MB (the Knight
- * trailer freeze). A single `range=0-(clen-1)` 403s on open. One unbounded GET
- * (no `range=` query, no HTTP Range header) keeps the first connection alive
- * for the whole trailer.
+ * A full-file GET and `range=0-(clen-1)` both 403 on open. 512 KB chunks play,
+ * but YouTube 403s the 24th request (~11.5 MB) and the trailer freezes.
+ * Prefer the largest chunk that still opens so a trailer finishes in fewer
+ * reconnects; fall back to 512 KB if a bigger range is rejected.
  */
 @UnstableApi
 class YoutubeChunkedDataSourceFactory : DataSource.Factory {
 
     companion object {
+        private const val TAG = "YTChunkedDS"
         private const val PLAYBACK_USER_AGENT =
             "com.google.ios.youtube/20.10.1 (iPhone16,2; U; CPU iOS 17_4 like Mac OS X)"
 
@@ -52,12 +53,21 @@ class YoutubeChunkedDataSourceFactory : DataSource.Factory {
                 )
             )
             .createDataSource()
-        return YoutubeSingleRequestDataSource(upstream)
+        return YoutubeChunkedDataSource(upstream)
     }
 
-    private class YoutubeSingleRequestDataSource(
+    private class YoutubeChunkedDataSource(
         private val upstream: DataSource
     ) : DataSource {
+
+        private var currentUri: Uri? = null
+        private var isYouTubeStream = false
+        private var totalContentLength = C.LENGTH_UNSET.toLong()
+        private var currentChunkStart = 0L
+        private var currentChunkEnd = 0L
+        private var bytesReadInChunk = 0L
+        private var establishedChunkSize = 0L
+        private var originalDataSpec: DataSpec? = null
 
         override fun addTransferListener(transferListener: TransferListener) {
             upstream.addTransferListener(transferListener)
@@ -65,42 +75,121 @@ class YoutubeChunkedDataSourceFactory : DataSource.Factory {
 
         override fun open(dataSpec: DataSpec): Long {
             val uri = dataSpec.uri
-            if (!uri.host.orEmpty().contains("googlevideo.com")) {
+            val host = uri.host.orEmpty()
+            isYouTubeStream = host.contains("googlevideo.com")
+
+            if (!isYouTubeStream) {
                 return upstream.open(dataSpec)
             }
-            val playUri = unboundedPlaybackUri(uri)
-            val openSpec = dataSpec.buildUpon()
-                .setUri(playUri)
+
+            originalDataSpec = dataSpec
+            currentChunkStart = dataSpec.position
+            totalContentLength = dataSpec.length
+            establishedChunkSize = 0L
+            return openNextChunk()
+        }
+
+        private fun openNextChunk(): Long {
+            val spec = originalDataSpec ?: throw IllegalStateException("No DataSpec")
+            val sizes = chunkSizesToTry()
+            var lastError: Exception? = null
+            for (size in sizes) {
+                val end = currentChunkStart + size - 1
+                try {
+                    openRange(spec, currentChunkStart, end)
+                    establishedChunkSize = size
+                    currentChunkEnd = end
+                    bytesReadInChunk = 0
+                    Log.i(TAG, "chunk-open $currentChunkStart-$end size=$size")
+                    return if (totalContentLength != C.LENGTH_UNSET.toLong()) {
+                        totalContentLength
+                    } else {
+                        C.LENGTH_UNSET.toLong()
+                    }
+                } catch (e: HttpDataSource.InvalidResponseCodeException) {
+                    Log.w(TAG, "chunk-403 $currentChunkStart-$end size=$size code=${e.responseCode}")
+                    runCatching { upstream.close() }
+                    lastError = e
+                    if (e.responseCode != 403 && e.responseCode != 416) throw e
+                }
+            }
+            throw lastError ?: IllegalStateException("No YouTube range opened")
+        }
+
+        private fun chunkSizesToTry(): List<Long> {
+            if (establishedChunkSize <= 0L) return CHUNK_SIZES.toList()
+            return buildList {
+                add(establishedChunkSize)
+                for (size in CHUNK_SIZES) {
+                    if (size < establishedChunkSize) add(size)
+                }
+            }
+        }
+
+        private fun openRange(spec: DataSpec, start: Long, end: Long) {
+            val rangedUri = uriWithYoutubeRange(spec.uri, start, end)
+            val chunkedSpec = spec.buildUpon()
+                .setUri(rangedUri)
                 .setPosition(0)
                 .setLength(C.LENGTH_UNSET.toLong())
                 .setHttpRequestHeaders(emptyMap())
                 .build()
-            return try {
-                val opened = upstream.open(openSpec)
-                Log.i(TAG, "open-ok bytes=$opened host=${playUri.host}")
-                opened
-            } catch (e: HttpDataSource.InvalidResponseCodeException) {
-                Log.w(TAG, "open-fail code=${e.responseCode} host=${playUri.host}")
-                throw e
-            }
+            upstream.open(chunkedSpec)
         }
 
         override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
-            return upstream.read(buffer, offset, length)
+            if (!isYouTubeStream) {
+                return upstream.read(buffer, offset, length)
+            }
+
+            val bytesRead = upstream.read(buffer, offset, length)
+            if (bytesRead == C.RESULT_END_OF_INPUT) {
+                val chunkBytesReceived = bytesReadInChunk
+                upstream.close()
+
+                if (chunkBytesReceived < (currentChunkEnd - currentChunkStart + 1)) {
+                    return C.RESULT_END_OF_INPUT
+                }
+
+                currentChunkStart += chunkBytesReceived
+                if (totalContentLength != C.LENGTH_UNSET.toLong()) {
+                    totalContentLength -= chunkBytesReceived
+                    if (totalContentLength <= 0) {
+                        return C.RESULT_END_OF_INPUT
+                    }
+                }
+
+                return try {
+                    openNextChunk()
+                    upstream.read(buffer, offset, length)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to open next chunk at $currentChunkStart: ${e.message}")
+                    C.RESULT_END_OF_INPUT
+                }
+            }
+
+            bytesReadInChunk += bytesRead
+            return bytesRead
         }
 
-        override fun getUri(): Uri? = upstream.uri
+        override fun getUri(): Uri? = upstream.uri ?: currentUri
 
         override fun close() {
             upstream.close()
+            currentUri = null
+            originalDataSpec = null
+            establishedChunkSize = 0L
         }
     }
 }
 
-private const val TAG = "YTChunkedDS"
+internal val CHUNK_SIZES = longArrayOf(
+    2L * 1024 * 1024,
+    1024L * 1024,
+    512L * 1024
+)
 
-/** Strip `range=` so this GET is the only googlevideo request for the stream. */
-internal fun unboundedPlaybackUri(uri: Uri): Uri {
+internal fun uriWithYoutubeRange(uri: Uri, start: Long, end: Long): Uri {
     val builder = uri.buildUpon().clearQuery()
     for (name in uri.queryParameterNames) {
         if (name.equals("range", ignoreCase = true)) continue
@@ -108,5 +197,6 @@ internal fun unboundedPlaybackUri(uri: Uri): Uri {
             builder.appendQueryParameter(name, value)
         }
     }
+    builder.appendQueryParameter("range", "$start-$end")
     return builder.build()
 }
