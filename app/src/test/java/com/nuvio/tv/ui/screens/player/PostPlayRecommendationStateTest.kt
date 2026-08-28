@@ -65,6 +65,48 @@ class PostPlayRecommendationStateTest {
     }
 
     @Test
+    fun `rate prompt blocks recommendations until it is dismissed`() {
+        val prompting = PlayerUiState(
+            postPlayMode = PostPlayMode.RatePrompt(title = "Example", artworkUrl = null)
+        )
+        assertTrue(prompting.blocksPostPlayRecommendation())
+        assertFalse(
+            shouldRevealPostPlayRecommendation(
+                playbackEnded = true,
+                suppressRecommendations = false,
+                ratePromptVisible = true
+            )
+        )
+        assertTrue(
+            shouldRevealPostPlayRecommendation(
+                playbackEnded = true,
+                suppressRecommendations = false,
+                ratePromptVisible = false
+            )
+        )
+        assertFalse(
+            shouldRevealPostPlayRecommendation(
+                playbackEnded = true,
+                suppressRecommendations = true,
+                ratePromptVisible = false
+            )
+        )
+        assertFalse(
+            shouldRevealPostPlayRecommendation(
+                playbackEnded = false,
+                suppressRecommendations = false,
+                ratePromptVisible = false
+            )
+        )
+    }
+
+    @Test
+    fun `skipping the rate page suppresses recommendations`() {
+        val skipped = PlayerUiState(suppressPostPlayRecommendations = true)
+        assertTrue(skipped.blocksPostPlayRecommendation())
+    }
+
+    @Test
     fun `active seek preview blocks the recommendation until release`() {
         val seeking = PlayerUiState(pendingPreviewSeekPosition = 95_000L)
 

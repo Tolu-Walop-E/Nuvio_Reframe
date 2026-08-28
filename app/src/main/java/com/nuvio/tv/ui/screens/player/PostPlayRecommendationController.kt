@@ -75,6 +75,8 @@ internal class PostPlayRecommendationController(
         val nextEpisodeHasAired: Boolean?,
         val hasError: Boolean,
         val hasBlockingInteraction: Boolean,
+        val suppressPostPlayRecommendations: Boolean,
+        val ratePromptVisible: Boolean,
         val playbackEnded: Boolean,
         val positionMs: Long,
         val durationMs: Long
@@ -130,6 +132,8 @@ internal class PostPlayRecommendationController(
                     nextEpisodeHasAired = playerState.nextEpisode?.hasAired,
                     hasError = !playerState.error.isNullOrBlank(),
                     hasBlockingInteraction = playerState.blocksPostPlayRecommendation(),
+                    suppressPostPlayRecommendations = playerState.suppressPostPlayRecommendations,
+                    ratePromptVisible = playerState.postPlayMode is PostPlayMode.RatePrompt,
                     playbackEnded = playerState.playbackEnded,
                     positionMs = timeline.currentPosition,
                     durationMs = timeline.duration
@@ -242,6 +246,17 @@ internal class PostPlayRecommendationController(
             return
         }
 
+        if (snapshot.suppressPostPlayRecommendations) {
+            if (_uiState.value.recommendation != null ||
+                _uiState.value.isVisible ||
+                _uiState.value.isLoadingRecommendation ||
+                recommendationJob != null
+            ) {
+                clearRecommendationState()
+            }
+            return
+        }
+
         if (_uiState.value.hasReturnedToPlayer) return
 
         val effectiveDuration = snapshot.durationMs
@@ -257,14 +272,11 @@ internal class PostPlayRecommendationController(
 
         var state = _uiState.value
         val recommendation = state.recommendation ?: return
-        val shouldShow = PlayerNextEpisodeRules.shouldShowNextEpisodeCard(
-            positionMs = snapshot.positionMs,
-            durationMs = effectiveDuration,
-            skipIntervals = playbackController.skipIntervals,
-            thresholdMode = playbackController.nextEpisodeThresholdModeSetting,
-            thresholdPercent = playbackController.nextEpisodeThresholdPercentSetting,
-            thresholdMinutesBeforeEnd = playbackController.nextEpisodeThresholdMinutesBeforeEndSetting
-        ) || snapshot.playbackEnded
+        val shouldShow = shouldRevealPostPlayRecommendation(
+            playbackEnded = snapshot.playbackEnded,
+            suppressRecommendations = snapshot.suppressPostPlayRecommendations,
+            ratePromptVisible = snapshot.ratePromptVisible
+        )
 
         if (!shouldShow) return
         if (!state.isVisible && snapshot.hasBlockingInteraction) return

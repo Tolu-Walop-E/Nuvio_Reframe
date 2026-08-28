@@ -288,6 +288,7 @@ internal fun PlayerRuntimeController.resetPostPlayOverlayState(clearEpisode: Boo
             nextEpisode = if (clearEpisode) null else state.nextEpisode,
             postPlayMode = null,
             postPlayDismissedForCurrentEpisode = false,
+            suppressPostPlayRecommendations = false,
         )
     }
     if (clearEpisode) {

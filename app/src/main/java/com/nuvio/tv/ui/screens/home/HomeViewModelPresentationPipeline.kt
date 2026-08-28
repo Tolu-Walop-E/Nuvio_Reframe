@@ -399,32 +399,26 @@ internal fun HomeViewModel.requestTrailerPreviewPipeline(
         trailerPreviewNegativeCacheTimestamps.remove(itemId)
     }
     if (trailerPreviewUrlsState.containsKey(itemId)) {
-        activeTrailerPreviewItemId = itemId
+        if (activeTrailerPreviewItemId != itemId) {
+            activeTrailerPreviewItemId = itemId
+        }
         android.util.Log.i("NetflixTrailer", "cache-hit id=$itemId")
         return
     }
     if (!trailerPreviewLoadingIds.add(itemId)) {
-        activeTrailerPreviewItemId = itemId
+        if (activeTrailerPreviewItemId != itemId) {
+            activeTrailerPreviewItemId = itemId
+        }
         android.util.Log.i("NetflixTrailer", "already-loading id=$itemId")
         return
     }
 
-    // Only bump version when we actually start a new network fetch.
     activeTrailerPreviewItemId = itemId
-    trailerPreviewRequestVersion++
-    val requestVersion = trailerPreviewRequestVersion
-    android.util.Log.i("NetflixTrailer", "fetch-start id=$itemId title=$title version=$requestVersion")
+    android.util.Log.i("NetflixTrailer", "fetch-start id=$itemId title=$title")
 
-    trailerPreviewJob?.cancel()
-    trailerPreviewJob = viewModelScope.launch(Dispatchers.IO) {
+    trailerPreviewJobs[itemId]?.cancel()
+    trailerPreviewJobs[itemId] = viewModelScope.launch(Dispatchers.IO) {
         try {
-            delay(16)
-
-            // Only the LATEST request proceeds — all earlier ones are stale
-            if (trailerPreviewRequestVersion != requestVersion) {
-                return@launch
-            }
-
             val tmdbId = try {
                 tmdbService.ensureTmdbId(itemId, apiType)
             } catch (_: Exception) {
@@ -451,8 +445,6 @@ internal fun HomeViewModel.requestTrailerPreviewPipeline(
                         android.util.Log.i("NetflixTrailer", "fetch-ok-fallback id=$itemId")
                         trailerPreviewNegativeCache.remove(itemId)
                         trailerPreviewNegativeCacheTimestamps.remove(itemId)
-                        // Fill only: replacing a URL that is already playing restarts
-                        // the shared player and drops the card back to its poster.
                         if (trailerPreviewUrlsState[itemId].isNullOrBlank()) {
                             trailerPreviewUrlsState[itemId] = fallbackSource.videoUrl
                             val fallbackAudio = fallbackSource.audioUrl
@@ -463,9 +455,6 @@ internal fun HomeViewModel.requestTrailerPreviewPipeline(
                             }
                         }
                     } else {
-                        // Soft miss: if TMDB id / YT ids were not ready yet, do NOT
-                        // permanently negative-cache — detail page will still resolve
-                        // after enrichment, and home should too on retry.
                         val hardMiss = tmdbId != null || !resolvedFallbackYtId.isNullOrBlank()
                         if (hardMiss) {
                             android.util.Log.w("NetflixTrailer", "fetch-miss id=$itemId tmdbId=$tmdbId")
@@ -484,9 +473,6 @@ internal fun HomeViewModel.requestTrailerPreviewPipeline(
                     android.util.Log.i("NetflixTrailer", "fetch-ok id=$itemId")
                     trailerPreviewNegativeCache.remove(itemId)
                     trailerPreviewNegativeCacheTimestamps.remove(itemId)
-                    // Fill only: a late duplicate resolution returns the same media on
-                    // another CDN host, and swapping it mid-playback restarted the
-                    // player and reset the card to its poster.
                     if (trailerPreviewUrlsState[itemId].isNullOrBlank()) {
                         trailerPreviewUrlsState[itemId] = trailerSource.videoUrl
                         val audioUrl = trailerSource.audioUrl
@@ -500,6 +486,7 @@ internal fun HomeViewModel.requestTrailerPreviewPipeline(
             }
         } finally {
             trailerPreviewLoadingIds.remove(itemId)
+            trailerPreviewJobs.remove(itemId)
         }
     }
 }

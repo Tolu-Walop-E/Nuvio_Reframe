@@ -324,14 +324,17 @@ fun PlayerScreen(
         uiState.error,
         uiState.pendingExitReason,
         uiState.postPlayMode,
+        uiState.suppressPostPlayRecommendations,
         shouldConfirmNextEpisodeOnEnd,
         postPlayRecommendationState.blocksNaturalCompletion
     ) {
         val explicitReason = uiState.pendingExitReason
+        val recsHoldPlayer = postPlayRecommendationState.blocksNaturalCompletion &&
+            !uiState.suppressPostPlayRecommendations
         val shouldDispatchNatural = uiState.playbackEnded &&
             uiState.error == null &&
             uiState.postPlayMode?.blocksNaturalCompletion() != true &&
-            !postPlayRecommendationState.blocksNaturalCompletion &&
+            !recsHoldPlayer &&
             !shouldConfirmNextEpisodeOnEnd &&
             explicitReason == null
         when {
@@ -841,7 +844,10 @@ fun PlayerScreen(
             }
         }
 
-        if (!exitDispatched) {
+        if (!exitDispatched &&
+            uiState.postPlayMode !is PostPlayMode.RatePrompt &&
+            !uiState.suppressPostPlayRecommendations
+        ) {
             PostPlayRecommendationOverlay(
                 state = postPlayRecommendationState,
                 currentTitle = uiState.contentName ?: uiState.title,
@@ -1031,7 +1037,8 @@ fun PlayerScreen(
         )
         PostPlayOverlay(
             mode = uiState.postPlayMode.takeIf {
-                uiState.error == null &&
+                it !is PostPlayMode.RatePrompt &&
+                    uiState.error == null &&
                     !shouldConfirmNextEpisodeOnEnd &&
                     !postPlayRecommendationState.isVisible &&
                     !postPlayRecommendationState.isLoadingRecommendation &&
@@ -1063,6 +1070,17 @@ fun PlayerScreen(
                 .padding(end = 26.dp, bottom = if (uiState.showControls) 122.dp else 30.dp)
                 .zIndex(2.1f),
         )
+
+        (uiState.postPlayMode as? PostPlayMode.RatePrompt)?.let { rateMode ->
+            RateAfterWatchingOverlay(
+                mode = rateMode,
+                onSelect = { rating -> viewModel.onEvent(PlayerEvent.OnRatePromptSelect(rating)) },
+                onSubmit = { viewModel.onEvent(PlayerEvent.OnRatePromptSubmit) },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .zIndex(3.2f)
+            )
+        }
 
         // Parental guide overlay (shows when video first starts playing)
         ParentalGuideOverlay(

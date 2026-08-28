@@ -1416,7 +1416,6 @@ class FolderDetailViewModel @Inject constructor(
         if (_trailerPreviewUrls.value.containsKey(itemId)) return
         if (!trailerPreviewLoadingIds.add(itemId)) return
 
-        val requestVersion = trailerPreviewRequestVersion
         viewModelScope.launch {
             val tmdbId = runCatching { tmdbService.ensureTmdbId(itemId, apiType) }.getOrNull()
             val trailerSource = trailerService.getTrailerPlaybackSource(
@@ -1426,17 +1425,7 @@ class FolderDetailViewModel @Inject constructor(
                 type = apiType
             )
 
-            val isLatestFocusedItem =
-                activeTrailerPreviewItemId == itemId && trailerPreviewRequestVersion == requestVersion
-            if (!isLatestFocusedItem) {
-                trailerPreviewLoadingIds.remove(itemId)
-                return@launch
-            }
-
-            // Prefer the localized YT id provided by the caller (typically TMDB
-            // enrichment trailers in the user locale) when the direct TMDB videos
-            // lookup didn't find anything for this language and we'd otherwise
-            // fall through to TMDB's en-US fallback.
+            // Keep neighbour fetches even if focus moved — otherwise D-pad waits on a cold YouTube resolve.
             val resolvedSource = if (trailerSource?.videoUrl.isNullOrBlank() && !fallbackYtId.isNullOrBlank()) {
                 trailerService.getTrailerPlaybackSourceFromYouTubeUrl(
                     youtubeUrl = "https://www.youtube.com/watch?v=$fallbackYtId",

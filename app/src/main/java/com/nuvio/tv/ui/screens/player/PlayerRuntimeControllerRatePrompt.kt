@@ -27,7 +27,7 @@ internal fun PlayerRuntimeController.buildRatePromptModeOrNull(): PostPlayMode.R
 
     return PostPlayMode.RatePrompt(
         title = title,
-        artworkUrl = poster ?: backdrop,
+        artworkUrl = backdrop ?: poster,
         subtitle = ratePromptSubtitle(
             contentType = contentType,
             season = currentSeason,
@@ -57,6 +57,7 @@ internal fun PlayerRuntimeController.armRatePromptSyncIfEligible(
             postPlayMode = prompt,
             playbackEnded = if (markPlaybackEnded) true else it.playbackEnded,
             showControls = false,
+            suppressPostPlayRecommendations = false,
         )
     }
     pauseForRatePrompt()
@@ -108,50 +109,50 @@ internal fun PlayerRuntimeController.onRatePromptSelect(rating: Int) {
 internal fun PlayerRuntimeController.onRatePromptSubmit() {
     val mode = _uiState.value.postPlayMode as? PostPlayMode.RatePrompt ?: return
     val rating = mode.selectedRating.coerceIn(1, 10)
+    val media = buildRatingMediaReference()
+    // Recs should follow the rate page immediately; Simkl can catch up in the background.
+    finishRatePrompt(allowRecommendations = true)
+    if (media == null) return
     scope.launch {
-        val media = buildRatingMediaReference()
-        if (media != null) {
-            val mediaKey = media.stableKey
-            runCatching { userRatingsDataStore.saveRating(mediaKey, rating, syncedToSimkl = false) }
-            val authenticated = runCatching {
-                simklAuthRepository.state.value.isAuthenticated
-            }.getOrDefault(false)
-            if (authenticated) {
-                val enriched = runCatching {
-                    simklSyncRepository.state.value.snapshot.enrichMediaReference(media)
-                }.getOrDefault(media)
-                val synced = runCatching {
-                    simklMutationService.rate(enriched, rating)
-                    true
-                }.getOrElse { error ->
-                    Log.w(PlayerRuntimeController.TAG, "Simkl rating failed: ${error.message}")
-                    false
-                }
-                if (synced) {
-                    runCatching { userRatingsDataStore.markSynced(mediaKey) }
-                }
+        val mediaKey = media.stableKey
+        runCatching { userRatingsDataStore.saveRating(mediaKey, rating, syncedToSimkl = false) }
+        val authenticated = runCatching {
+            simklAuthRepository.state.value.isAuthenticated
+        }.getOrDefault(false)
+        if (authenticated) {
+            val enriched = runCatching {
+                simklSyncRepository.state.value.snapshot.enrichMediaReference(media)
+            }.getOrDefault(media)
+            val synced = runCatching {
+                simklMutationService.rate(enriched, rating)
+                true
+            }.getOrElse { error ->
+                Log.w(PlayerRuntimeController.TAG, "Simkl rating failed: ${error.message}")
+                false
+            }
+            if (synced) {
+                runCatching { userRatingsDataStore.markSynced(mediaKey) }
             }
         }
-        finishRatePrompt()
     }
 }
 
 internal fun PlayerRuntimeController.onRatePromptSkip() {
+    finishRatePrompt(allowRecommendations = false)
     scope.launch {
         buildRatingMediaReference()?.stableKey?.let { key ->
             runCatching { userRatingsDataStore.markDismissed(key) }
         }
-        finishRatePrompt()
     }
 }
 
-private fun PlayerRuntimeController.finishRatePrompt() {
+private fun PlayerRuntimeController.finishRatePrompt(allowRecommendations: Boolean) {
     _uiState.update {
         it.copy(
             postPlayMode = null,
-            // Natural exit path in PlayerScreen watches playbackEnded + postPlayMode.
             playbackEnded = true,
             pendingExitReason = null,
+            suppressPostPlayRecommendations = !allowRecommendations,
         )
     }
 }
@@ -159,9 +160,10 @@ private fun PlayerRuntimeController.finishRatePrompt() {
 private fun PlayerRuntimeController.scheduleRatePromptSkipIfAlreadyHandled() {
     val mediaKey = buildRatingMediaReference()?.stableKey ?: return
     scope.launch {
-        if (!userRatingsDataStore.shouldSkipPrompt(mediaKey)) return@launch
+        val entry = runCatching { userRatingsDataStore.get(mediaKey) }.getOrNull() ?: return@launch
+        if (!entry.shouldSkipPrompt) return@launch
         if (_uiState.value.postPlayMode is PostPlayMode.RatePrompt) {
-            finishRatePrompt()
+            finishRatePrompt(allowRecommendations = entry.rating != null)
         }
     }
 }

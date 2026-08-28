@@ -321,6 +321,19 @@ internal fun NetflixCatalogRail(
                     height = with(density) { geometry.railHeight.roundToPx().coerceAtLeast(1) }
                 )
             }
+            // Warm neighbour trailers so the dwell slider is not waiting on YouTube.
+            LaunchedEffect(focusedIndex, row.items, trailerEnabled) {
+                if (!trailerEnabled) return@LaunchedEffect
+                val lastIndex = row.items.lastIndex
+                if (lastIndex < 0) return@LaunchedEffect
+                val center = focusedIndex.coerceIn(0, lastIndex)
+                for (offset in listOf(0, 1, -1, 2, -2)) {
+                    val index = center + offset
+                    if (index in 0..lastIndex) {
+                        onRequestTrailerPreview(row.items[index])
+                    }
+                }
+            }
             // Warm the focus artwork for the focused card and its immediate neighbours
             // so D-pad moves don't wait on a cold Coil fetch when the URL switches.
             // Keep the window tight: image downloads share one OkHttp per-host queue

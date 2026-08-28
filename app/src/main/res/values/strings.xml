@@ -1763,7 +1763,7 @@
     <string name="rate_after_watching_title">Rate this title</string>
     <string name="rate_after_watching_submit">Rate %1$d</string>
     <string name="rate_after_watching_skip">Skip</string>
-    <string name="rate_after_watching_hint">Saved to Simkl when connected</string>
+    <string name="rate_after_watching_hint">Saved to Simkl when connected. Back skips recommendations.</string>
     <string name="rate_after_watching_setting_title">Ask to rate after watching</string>
     <string name="rate_after_watching_setting_sub">Prompt for a 1–10 score after movies and finales. Syncs to Simkl when linked.</string>
     <string name="skip_intro">Skip Intro</string>

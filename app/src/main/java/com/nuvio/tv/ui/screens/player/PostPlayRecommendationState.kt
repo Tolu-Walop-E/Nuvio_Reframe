@@ -73,7 +73,9 @@ internal fun PostPlayRecommendationUiState.returnToPlayer(): PostPlayRecommendat
 }
 
 internal fun PlayerUiState.blocksPostPlayRecommendation(): Boolean {
-    return pendingPreviewSeekPosition != null ||
+    return postPlayMode is PostPlayMode.RatePrompt ||
+        suppressPostPlayRecommendations ||
+        pendingPreviewSeekPosition != null ||
         showPauseOverlay ||
         showStreamInfoOverlay ||
         showEpisodesPanel ||
@@ -115,6 +117,12 @@ internal fun postPlayRecommendationCountdownSeconds(
         .toInt()
         .coerceIn(1, POST_PLAY_RECOMMENDATION_TRAILER_COUNTDOWN_SECONDS)
 }
+
+internal fun shouldRevealPostPlayRecommendation(
+    playbackEnded: Boolean,
+    suppressRecommendations: Boolean,
+    ratePromptVisible: Boolean
+): Boolean = playbackEnded && !suppressRecommendations && !ratePromptVisible
 
 internal fun shouldUsePostPlayRecommendation(
     contentType: String?,

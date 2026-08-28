@@ -184,6 +184,8 @@ data class PlayerUiState(
     val isNextEpisodeMetadataResolved: Boolean = false,
     val postPlayMode: PostPlayMode? = null,
     val postPlayDismissedForCurrentEpisode: Boolean = false,
+    /** Back / skip on the rate page: do not follow with recommendations. */
+    val suppressPostPlayRecommendations: Boolean = false,
     val streamAutoPlayMode: StreamAutoPlayMode = StreamAutoPlayMode.MANUAL,
     val streamAutoPlayNextEpisodeEnabled: Boolean = false,
     val streamAutoPlayPreferBingeGroupForNextEpisode: Boolean = false,
