@@ -126,21 +126,27 @@ class YoutubeChunkedDataSourceFactory : DataSource.Factory {
             var lastError: Exception? = null
             for (size in sizes) {
                 val end = currentChunkStart + size - 1
-                try {
-                    openRange(spec, currentChunkStart, end)
-                    establishedChunkSize = size
-                    currentChunkEnd = end
-                    bytesReadInChunk = 0
-                    Log.i(
-                        TAG,
-                        "chunk-open $currentChunkStart-$end size=$size clen=$resourceLength"
-                    )
-                    return
-                } catch (e: HttpDataSource.InvalidResponseCodeException) {
-                    Log.w(TAG, "chunk-403 $currentChunkStart-$end size=$size code=${e.responseCode}")
-                    runCatching { upstream.close() }
-                    lastError = e
-                    if (e.responseCode != 403 && e.responseCode != 416) throw e
+                for (cdnUri in youtubeCdnCandidates(spec.uri)) {
+                    try {
+                        openRange(spec, cdnUri, currentChunkStart, end)
+                        establishedChunkSize = size
+                        currentChunkEnd = end
+                        bytesReadInChunk = 0
+                        Log.i(
+                            TAG,
+                            "chunk-open $currentChunkStart-$end size=$size host=${cdnUri.host}"
+                        )
+                        return
+                    } catch (e: HttpDataSource.InvalidResponseCodeException) {
+                        Log.w(
+                            TAG,
+                            "chunk-403 $currentChunkStart-$end size=$size host=${cdnUri.host} " +
+                                "code=${e.responseCode}"
+                        )
+                        runCatching { upstream.close() }
+                        lastError = e
+                        if (e.responseCode != 403 && e.responseCode != 416) throw e
+                    }
                 }
             }
             throw lastError ?: IllegalStateException("No YouTube range opened")
@@ -151,8 +157,8 @@ class YoutubeChunkedDataSourceFactory : DataSource.Factory {
             return maxOf(0L, resourceLength - currentChunkStart)
         }
 
-        private fun openRange(spec: DataSpec, start: Long, end: Long) {
-            val rangedUri = uriWithYoutubeRange(spec.uri, start, end)
+        private fun openRange(spec: DataSpec, baseUri: Uri, start: Long, end: Long) {
+            val rangedUri = uriWithYoutubeRange(baseUri, start, end)
             val chunkedSpec = spec.buildUpon()
                 .setUri(rangedUri)
                 .setPosition(0)
@@ -223,6 +229,28 @@ internal val CHUNK_SIZES = longArrayOf(
 internal fun youtubeContentLength(uri: Uri): Long {
     val clen = uri.getQueryParameter("clen")?.toLongOrNull()
     return if (clen != null && clen > 0L) clen else C.LENGTH_UNSET.toLong()
+}
+
+internal fun youtubeCdnCandidates(uri: Uri): List<Uri> {
+    val host = uri.host ?: return listOf(uri)
+    val servers = uri.getQueryParameter("mn")
+        ?.split(",")
+        ?.map { it.trim() }
+        ?.filter { it.isNotBlank() }
+        .orEmpty()
+    if (servers.size < 2) return listOf(uri)
+
+    val candidates = mutableListOf(uri)
+    servers.forEachIndexed { index, server ->
+        val alternateHost = host
+            .replaceFirst(Regex("^rr\\d+---"), "rr${index + 1}---")
+            .replaceFirst(Regex("sn-[a-z0-9]+-[a-z0-9]+"), server)
+        if (alternateHost != host) {
+            val authority = if (uri.port != -1) "$alternateHost:${uri.port}" else alternateHost
+            candidates += uri.buildUpon().authority(authority).build()
+        }
+    }
+    return candidates.distinctBy { it.host.orEmpty() }
 }
 
 internal fun youtubeChunkSizes(

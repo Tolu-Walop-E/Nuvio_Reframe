@@ -31,4 +31,5 @@ class YoutubeChunkedRangeTest {
     fun `no bytes remaining means no ranges`() {
         assertEquals(emptyList<Long>(), youtubeChunkSizes(0L, 2L * 1024 * 1024))
     }
+
 }
