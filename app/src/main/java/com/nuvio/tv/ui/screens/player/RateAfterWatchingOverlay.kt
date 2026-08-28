@@ -10,11 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.tv.material3.Icon
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -46,14 +42,12 @@ import com.nuvio.tv.ui.theme.NuvioTheme
 @Composable
 internal fun RateAfterWatchingOverlay(
     mode: PostPlayMode.RatePrompt,
-    onSelect: (Int) -> Unit,
-    onSubmit: () -> Unit,
+    onRate: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val scoreFocusRequesters = remember { List(10) { FocusRequester() } }
-    val submitFocusRequester = remember { FocusRequester() }
     var placedFocused by remember { mutableStateOf(false) }
-    val selected = mode.selectedRating.coerceIn(1, 10)
+    val initialFocus = mode.selectedRating.coerceIn(1, 10)
 
     Box(modifier = modifier.fillMaxSize()) {
         if (!mode.artworkUrl.isNullOrBlank()) {
@@ -118,27 +112,18 @@ internal fun RateAfterWatchingOverlay(
             ) {
                 (1..10).forEach { score ->
                     val index = score - 1
-                    val selectedScore = score == selected
                     Card(
-                        onClick = { onSelect(score) },
+                        onClick = { onRate(score) },
                         shape = CardDefaults.shape(shape = RoundedCornerShape(12.dp)),
                         colors = CardDefaults.colors(
-                            containerColor = if (selectedScore) {
-                                Color.White.copy(alpha = 0.24f)
-                            } else {
-                                Color.White.copy(alpha = 0.08f)
-                            },
+                            containerColor = Color.White.copy(alpha = 0.08f),
                             focusedContainerColor = Color.White.copy(alpha = 0.32f)
                         ),
                         border = CardDefaults.border(
                             border = Border(
                                 border = BorderStroke(
                                     NuvioTheme.spacing.hairline,
-                                    if (selectedScore) {
-                                        Color.White.copy(alpha = 0.7f)
-                                    } else {
-                                        Color.White.copy(alpha = 0.14f)
-                                    }
+                                    Color.White.copy(alpha = 0.14f)
                                 ),
                                 shape = RoundedCornerShape(12.dp)
                             ),
@@ -153,13 +138,12 @@ internal fun RateAfterWatchingOverlay(
                             .height(64.dp)
                             .focusRequester(scoreFocusRequesters[index])
                             .onPlaced {
-                                if (selectedScore && !placedFocused) {
+                                if (score == initialFocus && !placedFocused) {
                                     placedFocused = true
                                     runCatching { scoreFocusRequesters[index].requestFocus() }
                                 }
                             }
                             .focusProperties {
-                                down = submitFocusRequester
                                 if (index > 0) left = scoreFocusRequesters[index - 1]
                                 if (index < 9) right = scoreFocusRequesters[index + 1]
                             }
@@ -169,68 +153,17 @@ internal fun RateAfterWatchingOverlay(
                                 text = score.toString(),
                                 color = Color.White,
                                 fontSize = 22.sp,
-                                fontWeight = if (selectedScore) FontWeight.Bold else FontWeight.Medium
+                                fontWeight = FontWeight.Medium
                             )
                         }
                     }
                 }
             }
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Card(
-                    onClick = onSubmit,
-                    shape = CardDefaults.shape(shape = RoundedCornerShape(28.dp)),
-                    colors = CardDefaults.colors(
-                        containerColor = Color.White.copy(alpha = 0.16f),
-                        focusedContainerColor = Color.White.copy(alpha = 0.28f)
-                    ),
-                    border = CardDefaults.border(
-                        border = Border(
-                            border = BorderStroke(
-                                NuvioTheme.spacing.hairline,
-                                Color.White.copy(alpha = 0.28f)
-                            ),
-                            shape = RoundedCornerShape(28.dp)
-                        ),
-                        focusedBorder = Border(
-                            border = BorderStroke(NuvioTheme.spacing.xxs, NuvioTheme.colors.FocusRing),
-                            shape = RoundedCornerShape(28.dp)
-                        )
-                    ),
-                    scale = CardDefaults.scale(focusedScale = 1.04f),
-                    modifier = Modifier
-                        .focusRequester(submitFocusRequester)
-                        .focusProperties {
-                            up = scoreFocusRequesters[selected - 1]
-                        }
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 22.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Check,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(22.dp)
-                        )
-                        Text(
-                            text = stringResource(R.string.rate_after_watching_submit, selected),
-                            color = Color.White,
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                }
-                Text(
-                    text = stringResource(R.string.rate_after_watching_hint),
-                    color = Color.White.copy(alpha = 0.58f),
-                    fontSize = 16.sp
-                )
-            }
+            Text(
+                text = stringResource(R.string.rate_after_watching_hint),
+                color = Color.White.copy(alpha = 0.58f),
+                fontSize = 16.sp
+            )
         }
     }
 }

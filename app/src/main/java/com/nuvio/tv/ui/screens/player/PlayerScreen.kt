@@ -1074,8 +1074,10 @@ fun PlayerScreen(
         (uiState.postPlayMode as? PostPlayMode.RatePrompt)?.let { rateMode ->
             RateAfterWatchingOverlay(
                 mode = rateMode,
-                onSelect = { rating -> viewModel.onEvent(PlayerEvent.OnRatePromptSelect(rating)) },
-                onSubmit = { viewModel.onEvent(PlayerEvent.OnRatePromptSubmit) },
+                onRate = { rating ->
+                    viewModel.onEvent(PlayerEvent.OnRatePromptSelect(rating))
+                    viewModel.onEvent(PlayerEvent.OnRatePromptSubmit)
+                },
                 modifier = Modifier
                     .fillMaxSize()
                     .zIndex(3.2f)

@@ -106,9 +106,9 @@ internal fun PlayerRuntimeController.onRatePromptSelect(rating: Int) {
     }
 }
 
-internal fun PlayerRuntimeController.onRatePromptSubmit() {
+internal fun PlayerRuntimeController.onRatePromptSubmit(chosenRating: Int? = null) {
     val mode = _uiState.value.postPlayMode as? PostPlayMode.RatePrompt ?: return
-    val rating = mode.selectedRating.coerceIn(1, 10)
+    val rating = (chosenRating ?: mode.selectedRating).coerceIn(1, 10)
     val media = buildRatingMediaReference()
     // Recs should follow the rate page immediately; Simkl can catch up in the background.
     finishRatePrompt(allowRecommendations = true)
