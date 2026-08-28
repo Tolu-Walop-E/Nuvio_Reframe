@@ -3,8 +3,10 @@ package com.nuvio.tv.data.trailer
 import android.net.Uri
 import android.util.Log
 import androidx.media3.common.C
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.DataSourceException
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.TransferListener
@@ -12,14 +14,15 @@ import androidx.media3.datasource.okhttp.OkHttpDataSource
 import com.nuvio.tv.core.network.IPv4FirstDns
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
+import kotlin.math.min
 
 /**
  * Trailer googlevideo playback via YouTube `range=` query chunks.
  *
- * A full-file GET and `range=0-(clen-1)` both 403 on open. 512 KB chunks play,
- * but YouTube 403s the 24th request (~11.5 MB) and the trailer freezes.
- * Prefer the largest chunk that still opens so a trailer finishes in fewer
- * reconnects; fall back to 512 KB if a bigger range is rejected.
+ * Video accepts 2 MB ranges. Audio itag 140 is often ~1 MB: a 2 MB range 403s,
+ * and a second range past `clen` 403s. ExoPlayer then retries that 403 until
+ * the trailer freezes. Never request past `clen`, and treat a 403 after the
+ * first byte as end-of-stream instead of a fatal error.
  */
 @UnstableApi
 class YoutubeChunkedDataSourceFactory : DataSource.Factory {
@@ -62,12 +65,14 @@ class YoutubeChunkedDataSourceFactory : DataSource.Factory {
 
         private var currentUri: Uri? = null
         private var isYouTubeStream = false
-        private var totalContentLength = C.LENGTH_UNSET.toLong()
+        private var resourceLength = C.LENGTH_UNSET.toLong()
         private var currentChunkStart = 0L
         private var currentChunkEnd = 0L
         private var bytesReadInChunk = 0L
         private var establishedChunkSize = 0L
+        private var openedFromPosition = 0L
         private var originalDataSpec: DataSpec? = null
+        private var streamOpened = false
 
         override fun addTransferListener(transferListener: TransferListener) {
             upstream.addTransferListener(transferListener)
@@ -75,23 +80,48 @@ class YoutubeChunkedDataSourceFactory : DataSource.Factory {
 
         override fun open(dataSpec: DataSpec): Long {
             val uri = dataSpec.uri
-            val host = uri.host.orEmpty()
-            isYouTubeStream = host.contains("googlevideo.com")
-
+            isYouTubeStream = uri.host.orEmpty().contains("googlevideo.com")
             if (!isYouTubeStream) {
                 return upstream.open(dataSpec)
             }
 
             originalDataSpec = dataSpec
+            currentUri = uri
             currentChunkStart = dataSpec.position
-            totalContentLength = dataSpec.length
+            openedFromPosition = dataSpec.position
             establishedChunkSize = 0L
-            return openNextChunk()
+            streamOpened = false
+            resourceLength = youtubeContentLength(uri)
+
+            if (resourceLength != C.LENGTH_UNSET.toLong() && currentChunkStart >= resourceLength) {
+                Log.i(TAG, "open-eof position=$currentChunkStart clen=$resourceLength")
+                throw DataSourceException(PlaybackException.ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE)
+            }
+
+            return try {
+                openNextChunk()
+                streamOpened = true
+                if (resourceLength != C.LENGTH_UNSET.toLong()) {
+                    resourceLength - openedFromPosition
+                } else {
+                    C.LENGTH_UNSET.toLong()
+                }
+            } catch (e: HttpDataSource.InvalidResponseCodeException) {
+                if (dataSpec.position > 0L && (e.responseCode == 403 || e.responseCode == 416)) {
+                    Log.i(TAG, "open-eof-403 position=${dataSpec.position} code=${e.responseCode}")
+                    throw DataSourceException(PlaybackException.ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE)
+                }
+                throw e
+            }
         }
 
-        private fun openNextChunk(): Long {
+        private fun openNextChunk() {
             val spec = originalDataSpec ?: throw IllegalStateException("No DataSpec")
-            val sizes = chunkSizesToTry()
+            val remaining = remainingBytes()
+            val sizes = youtubeChunkSizes(remaining, establishedChunkSize)
+            if (sizes.isEmpty()) {
+                throw DataSourceException(PlaybackException.ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE)
+            }
             var lastError: Exception? = null
             for (size in sizes) {
                 val end = currentChunkStart + size - 1
@@ -100,12 +130,11 @@ class YoutubeChunkedDataSourceFactory : DataSource.Factory {
                     establishedChunkSize = size
                     currentChunkEnd = end
                     bytesReadInChunk = 0
-                    Log.i(TAG, "chunk-open $currentChunkStart-$end size=$size")
-                    return if (totalContentLength != C.LENGTH_UNSET.toLong()) {
-                        totalContentLength
-                    } else {
-                        C.LENGTH_UNSET.toLong()
-                    }
+                    Log.i(
+                        TAG,
+                        "chunk-open $currentChunkStart-$end size=$size clen=$resourceLength"
+                    )
+                    return
                 } catch (e: HttpDataSource.InvalidResponseCodeException) {
                     Log.w(TAG, "chunk-403 $currentChunkStart-$end size=$size code=${e.responseCode}")
                     runCatching { upstream.close() }
@@ -116,14 +145,9 @@ class YoutubeChunkedDataSourceFactory : DataSource.Factory {
             throw lastError ?: IllegalStateException("No YouTube range opened")
         }
 
-        private fun chunkSizesToTry(): List<Long> {
-            if (establishedChunkSize <= 0L) return CHUNK_SIZES.toList()
-            return buildList {
-                add(establishedChunkSize)
-                for (size in CHUNK_SIZES) {
-                    if (size < establishedChunkSize) add(size)
-                }
-            }
+        private fun remainingBytes(): Long {
+            if (resourceLength == C.LENGTH_UNSET.toLong()) return Long.MAX_VALUE
+            return maxOf(0L, resourceLength - currentChunkStart)
         }
 
         private fun openRange(spec: DataSpec, start: Long, end: Long) {
@@ -141,29 +165,31 @@ class YoutubeChunkedDataSourceFactory : DataSource.Factory {
             if (!isYouTubeStream) {
                 return upstream.read(buffer, offset, length)
             }
+            if (!streamOpened) {
+                return C.RESULT_END_OF_INPUT
+            }
 
             val bytesRead = upstream.read(buffer, offset, length)
             if (bytesRead == C.RESULT_END_OF_INPUT) {
                 val chunkBytesReceived = bytesReadInChunk
                 upstream.close()
+                streamOpened = false
 
                 if (chunkBytesReceived < (currentChunkEnd - currentChunkStart + 1)) {
                     return C.RESULT_END_OF_INPUT
                 }
 
                 currentChunkStart += chunkBytesReceived
-                if (totalContentLength != C.LENGTH_UNSET.toLong()) {
-                    totalContentLength -= chunkBytesReceived
-                    if (totalContentLength <= 0) {
-                        return C.RESULT_END_OF_INPUT
-                    }
+                if (resourceLength != C.LENGTH_UNSET.toLong() && currentChunkStart >= resourceLength) {
+                    return C.RESULT_END_OF_INPUT
                 }
 
                 return try {
                     openNextChunk()
+                    streamOpened = true
                     upstream.read(buffer, offset, length)
                 } catch (e: Exception) {
-                    Log.w(TAG, "Failed to open next chunk at $currentChunkStart: ${e.message}")
+                    Log.i(TAG, "chunk-eof at $currentChunkStart: ${e.message}")
                     C.RESULT_END_OF_INPUT
                 }
             }
@@ -175,10 +201,11 @@ class YoutubeChunkedDataSourceFactory : DataSource.Factory {
         override fun getUri(): Uri? = upstream.uri ?: currentUri
 
         override fun close() {
-            upstream.close()
+            runCatching { upstream.close() }
             currentUri = null
             originalDataSpec = null
             establishedChunkSize = 0L
+            streamOpened = false
         }
     }
 }
@@ -188,6 +215,21 @@ internal val CHUNK_SIZES = longArrayOf(
     1024L * 1024,
     512L * 1024
 )
+
+internal fun youtubeContentLength(uri: Uri): Long {
+    val clen = uri.getQueryParameter("clen")?.toLongOrNull()
+    return if (clen != null && clen > 0L) clen else C.LENGTH_UNSET.toLong()
+}
+
+internal fun youtubeChunkSizes(remaining: Long, establishedChunkSize: Long): List<Long> {
+    if (remaining <= 0L) return emptyList()
+    val base = if (establishedChunkSize > 0L) {
+        listOf(establishedChunkSize) + CHUNK_SIZES.filter { it < establishedChunkSize }
+    } else {
+        CHUNK_SIZES.toList()
+    }
+    return base.map { min(it, remaining) }.filter { it > 0L }.distinct()
+}
 
 internal fun uriWithYoutubeRange(uri: Uri, start: Long, end: Long): Uri {
     val builder = uri.buildUpon().clearQuery()
