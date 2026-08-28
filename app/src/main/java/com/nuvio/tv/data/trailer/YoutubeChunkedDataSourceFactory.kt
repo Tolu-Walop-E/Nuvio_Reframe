@@ -126,26 +126,49 @@ class YoutubeChunkedDataSourceFactory : DataSource.Factory {
             var lastError: Exception? = null
             for (size in sizes) {
                 val end = currentChunkStart + size - 1
-                for (cdnUri in youtubeCdnCandidates(spec.uri)) {
-                    try {
-                        openRange(spec, cdnUri, currentChunkStart, end)
-                        establishedChunkSize = size
-                        currentChunkEnd = end
-                        bytesReadInChunk = 0
-                        Log.i(
-                            TAG,
-                            "chunk-open $currentChunkStart-$end size=$size host=${cdnUri.host}"
-                        )
-                        return
-                    } catch (e: HttpDataSource.InvalidResponseCodeException) {
-                        Log.w(
-                            TAG,
-                            "chunk-403 $currentChunkStart-$end size=$size host=${cdnUri.host} " +
-                                "code=${e.responseCode}"
-                        )
-                        runCatching { upstream.close() }
-                        lastError = e
-                        if (e.responseCode != 403 && e.responseCode != 416) throw e
+                val ranges = if (
+                    currentChunkStart > 0L &&
+                    resourceLength in 1L..SHORT_RESOURCE_MAX
+                ) {
+                    listOf(end, null)
+                } else {
+                    listOf(end)
+                }
+                for (rangeEnd in ranges) {
+                    for (cdnUri in youtubeCdnCandidates(spec.uri)) {
+                        try {
+                            val openedLength = openRange(
+                                spec,
+                                cdnUri,
+                                currentChunkStart,
+                                rangeEnd
+                            )
+                            establishedChunkSize = size
+                            currentChunkEnd = if (
+                                openedLength != C.LENGTH_UNSET.toLong() &&
+                                openedLength > 0L
+                            ) {
+                                currentChunkStart + openedLength - 1
+                            } else {
+                                end
+                            }
+                            bytesReadInChunk = 0
+                            Log.i(
+                                TAG,
+                                "chunk-open $currentChunkStart-${rangeEnd ?: ""} " +
+                                    "size=$size host=${cdnUri.host}"
+                            )
+                            return
+                        } catch (e: HttpDataSource.InvalidResponseCodeException) {
+                            Log.w(
+                                TAG,
+                                "chunk-403 $currentChunkStart-${rangeEnd ?: ""} " +
+                                    "size=$size host=${cdnUri.host} code=${e.responseCode}"
+                            )
+                            runCatching { upstream.close() }
+                            lastError = e
+                            if (e.responseCode != 403 && e.responseCode != 416) throw e
+                        }
                     }
                 }
             }
@@ -157,7 +180,12 @@ class YoutubeChunkedDataSourceFactory : DataSource.Factory {
             return maxOf(0L, resourceLength - currentChunkStart)
         }
 
-        private fun openRange(spec: DataSpec, baseUri: Uri, start: Long, end: Long) {
+        private fun openRange(
+            spec: DataSpec,
+            baseUri: Uri,
+            start: Long,
+            end: Long?
+        ): Long {
             val rangedUri = uriWithYoutubeRange(baseUri, start, end)
             val chunkedSpec = spec.buildUpon()
                 .setUri(rangedUri)
@@ -165,7 +193,7 @@ class YoutubeChunkedDataSourceFactory : DataSource.Factory {
                 .setLength(C.LENGTH_UNSET.toLong())
                 .setHttpRequestHeaders(emptyMap())
                 .build()
-            upstream.open(chunkedSpec)
+            return upstream.open(chunkedSpec)
         }
 
         override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
@@ -270,7 +298,7 @@ internal fun youtubeChunkSizes(
     return base.map { min(it, remaining) }.filter { it > 0L }.distinct()
 }
 
-internal fun uriWithYoutubeRange(uri: Uri, start: Long, end: Long): Uri {
+internal fun uriWithYoutubeRange(uri: Uri, start: Long, end: Long?): Uri {
     val builder = uri.buildUpon().clearQuery()
     for (name in uri.queryParameterNames) {
         if (name.equals("range", ignoreCase = true)) continue
@@ -278,6 +306,6 @@ internal fun uriWithYoutubeRange(uri: Uri, start: Long, end: Long): Uri {
             builder.appendQueryParameter(name, value)
         }
     }
-    builder.appendQueryParameter("range", "$start-$end")
+    builder.appendQueryParameter("range", if (end == null) "$start-" else "$start-$end")
     return builder.build()
 }
