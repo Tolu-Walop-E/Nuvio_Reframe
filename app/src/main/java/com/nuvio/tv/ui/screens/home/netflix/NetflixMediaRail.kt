@@ -94,6 +94,8 @@ internal fun NetflixContinueWatchingRail(
     onFirstCardRequesterReady: (FocusRequester) -> Unit,
     onMoveUp: () -> Boolean,
     onMoveDown: () -> Boolean,
+    /** Pack-global rail heading text scale (1 = Netflix default). */
+    titleScale: Float = 1f,
     modifier: Modifier = Modifier
 ) {
     if (items.isEmpty()) return
@@ -117,7 +119,8 @@ internal fun NetflixContinueWatchingRail(
         itemRequesters = itemRequesters,
         onPendingFocusConsumed = onPendingFocusConsumed,
         onFirstCardRequesterReady = onFirstCardRequesterReady,
-        modifier = modifier
+        modifier = modifier,
+        titleScale = titleScale
     ) { rowState, focusedIndex, onCardFocused, onMoveLeft, onMoveRight, railHasFocus ->
         val density = LocalDensity.current
         val continueCacheSizePx = remember(density) {
@@ -209,7 +212,7 @@ internal fun NetflixCatalogRail(
     railScale: Float = 1f,
     /** When false (pack with focused-info off), hide the always-on catalogue footer. */
     showFocusedMetadata: Boolean = true,
-    /** When false (pack `posterGrow: false`), focused cards keep portrait width. */
+    /** When false (pack `posterGrow: false`), catalog tiles stay portrait-width. */
     posterGrow: Boolean = true,
     trailerPreviewUrls: Map<String, String> = emptyMap(),
     trailerPreviewAudioUrls: Map<String, String> = emptyMap(),
@@ -220,6 +223,8 @@ internal fun NetflixCatalogRail(
     onRequestTrailerPreview: (MetaPreview) -> Unit = {},
     /** Keep titled empty rails (Studio pack) instead of collapsing them. */
     allowEmpty: Boolean = false,
+    /** Pack-global rail heading text scale (1 = Netflix default). */
+    titleScale: Float = 1f,
     modifier: Modifier = Modifier
 ) {
     if (row.items.isEmpty()) {
@@ -234,7 +239,8 @@ internal fun NetflixCatalogRail(
             itemRequesters = listOf(emptyRequester),
             onPendingFocusConsumed = onPendingFocusConsumed,
             onFirstCardRequesterReady = onFirstCardRequesterReady,
-            modifier = modifier
+            modifier = modifier,
+            titleScale = titleScale
         ) { _, _, _, _, _, _ ->
             Box(
                 modifier = Modifier
@@ -276,7 +282,8 @@ internal fun NetflixCatalogRail(
         itemRequesters = itemRequesters,
         onPendingFocusConsumed = onPendingFocusConsumed,
         onFirstCardRequesterReady = onFirstCardRequesterReady,
-        modifier = modifier
+        modifier = modifier,
+        titleScale = titleScale
     ) { rowState, focusedIndex, onCardFocused, onMoveLeft, onMoveRight, railHasFocus ->
         val context = LocalContext.current
         val imageLoader = context.imageLoader

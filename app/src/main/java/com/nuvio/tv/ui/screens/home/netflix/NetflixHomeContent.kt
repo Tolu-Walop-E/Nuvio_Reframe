@@ -185,7 +185,7 @@ fun NetflixHomeContent(
     val tabCatalogPosterScale = tabScreenPack?.catalogPosterScale ?: uiState.viewPackCatalogPosterScale
     val tabCollectionLandscapeScale =
         tabScreenPack?.collectionLandscapeScale ?: uiState.viewPackCollectionLandscapeScale
-    val tabCollectionTitleScale =
+    val tabRailTitleScale =
         tabScreenPack?.collectionTitleScale ?: uiState.viewPackCollectionTitleScale
     val tabHeroTrailerEnabled =
         tabScreenPack?.heroTrailerEnabled ?: uiState.viewPackHeroTrailerEnabled
@@ -869,7 +869,8 @@ fun NetflixHomeContent(
                         onPendingFocusConsumed = { pendingFocusRailKey = null },
                         onFirstCardRequesterReady = registerRequester,
                         onMoveUp = moveUp,
-                        onMoveDown = moveDown
+                        onMoveDown = moveDown,
+                        titleScale = if (packActiveForTab) tabRailTitleScale else 1f
                     )
 
                     is NetflixHomeRail.Catalog -> {
@@ -927,7 +928,8 @@ fun NetflixHomeContent(
                                 Log.i(NETFLIX_TRAILER_LOG, "rail request trailer id=${item.id} title=${item.name}")
                                 onRequestTrailerPreview(item.id, item.name, item.releaseInfo, item.apiType)
                             },
-                            allowEmpty = packActiveForTab
+                            allowEmpty = packActiveForTab,
+                            titleScale = if (packActiveForTab) tabRailTitleScale else 1f
                         )
                     }
 
@@ -952,7 +954,7 @@ fun NetflixHomeContent(
                             1f
                         },
                         titleScale = if (packActiveForTab) {
-                            tabCollectionTitleScale
+                            tabRailTitleScale
                         } else {
                             1f
                         },
