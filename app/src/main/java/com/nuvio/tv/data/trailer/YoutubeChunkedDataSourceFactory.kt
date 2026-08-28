@@ -1,7 +1,6 @@
 package com.nuvio.tv.data.trailer
 
 import android.net.Uri
-import android.util.Log
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
@@ -13,21 +12,16 @@ import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
 /**
- * Trailer googlevideo playback.
+ * Trailer googlevideo playback on one HTTP request.
  *
- * Adaptive YouTube URLs 403 a full-file GET and also 403 a 10 MB first chunk.
- * The extractor probe succeeds with a 1 KB `range=` query on OkHttp/IPv4;
- * playback has to do the same: same client, same DNS, small `range=` chunks,
- * never a duplicate range param or an HTTP Range header.
+ * Re-opening a new `range=` chunk every 512 KB 403s after ~11.5 MB (the Knight
+ * trailer freeze). YouTube allows the first connection and rejects later ones
+ * without an n-sig refresh. A trailer is short enough to finish on the first GET.
  */
 @UnstableApi
-class YoutubeChunkedDataSourceFactory(
-    private val chunkSizeBytes: Long = CHUNK_SIZE
-) : DataSource.Factory {
+class YoutubeChunkedDataSourceFactory : DataSource.Factory {
 
     companion object {
-        private const val TAG = "YTChunkedDS"
-        private const val CHUNK_SIZE = 512L * 1024
         private const val PLAYBACK_USER_AGENT =
             "com.google.ios.youtube/20.10.1 (iPhone16,2; U; CPU iOS 17_4 like Mac OS X)"
 
@@ -55,21 +49,12 @@ class YoutubeChunkedDataSourceFactory(
                 )
             )
             .createDataSource()
-        return YoutubeChunkedDataSource(upstream, chunkSizeBytes)
+        return YoutubeSingleRequestDataSource(upstream)
     }
 
-    private class YoutubeChunkedDataSource(
-        private val upstream: DataSource,
-        private val chunkSize: Long
+    private class YoutubeSingleRequestDataSource(
+        private val upstream: DataSource
     ) : DataSource {
-
-        private var currentUri: Uri? = null
-        private var isYouTubeStream = false
-        private var totalContentLength = C.LENGTH_UNSET.toLong()
-        private var currentChunkStart = 0L
-        private var currentChunkEnd = 0L
-        private var bytesReadInChunk = 0L
-        private var originalDataSpec: DataSpec? = null
 
         override fun addTransferListener(transferListener: TransferListener) {
             upstream.addTransferListener(transferListener)
@@ -77,88 +62,34 @@ class YoutubeChunkedDataSourceFactory(
 
         override fun open(dataSpec: DataSpec): Long {
             val uri = dataSpec.uri
-            val host = uri.host.orEmpty()
-            isYouTubeStream = host.contains("googlevideo.com")
-
-            if (!isYouTubeStream) {
+            if (!uri.host.orEmpty().contains("googlevideo.com")) {
                 return upstream.open(dataSpec)
             }
-
-            originalDataSpec = dataSpec
-            currentChunkStart = dataSpec.position
-            totalContentLength = dataSpec.length
-
-            return openNextChunk()
-        }
-
-        private fun openNextChunk(): Long {
-            val spec = originalDataSpec ?: throw IllegalStateException("No DataSpec")
-            val end = if (totalContentLength != C.LENGTH_UNSET.toLong()) {
-                minOf(currentChunkStart + chunkSize - 1, currentChunkStart + totalContentLength - 1)
-            } else {
-                currentChunkStart + chunkSize - 1
-            }
-            currentChunkEnd = end
-
-            val rangedUri = uriWithYoutubeRange(spec.uri, currentChunkStart, currentChunkEnd)
-            val chunkedSpec = spec.buildUpon()
-                .setUri(rangedUri)
+            val playUri = singleRequestUri(uri)
+            val openSpec = dataSpec.buildUpon()
+                .setUri(playUri)
                 .setPosition(0)
                 .setLength(C.LENGTH_UNSET.toLong())
                 .setHttpRequestHeaders(emptyMap())
                 .build()
-
-            bytesReadInChunk = 0
-            upstream.open(chunkedSpec)
-            return if (totalContentLength != C.LENGTH_UNSET.toLong()) totalContentLength else C.LENGTH_UNSET.toLong()
+            return upstream.open(openSpec)
         }
 
         override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
-            if (!isYouTubeStream) {
-                return upstream.read(buffer, offset, length)
-            }
-
-            val bytesRead = upstream.read(buffer, offset, length)
-            if (bytesRead == C.RESULT_END_OF_INPUT) {
-                val chunkBytesReceived = bytesReadInChunk
-                upstream.close()
-
-                if (chunkBytesReceived < (currentChunkEnd - currentChunkStart + 1)) {
-                    return C.RESULT_END_OF_INPUT
-                }
-
-                currentChunkStart += chunkBytesReceived
-                if (totalContentLength != C.LENGTH_UNSET.toLong()) {
-                    totalContentLength -= chunkBytesReceived
-                    if (totalContentLength <= 0) {
-                        return C.RESULT_END_OF_INPUT
-                    }
-                }
-
-                return try {
-                    openNextChunk()
-                    upstream.read(buffer, offset, length)
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to open next chunk at $currentChunkStart: ${e.message}")
-                    C.RESULT_END_OF_INPUT
-                }
-            }
-
-            bytesReadInChunk += bytesRead
-            return bytesRead
+            return upstream.read(buffer, offset, length)
         }
 
-        override fun getUri(): Uri? = upstream.uri ?: currentUri
+        override fun getUri(): Uri? = upstream.uri
 
         override fun close() {
             upstream.close()
-            currentUri = null
-            originalDataSpec = null
         }
     }
 }
 
-private fun uriWithYoutubeRange(uri: Uri, start: Long, end: Long): Uri {
+/** Prefer one `range=0-(clen-1)` so YouTube knows the full object; never stack extra ranges. */
+private fun singleRequestUri(uri: Uri): Uri {
+    val clen = uri.getQueryParameter("clen")?.toLongOrNull()
     val builder = uri.buildUpon().clearQuery()
     for (name in uri.queryParameterNames) {
         if (name.equals("range", ignoreCase = true)) continue
@@ -166,6 +97,8 @@ private fun uriWithYoutubeRange(uri: Uri, start: Long, end: Long): Uri {
             builder.appendQueryParameter(name, value)
         }
     }
-    builder.appendQueryParameter("range", "$start-$end")
+    if (clen != null && clen > 0) {
+        builder.appendQueryParameter("range", "0-${clen - 1}")
+    }
     return builder.build()
 }
