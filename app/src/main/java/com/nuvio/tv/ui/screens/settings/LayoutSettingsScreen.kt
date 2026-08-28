@@ -80,6 +80,7 @@ import com.nuvio.tv.domain.model.DEFAULT_CARD_DEPTH_SHEEN_STRENGTH
 import com.nuvio.tv.domain.model.DiscoverLocation
 import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
 import com.nuvio.tv.domain.model.HomeLayout
+import com.nuvio.tv.domain.model.TrailerMinResolution
 import com.nuvio.tv.ui.components.CardCwStylePreview
 import com.nuvio.tv.ui.components.ClassicLayoutPreview
 import com.nuvio.tv.ui.components.GridLayoutPreview
@@ -877,6 +878,18 @@ fun LayoutSettingsContent(
                         )
                     }
 
+                    if (showAutoplayRow && uiState.focusedPosterBackdropTrailerEnabled) {
+                        TrailerMinResolutionRow(
+                            selected = uiState.trailerMinResolution,
+                            onSelected = { resolution ->
+                                viewModel.onEvent(
+                                    LayoutSettingsEvent.SetTrailerMinResolution(resolution)
+                                )
+                            },
+                            onFocused = { focusedSection = LayoutSettingsSection.FOCUSED_POSTER }
+                        )
+                    }
+
                     if (
                         isModern &&
                         showAutoplayRow &&
@@ -1236,6 +1249,45 @@ private fun trailerStartDelayLabel(delayMs: Int): String {
     val fraction = (delayMs % 1000).toString().padStart(3, '0').trimEnd('0')
     val seconds = delayMs / 1000
     return if (fraction.isEmpty()) "${seconds}s" else "$seconds.${fraction}s"
+}
+
+@Composable
+private fun TrailerMinResolutionRow(
+    selected: TrailerMinResolution,
+    onSelected: (TrailerMinResolution) -> Unit,
+    onFocused: () -> Unit
+) {
+    Text(
+        text = stringResource(R.string.layout_trailer_min_resolution),
+        style = MaterialTheme.typography.labelLarge,
+        color = NuvioTheme.colors.TextSecondary
+    )
+    Text(
+        text = stringResource(R.string.layout_trailer_min_resolution_sub),
+        style = MaterialTheme.typography.bodySmall,
+        color = NuvioTheme.colors.TextTertiary
+    )
+    LazyRow(
+        contentPadding = PaddingValues(end = NuvioTheme.spacing.sm),
+        horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.sm)
+    ) {
+        item(key = "trailer_min_720") {
+            SettingsChoiceChip(
+                label = stringResource(R.string.layout_trailer_min_resolution_720),
+                selected = selected == TrailerMinResolution.P720,
+                onClick = { onSelected(TrailerMinResolution.P720) },
+                onFocused = onFocused
+            )
+        }
+        item(key = "trailer_min_1080") {
+            SettingsChoiceChip(
+                label = stringResource(R.string.layout_trailer_min_resolution_1080),
+                selected = selected == TrailerMinResolution.P1080,
+                onClick = { onSelected(TrailerMinResolution.P1080) },
+                onFocused = onFocused
+            )
+        }
+    }
 }
 
 @Composable

@@ -1,41 +1,60 @@
 package com.nuvio.tv.data.trailer
 
+import com.nuvio.tv.domain.model.TrailerMinResolution
+
 /**
- * Card trailers stay at 720p.
+ * Trailer quality ladder for in-app YouTube playback.
  *
- * Shield (and similar boxes) will spin up a 4K HDMI mode when ExoPlayer hands it a
- * 1080p+ YouTube stream, then fail the surface handoff: audio keeps going over a
- * frozen poster. 720p is the highest ladder that stays in 1080p output mode.
- *
- * Within that cap, never pick 360/480 when a 720p rendition exists.
+ * [minHeight] is a hard floor: if YouTube has nothing in
+ * `minHeight..maxHeight`, we skip the trailer instead of showing 360/480.
+ * [maxHeight] is a hard cap so Shield does not switch HDMI into a 4K decode
+ * path (1080p+ used to leave audio running over a frozen poster).
  */
+internal data class TrailerPreviewQualityPolicy(
+    val minHeight: Int,
+    val maxHeight: Int
+) {
+    companion object {
+        val P720 = TrailerPreviewQualityPolicy(minHeight = 720, maxHeight = 720)
+        val P1080 = TrailerPreviewQualityPolicy(minHeight = 1080, maxHeight = 1080)
+
+        fun from(resolution: TrailerMinResolution): TrailerPreviewQualityPolicy = when (resolution) {
+            TrailerMinResolution.P720 -> P720
+            TrailerMinResolution.P1080 -> P1080
+        }
+    }
+}
+
 internal object TrailerPreviewQuality {
-    const val MAX_HEIGHT = 720
-    const val MIN_HEIGHT = 720
+    fun isPreferred(height: Int, policy: TrailerPreviewQualityPolicy): Boolean {
+        return height in policy.minHeight..policy.maxHeight
+    }
 
-    fun isPreferred(height: Int): Boolean = height in MIN_HEIGHT..MAX_HEIGHT
+    fun isBelowFloor(height: Int, policy: TrailerPreviewQualityPolicy): Boolean {
+        return height in 1 until policy.minHeight
+    }
 
-    fun isBelowFloor(height: Int): Boolean = height in 1 until MIN_HEIGHT
+    fun isAboveCap(height: Int, policy: TrailerPreviewQualityPolicy): Boolean {
+        return height > policy.maxHeight
+    }
 
-    fun isAboveCap(height: Int): Boolean = height > MAX_HEIGHT
-
-    fun heightScore(height: Int, fps: Int, bitrate: Double): Double {
+    fun heightScore(height: Int, fps: Int, bitrate: Double, policy: TrailerPreviewQualityPolicy): Double {
         val heightScore = when {
             height <= 0 -> 0.0
-            isPreferred(height) -> height * 1_000_000_000.0
-            isBelowFloor(height) -> height * 1_000_000.0
-            else -> 1_000.0 - (height - MAX_HEIGHT).toDouble()
+            isPreferred(height, policy) -> height * 1_000_000_000.0
+            isBelowFloor(height, policy) -> height * 1_000_000.0
+            else -> 1_000.0 - (height - policy.maxHeight).toDouble()
         }
         return heightScore + fps * 1_000_000.0 + bitrate
     }
 
-    fun isBetterHeight(candidate: Int, best: Int): Boolean {
+    fun isBetterHeight(candidate: Int, best: Int, policy: TrailerPreviewQualityPolicy): Boolean {
         val c = candidate.coerceAtLeast(0)
         val b = best.coerceAtLeast(0)
         if (c == 0) return false
         if (b == 0) return true
-        val cRank = rank(c)
-        val bRank = rank(b)
+        val cRank = rank(c, policy)
+        val bRank = rank(b, policy)
         if (cRank != bRank) return cRank < bRank
         return when (cRank) {
             1 -> c > b
@@ -44,10 +63,10 @@ internal object TrailerPreviewQuality {
         }
     }
 
-    /** 0 = 720p, 1 = below 720p, 2 = above 720p. */
-    private fun rank(height: Int): Int = when {
-        isPreferred(height) -> 0
-        isBelowFloor(height) -> 1
+    /** 0 = in range, 1 = below floor, 2 = above cap. */
+    private fun rank(height: Int, policy: TrailerPreviewQualityPolicy): Int = when {
+        isPreferred(height, policy) -> 0
+        isBelowFloor(height, policy) -> 1
         else -> 2
     }
 }

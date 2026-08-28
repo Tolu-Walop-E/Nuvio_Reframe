@@ -22,6 +22,7 @@ import com.nuvio.tv.domain.model.ContinueWatchingSortMode
 import com.nuvio.tv.domain.model.DiscoverLocation
 import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
 import com.nuvio.tv.domain.model.HomeLayout
+import com.nuvio.tv.domain.model.TrailerMinResolution
 import com.nuvio.tv.domain.model.enabledAddons
 import com.nuvio.tv.domain.repository.AddonRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -60,6 +61,7 @@ data class LayoutSettingsUiState(
     val focusedPosterBackdropTrailerPlaybackTarget: FocusedPosterTrailerPlaybackTarget =
         FocusedPosterTrailerPlaybackTarget.HERO_MEDIA,
     val trailerStartDelayMs: Int = 250,
+    val trailerMinResolution: TrailerMinResolution = TrailerMinResolution.P720,
     val posterCardWidthDp: Int = 126,
     val posterCardHeightDp: Int = 189,
     val posterCardCornerRadiusDp: Int = 12,
@@ -110,6 +112,7 @@ sealed class LayoutSettingsEvent {
         val target: FocusedPosterTrailerPlaybackTarget
     ) : LayoutSettingsEvent()
     data class SetTrailerStartDelayMs(val delayMs: Int) : LayoutSettingsEvent()
+    data class SetTrailerMinResolution(val resolution: TrailerMinResolution) : LayoutSettingsEvent()
     data class SetPosterCardWidth(val widthDp: Int) : LayoutSettingsEvent()
     data class SetPosterCardCornerRadius(val cornerRadiusDp: Int) : LayoutSettingsEvent()
     data class SetCardDepthEnabled(val enabled: Boolean) : LayoutSettingsEvent()
@@ -327,7 +330,8 @@ class LayoutSettingsViewModel @Inject constructor(
                 updateUiStateIfChanged {
                     it.copy(
                         detailPageTrailerAutoplayEnabled = settings.enabled,
-                        detailPageTrailerAutoplayDelaySeconds = settings.delaySeconds
+                        detailPageTrailerAutoplayDelaySeconds = settings.delaySeconds,
+                        trailerMinResolution = settings.minResolution
                     )
                 }
             }
@@ -427,6 +431,7 @@ class LayoutSettingsViewModel @Inject constructor(
             is LayoutSettingsEvent.SetFocusedPosterBackdropTrailerPlaybackTarget ->
                 setFocusedPosterBackdropTrailerPlaybackTarget(event.target)
             is LayoutSettingsEvent.SetTrailerStartDelayMs -> setTrailerStartDelayMs(event.delayMs)
+            is LayoutSettingsEvent.SetTrailerMinResolution -> setTrailerMinResolution(event.resolution)
             is LayoutSettingsEvent.SetPosterCardWidth -> setPosterCardWidth(event.widthDp)
             is LayoutSettingsEvent.SetPosterCardCornerRadius -> setPosterCardCornerRadius(event.cornerRadiusDp)
             is LayoutSettingsEvent.SetCardDepthEnabled -> setCardDepthEnabled(event.enabled)
@@ -748,6 +753,13 @@ class LayoutSettingsViewModel @Inject constructor(
         if (_uiState.value.trailerStartDelayMs == delayMs) return
         viewModelScope.launch {
             layoutPreferenceDataStore.setTrailerStartDelayMs(delayMs)
+        }
+    }
+
+    private fun setTrailerMinResolution(resolution: TrailerMinResolution) {
+        if (_uiState.value.trailerMinResolution == resolution) return
+        viewModelScope.launch {
+            trailerSettingsDataStore.setMinResolution(resolution)
         }
     }
 

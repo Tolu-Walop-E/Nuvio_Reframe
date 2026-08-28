@@ -1001,6 +1001,10 @@
     <string name="layout_autoplay_trailer_expanded_sub">Play trailer inside expanded backdrop when available.</string>
     <string name="layout_trailer_start_delay">Trailer Start Delay</string>
     <string name="layout_trailer_start_delay_sub">How long a card must stay focused before its trailer starts.</string>
+    <string name="layout_trailer_min_resolution">Minimum trailer resolution</string>
+    <string name="layout_trailer_min_resolution_sub">Skip the trailer if YouTube has nothing at this quality. 1080p can glitch on Shield.</string>
+    <string name="layout_trailer_min_resolution_720">720p</string>
+    <string name="layout_trailer_min_resolution_1080">1080p</string>
     <string name="layout_trailer_muted">Play Trailer Muted</string>
     <string name="layout_trailer_muted_sub_preview">Mute trailer audio during autoplay preview.</string>
     <string name="layout_trailer_muted_sub_expanded">Mute trailer audio in expanded cards.</string>

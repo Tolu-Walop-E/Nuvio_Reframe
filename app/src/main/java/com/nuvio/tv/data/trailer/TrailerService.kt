@@ -2,6 +2,7 @@ package com.nuvio.tv.data.trailer
 
 import android.util.Log
 import com.nuvio.tv.core.tmdb.TmdbService
+import com.nuvio.tv.data.local.TrailerSettingsDataStore
 import com.nuvio.tv.data.local.TmdbSettingsDataStore
 import com.nuvio.tv.data.remote.api.TmdbApi
 import com.nuvio.tv.data.remote.api.TmdbVideoResult
@@ -11,6 +12,7 @@ import java.net.URI
 import java.time.Instant
 import java.time.Duration
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
@@ -18,7 +20,11 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private const val TAG = "TrailerService"
@@ -33,9 +39,27 @@ class TrailerService(
     private val inAppYouTubeExtractor: InAppYouTubeExtractor,
     private val tmdbSettingsDataStore: TmdbSettingsDataStore,
     private val tmdbService: TmdbService,
-    private val clock: Clock
+    private val clock: Clock,
+    private val trailerSettingsDataStore: TrailerSettingsDataStore? = null
 ) {
     @Inject
+    constructor(
+        trailerApi: TrailerApi,
+        tmdbApi: TmdbApi,
+        inAppYouTubeExtractor: InAppYouTubeExtractor,
+        tmdbSettingsDataStore: TmdbSettingsDataStore,
+        tmdbService: TmdbService,
+        trailerSettingsDataStore: TrailerSettingsDataStore
+    ) : this(
+        trailerApi = trailerApi,
+        tmdbApi = tmdbApi,
+        inAppYouTubeExtractor = inAppYouTubeExtractor,
+        tmdbSettingsDataStore = tmdbSettingsDataStore,
+        tmdbService = tmdbService,
+        clock = Clock.systemUTC(),
+        trailerSettingsDataStore = trailerSettingsDataStore
+    )
+
     constructor(
         trailerApi: TrailerApi,
         tmdbApi: TmdbApi,
@@ -48,7 +72,8 @@ class TrailerService(
         inAppYouTubeExtractor = inAppYouTubeExtractor,
         tmdbSettingsDataStore = tmdbSettingsDataStore,
         tmdbService = tmdbService,
-        clock = Clock.systemUTC()
+        clock = Clock.systemUTC(),
+        trailerSettingsDataStore = null
     )
 
     // Cache: "title|year|tmdbId|type" -> trailer playback source (NEGATIVE_CACHE sentinel for misses)
@@ -63,6 +88,25 @@ class TrailerService(
     // Detached from callers: a cancelled focus event must not cancel a resolution
     // that another focus event is already awaiting.
     private val resolveScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val minResolutionHeight = AtomicInteger(720)
+
+    init {
+        val store = trailerSettingsDataStore
+        if (store != null) {
+            resolveScope.launch {
+                store.settings
+                    .map { it.minResolution.height }
+                    .distinctUntilChanged()
+                    .collect { height ->
+                        minResolutionHeight.set(height)
+                        youtubeSourceCache.clear()
+                        cache.clear()
+                    }
+            }
+        }
+    }
+
+    private fun qualityScopedKey(base: String): String = "$base@${minResolutionHeight.get()}"
 
     /**
      * Search for a trailer by title, year, tmdbId, and type.
@@ -90,7 +134,7 @@ class TrailerService(
         }
         val tmdbLanguage = normalizeTmdbTrailerLanguage(tmdbSettings?.language)
 
-        val cacheKey = "$title|$year|$tmdbId|$type"
+        val cacheKey = qualityScopedKey("$title|$year|$tmdbId|$type")
 
         cache[cacheKey]?.let { cached ->
             val hit = cached !== NEGATIVE_CACHE
@@ -239,20 +283,21 @@ class TrailerService(
         if (youtubeKey.isNullOrBlank()) {
             return@withContext resolveYouTubeSource(youtubeUrl, null, title, year)
         }
+        val scopedKey = qualityScopedKey(youtubeKey)
 
-        getValidCachedYoutubeSource(youtubeKey)?.let { cached ->
+        getValidCachedYoutubeSource(scopedKey)?.let { cached ->
             Log.d(TAG, "YouTube cache hit for key=${obfuscateYoutubeKey(youtubeKey)}")
             return@withContext cached
         }
 
         // Share a single resolution per video id so concurrent focus events cannot
         // hand back two different URLs for the same trailer.
-        val pending = inFlightYoutubeSources.computeIfAbsent(youtubeKey) {
+        val pending = inFlightYoutubeSources.computeIfAbsent(scopedKey) {
             resolveScope.async {
                 try {
-                    resolveYouTubeSource(youtubeUrl, youtubeKey, title, year)
+                    resolveYouTubeSource(youtubeUrl, scopedKey, title, year)
                 } finally {
-                    inFlightYoutubeSources.remove(youtubeKey)
+                    inFlightYoutubeSources.remove(scopedKey)
                 }
             }
         }
@@ -291,27 +336,11 @@ class TrailerService(
                 return@withContext localSource
             }
 
-            // Fallback to remote trailer resolver if in-app extraction fails.
-            Log.w(TAG, "In-app extraction failed, falling back to backend resolver for ${summarizeUrl(youtubeUrl)}")
-            val response = trailerApi.getTrailer(youtubeUrl = youtubeUrl, title = title, year = year)
-            if (!response.isSuccessful) {
-                Log.w(TAG, "Backend trailer fallback failed (${response.code()}) for ${summarizeUrl(youtubeUrl)}")
-                return@withContext null
-            }
-
-            val fallbackUrl = response.body()?.url ?: return@withContext null
-            if (!isValidUrl(fallbackUrl)) return@withContext null
-
-            if (!youtubeKey.isNullOrBlank()) {
-                val fallbackSource = TrailerPlaybackSource(videoUrl = fallbackUrl)
-                youtubeSourceCache[youtubeKey] = CachedTrailerPlaybackSource(
-                    playbackSource = fallbackSource,
-                    cachedAt = Instant.now(clock),
-                    expiresAt = extractUrlExpireInstant(fallbackSource)
-                )
-            }
-            Log.d(TAG, "Using backend fallback source for ${summarizeUrl(youtubeUrl)}")
-            TrailerPlaybackSource(videoUrl = fallbackUrl)
+            Log.w(
+                TAG,
+                "In-app extraction found no trailer at ${minResolutionHeight.get()}p for ${summarizeUrl(youtubeUrl)}"
+            )
+            null
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {

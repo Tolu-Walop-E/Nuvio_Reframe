@@ -4,11 +4,14 @@ import android.net.Uri
 import android.util.Log
 import com.google.gson.Gson
 import com.nuvio.tv.BuildConfig
+import com.nuvio.tv.data.local.TrailerSettingsDataStore
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -144,8 +147,19 @@ private val CLIENTS = listOf(
 )
 
 @Singleton
-class InAppYouTubeExtractor @Inject constructor() {
+class InAppYouTubeExtractor @Inject constructor(
+    trailerSettingsDataStore: TrailerSettingsDataStore
+) {
     private val gson = Gson()
+    private val qualityPolicy = AtomicReference(TrailerPreviewQualityPolicy.P720)
+
+    init {
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            trailerSettingsDataStore.settings.collect { settings ->
+                qualityPolicy.set(TrailerPreviewQualityPolicy.from(settings.minResolution))
+            }
+        }
+    }
 
     private val httpClient by lazy {
         OkHttpClient.Builder()
@@ -460,7 +474,8 @@ class InAppYouTubeExtractor @Inject constructor() {
             }
         }
 
-        val bestProgressive = sortCandidates(progressive).firstOrNull()
+        val bestProgressive = sortCandidates(progressive)
+            .firstOrNull { TrailerPreviewQuality.isPreferred(it.height, policy()) }
 
         // Adaptive DASH is video-only + audio-only, and YouTube 403s many of these
         // URLs depending on the client that minted them. Only a pair we verified may
@@ -475,15 +490,10 @@ class InAppYouTubeExtractor @Inject constructor() {
         }
 
         // HLS carries muxed audio and keeps working when adaptive URLs are rejected.
-        // Lock the 720p media playlist when we found one so ABR cannot start at 360p.
-        if (bestManifest != null) {
-            val playUrl = if (TrailerPreviewQuality.isPreferred(bestManifest.height)) {
-                bestManifest.selectedVariantUrl
-            } else {
-                bestManifest.manifestUrl
-            }
+        // Only play it when the selected variant meets the minimum; otherwise skip.
+        if (bestManifest != null && TrailerPreviewQuality.isPreferred(bestManifest.height, policy())) {
             Log.d(TAG, "Using HLS muxed manifest height=${bestManifest.height}")
-            return TrailerPlaybackSource(videoUrl = playUrl, audioUrl = null)
+            return TrailerPlaybackSource(videoUrl = bestManifest.selectedVariantUrl, audioUrl = null)
         }
 
         val resolvedProgressive = bestProgressive?.url?.let { resolveReachableUrl(it) }
@@ -709,12 +719,14 @@ class InAppYouTubeExtractor @Inject constructor() {
         }.getOrDefault(false)
     }
 
+    private fun policy(): TrailerPreviewQualityPolicy = qualityPolicy.get()
+
     private fun videoScore(height: Int, fps: Int, bitrate: Double): Double {
-        return TrailerPreviewQuality.heightScore(height, fps, bitrate)
+        return TrailerPreviewQuality.heightScore(height, fps, bitrate, policy())
     }
 
     private fun isBetterPreviewHeight(candidate: Int, best: Int): Boolean {
-        return TrailerPreviewQuality.isBetterHeight(candidate, best)
+        return TrailerPreviewQuality.isBetterHeight(candidate, best, policy())
     }
 
     private fun audioScore(bitrate: Double, audioSampleRate: Double): Double {
@@ -741,29 +753,17 @@ class InAppYouTubeExtractor @Inject constructor() {
     /**
      * Returns the first adaptive video+audio pair that is actually reachable.
      *
-     * Candidates are ordered by the 720p floor first, then client trust
-     * (`android_vr`/`ios` streams play without a po_token far more reliably than
-     * plain `android`), then by URLs without an `n` parameter. Audio is paired
-     * from the same client and a compatible container so MergingMediaSource has
-     * sound. 1080p+ is only probed if nothing at or below 720p is reachable.
+     * Only renditions that meet the configured minimum (720p or 1080p) are probed.
+     * Below-floor streams are skipped so a missing 720p trailer does not play 360p.
      */
     private suspend fun pickVerifiedAdaptivePair(
         videos: List<StreamCandidate>,
         audios: List<StreamCandidate>
     ): Pair<String, String>? {
         if (videos.isEmpty() || audios.isEmpty()) return null
-
-        val waves = listOf(
-            videos.filter { TrailerPreviewQuality.isPreferred(it.height) },
-            videos.filter { TrailerPreviewQuality.isBelowFloor(it.height) },
-            videos.filter { TrailerPreviewQuality.isAboveCap(it.height) }
-        )
-        for (wave in waves) {
-            if (wave.isEmpty()) continue
-            val pair = probeAdaptiveWave(wave, audios)
-            if (pair != null) return pair
-        }
-        return null
+        val preferred = videos.filter { TrailerPreviewQuality.isPreferred(it.height, policy()) }
+        if (preferred.isEmpty()) return null
+        return probeAdaptiveWave(preferred, audios)
     }
 
     private suspend fun probeAdaptiveWave(

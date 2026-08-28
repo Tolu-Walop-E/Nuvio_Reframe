@@ -5,7 +5,6 @@ import com.nuvio.tv.core.tmdb.TmdbService
 import com.nuvio.tv.data.local.TmdbSettingsDataStore
 import com.nuvio.tv.data.remote.api.TmdbApi
 import com.nuvio.tv.data.remote.api.TrailerApi
-import com.nuvio.tv.data.remote.api.TrailerResponse
 import com.nuvio.tv.domain.model.TmdbSettings
 import io.mockk.*
 import kotlinx.coroutines.flow.flowOf
@@ -15,7 +14,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
-import retrofit2.Response
 
 class TrailerServiceYouTubeSessionCacheTest {
 
@@ -78,7 +76,6 @@ class TrailerServiceYouTubeSessionCacheTest {
             null,
             TrailerPlaybackSource(videoUrl = "https://cdn.example/video-after-retry.mp4")
         )
-        coEvery { trailerApi.getTrailer(any(), any(), any()) } returns Response.success(TrailerResponse(url = null))
 
         val first = service.getTrailerPlaybackSourceFromYouTubeUrl("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
         val second = service.getTrailerPlaybackSourceFromYouTubeUrl("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
@@ -86,6 +83,6 @@ class TrailerServiceYouTubeSessionCacheTest {
         assertNull(first)
         assertEquals("https://cdn.example/video-after-retry.mp4", second?.videoUrl)
         coVerify(exactly = 2) { extractor.extractPlaybackSource("https://www.youtube.com/watch?v=dQw4w9WgXcQ") }
-        coVerify(exactly = 1) { trailerApi.getTrailer(any(), any(), any()) }
+        coVerify(exactly = 0) { trailerApi.getTrailer(any(), any(), any()) }
     }
 }

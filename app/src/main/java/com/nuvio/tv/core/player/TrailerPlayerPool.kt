@@ -10,14 +10,20 @@ import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.upstream.DefaultAllocator
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import com.nuvio.tv.data.local.PlayerSettingsDataStore
+import com.nuvio.tv.data.local.TrailerSettingsDataStore
+import com.nuvio.tv.domain.model.TrailerMinResolution
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /**
@@ -37,7 +43,8 @@ import kotlinx.coroutines.launch
 @Singleton
 class TrailerPlayerPool @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val playerSettingsDataStore: PlayerSettingsDataStore
+    private val playerSettingsDataStore: PlayerSettingsDataStore,
+    private val trailerSettingsDataStore: TrailerSettingsDataStore
 ) {
     companion object {
         private const val TAG = "TrailerPlayerPool"
@@ -52,11 +59,24 @@ class TrailerPlayerPool @Inject constructor(
     // paths on DataStore. Full-screen playback reads the setting separately.
     private val forceNativeAllocation = AtomicBoolean(false)
 
+    private val minResolutionHeight = AtomicInteger(TrailerMinResolution.P720.height)
+    private val minResolutionWidth = AtomicInteger(TrailerMinResolution.P720.width)
+
     init {
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             runCatching {
                 forceNativeAllocation.set(playerSettingsDataStore.nuvioPerformanceModeEnabled.first())
             }
+        }
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            trailerSettingsDataStore.settings
+                .map { it.minResolution }
+                .distinctUntilChanged()
+                .collect { resolution ->
+                    minResolutionWidth.set(resolution.width)
+                    minResolutionHeight.set(resolution.height)
+                    rebuildPlayer()
+                }
         }
     }
 
@@ -156,6 +176,16 @@ class TrailerPlayerPool @Inject constructor(
         }
     }
 
+    private fun rebuildPlayer() {
+        if (released.get() || yielded.get()) return
+        _player?.let { player ->
+            runCatching { player.stop() }
+            runCatching { player.clearMediaItems() }
+            runCatching { player.release() }
+        }
+        _player = null
+    }
+
     private fun createPlayer(): ExoPlayer {
         val forceNative = forceNativeAllocation.get()
         Log.d(TAG, "Creating shared trailer ExoPlayer instance with forceNativeAllocation = $forceNative")
@@ -177,24 +207,24 @@ class TrailerPlayerPool @Inject constructor(
             loadControlBuilder.setAllocator(allocator)
         }
         val loadControl = loadControlBuilder.build()
+        val maxWidth = minResolutionWidth.get()
+        val maxHeight = minResolutionHeight.get()
         val trackSelector = DefaultTrackSelector(context).apply {
             setParameters(
                 buildUponParameters()
-                    // Cap at 720p so Shield does not switch HDMI into a 4K mode.
-                    // Floor at 720p when YouTube offers it; exceed if the playlist
-                    // only has 360/480 so a trailer still starts.
-                    .setMaxVideoSize(1280, 720)
-                    .setMinVideoSize(1280, 720)
-                    .setExceedVideoConstraintsIfNecessary(true)
+                    .setMaxVideoSize(maxWidth, maxHeight)
+                    .setMinVideoSize(maxWidth, maxHeight)
+                    .setExceedVideoConstraintsIfNecessary(false)
                     .setForceHighestSupportedBitrate(false)
             )
         }
+        val initialBitrate = if (maxHeight >= 1080) 8_000_000L else 4_000_000L
         return ExoPlayer.Builder(context)
             .setLoadControl(loadControl)
             .setTrackSelector(trackSelector)
             .setBandwidthMeter(
                 DefaultBandwidthMeter.Builder(context)
-                    .setInitialBitrateEstimate(4_000_000L)
+                    .setInitialBitrateEstimate(initialBitrate)
                     .build()
             )
             .setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS)
