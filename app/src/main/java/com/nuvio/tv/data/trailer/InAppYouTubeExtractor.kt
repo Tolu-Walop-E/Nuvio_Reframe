@@ -30,8 +30,6 @@ private const val DEFAULT_USER_AGENT =
     "Mozilla/5.0 (Linux; Android 12; Android TV) AppleWebKit/537.36 " +
         "(KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
 private const val PREFERRED_SEPARATE_CLIENT = "android_vr"
-/** Card trailers: prefer <=720p so Shield does not spin up a 4K decode path. */
-private const val PREFERRED_PREVIEW_HEIGHT = 720
 /** Total time allowed for probing adaptive candidates before falling back to HLS. */
 private const val ADAPTIVE_VERIFY_BUDGET_MS = 4_000L
 private const val MAX_ADAPTIVE_VERIFY_CANDIDATES = 4
@@ -477,9 +475,15 @@ class InAppYouTubeExtractor @Inject constructor() {
         }
 
         // HLS carries muxed audio and keeps working when adaptive URLs are rejected.
+        // Lock the 720p media playlist when we found one so ABR cannot start at 360p.
         if (bestManifest != null) {
+            val playUrl = if (TrailerPreviewQuality.isPreferred(bestManifest.height)) {
+                bestManifest.selectedVariantUrl
+            } else {
+                bestManifest.manifestUrl
+            }
             Log.d(TAG, "Using HLS muxed manifest height=${bestManifest.height}")
-            return TrailerPlaybackSource(videoUrl = bestManifest.manifestUrl, audioUrl = null)
+            return TrailerPlaybackSource(videoUrl = playUrl, audioUrl = null)
         }
 
         val resolvedProgressive = bestProgressive?.url?.let { resolveReachableUrl(it) }
@@ -706,32 +710,11 @@ class InAppYouTubeExtractor @Inject constructor() {
     }
 
     private fun videoScore(height: Int, fps: Int, bitrate: Double): Double {
-        // Prefer up to 720p for in-app trailers. Scoring pure height made adaptive
-        // picks 4K, which on Shield often left audio running after a surface handoff.
-        val heightScore = when {
-            height <= 0 -> 0.0
-            height <= PREFERRED_PREVIEW_HEIGHT -> height * 1_000_000_000.0
-            else -> {
-                PREFERRED_PREVIEW_HEIGHT * 1_000_000_000.0 -
-                    (height - PREFERRED_PREVIEW_HEIGHT) * 50_000_000.0
-            }
-        }
-        return heightScore + fps * 1_000_000.0 + bitrate
+        return TrailerPreviewQuality.heightScore(height, fps, bitrate)
     }
 
     private fun isBetterPreviewHeight(candidate: Int, best: Int): Boolean {
-        val c = candidate.coerceAtLeast(0)
-        val b = best.coerceAtLeast(0)
-        val cOver = c > PREFERRED_PREVIEW_HEIGHT
-        val bOver = b > PREFERRED_PREVIEW_HEIGHT
-        return when {
-            c == 0 -> false
-            b == 0 -> true
-            !cOver && bOver -> true
-            cOver && !bOver -> false
-            !cOver && !bOver -> c > b
-            else -> c < b
-        }
+        return TrailerPreviewQuality.isBetterHeight(candidate, best)
     }
 
     private fun audioScore(bitrate: Double, audioSampleRate: Double): Double {
@@ -758,11 +741,11 @@ class InAppYouTubeExtractor @Inject constructor() {
     /**
      * Returns the first adaptive video+audio pair that is actually reachable.
      *
-     * Candidates are ordered by client trust (`android_vr`/`ios` streams play
-     * without a po_token far more reliably than plain `android`), then by URLs
-     * without an `n` parameter, then by the ≤720p preview ladder. Audio is paired
+     * Candidates are ordered by the 720p floor first, then client trust
+     * (`android_vr`/`ios` streams play without a po_token far more reliably than
+     * plain `android`), then by URLs without an `n` parameter. Audio is paired
      * from the same client and a compatible container so MergingMediaSource has
-     * sound.
+     * sound. 1080p+ is only probed if nothing at or below 720p is reachable.
      */
     private suspend fun pickVerifiedAdaptivePair(
         videos: List<StreamCandidate>,
@@ -770,6 +753,23 @@ class InAppYouTubeExtractor @Inject constructor() {
     ): Pair<String, String>? {
         if (videos.isEmpty() || audios.isEmpty()) return null
 
+        val waves = listOf(
+            videos.filter { TrailerPreviewQuality.isPreferred(it.height) },
+            videos.filter { TrailerPreviewQuality.isBelowFloor(it.height) },
+            videos.filter { TrailerPreviewQuality.isAboveCap(it.height) }
+        )
+        for (wave in waves) {
+            if (wave.isEmpty()) continue
+            val pair = probeAdaptiveWave(wave, audios)
+            if (pair != null) return pair
+        }
+        return null
+    }
+
+    private suspend fun probeAdaptiveWave(
+        videos: List<StreamCandidate>,
+        audios: List<StreamCandidate>
+    ): Pair<String, String>? {
         val orderedVideos = videos
             .sortedWith(
                 compareBy<StreamCandidate> { clientTrust(it.client) }

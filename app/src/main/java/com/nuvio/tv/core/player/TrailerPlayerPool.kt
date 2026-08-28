@@ -180,9 +180,12 @@ class TrailerPlayerPool @Inject constructor(
         val trackSelector = DefaultTrackSelector(context).apply {
             setParameters(
                 buildUponParameters()
-                    // Prefer a mid ladder for fast first frame on TV Wi‑Fi; forcing
-                    // the top HLS variant delayed card trailers badly.
+                    // Cap at 720p so Shield does not switch HDMI into a 4K mode.
+                    // Floor at 720p when YouTube offers it; exceed if the playlist
+                    // only has 360/480 so a trailer still starts.
                     .setMaxVideoSize(1280, 720)
+                    .setMinVideoSize(1280, 720)
+                    .setExceedVideoConstraintsIfNecessary(true)
                     .setForceHighestSupportedBitrate(false)
             )
         }
