@@ -70,7 +70,6 @@ class YoutubeChunkedDataSourceFactory : DataSource.Factory {
         private var currentChunkEnd = 0L
         private var bytesReadInChunk = 0L
         private var establishedChunkSize = 0L
-        private var openedFromPosition = 0L
         private var originalDataSpec: DataSpec? = null
         private var streamOpened = false
 
@@ -88,7 +87,6 @@ class YoutubeChunkedDataSourceFactory : DataSource.Factory {
             originalDataSpec = dataSpec
             currentUri = uri
             currentChunkStart = dataSpec.position
-            openedFromPosition = dataSpec.position
             establishedChunkSize = 0L
             streamOpened = false
             resourceLength = youtubeContentLength(uri)
@@ -101,11 +99,10 @@ class YoutubeChunkedDataSourceFactory : DataSource.Factory {
             return try {
                 openNextChunk()
                 streamOpened = true
-                if (resourceLength != C.LENGTH_UNSET.toLong()) {
-                    resourceLength - openedFromPosition
-                } else {
-                    C.LENGTH_UNSET.toLong()
-                }
+                // The wrapper owns chunk boundaries. Advertising clen here makes
+                // ProgressiveMediaPeriod reopen a second source at the first
+                // rejected range after read() already returned EOF.
+                C.LENGTH_UNSET.toLong()
             } catch (e: HttpDataSource.InvalidResponseCodeException) {
                 if (dataSpec.position > 0L && (e.responseCode == 403 || e.responseCode == 416)) {
                     Log.i(TAG, "open-eof-403 position=${dataSpec.position} code=${e.responseCode}")
@@ -118,7 +115,11 @@ class YoutubeChunkedDataSourceFactory : DataSource.Factory {
         private fun openNextChunk() {
             val spec = originalDataSpec ?: throw IllegalStateException("No DataSpec")
             val remaining = remainingBytes()
-            val sizes = youtubeChunkSizes(remaining, establishedChunkSize)
+            val sizes = youtubeChunkSizes(
+                remaining = remaining,
+                establishedChunkSize = establishedChunkSize,
+                shortResource = resourceLength in 1L..SHORT_RESOURCE_MAX
+            )
             if (sizes.isEmpty()) {
                 throw DataSourceException(PlaybackException.ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE)
             }
@@ -210,6 +211,9 @@ class YoutubeChunkedDataSourceFactory : DataSource.Factory {
     }
 }
 
+private const val SHORT_RESOURCE_MAX = 4L * 1024 * 1024
+private const val SHORT_RESOURCE_CHUNK = 512L * 1024
+
 internal val CHUNK_SIZES = longArrayOf(
     2L * 1024 * 1024,
     1024L * 1024,
@@ -221,8 +225,15 @@ internal fun youtubeContentLength(uri: Uri): Long {
     return if (clen != null && clen > 0L) clen else C.LENGTH_UNSET.toLong()
 }
 
-internal fun youtubeChunkSizes(remaining: Long, establishedChunkSize: Long): List<Long> {
+internal fun youtubeChunkSizes(
+    remaining: Long,
+    establishedChunkSize: Long,
+    shortResource: Boolean = false
+): List<Long> {
     if (remaining <= 0L) return emptyList()
+    if (shortResource && establishedChunkSize <= 0L) {
+        return listOf(min(SHORT_RESOURCE_CHUNK, remaining))
+    }
     val base = if (establishedChunkSize > 0L) {
         listOf(establishedChunkSize) + CHUNK_SIZES.filter { it < establishedChunkSize }
     } else {

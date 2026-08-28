@@ -585,20 +585,27 @@ class InAppYouTubeExtractor @Inject constructor(
             return TrailerPlaybackSource(videoUrl = bestManifest.selectedVariantUrl, audioUrl = null)
         }
 
+        // A verified progressive rendition is muxed, so it avoids the separate
+        // adaptive audio URL whose CDN commonly rejects continuation ranges.
+        // Prefer it whenever it still meets the configured quality floor.
+        val resolvedProgressive = bestProgressive?.url?.let {
+            resolveReachableUrl(it, clientUserAgent(bestProgressive.client))
+        }
+        if (resolvedProgressive != null) {
+            Log.i(
+                TAG,
+                "Using verified progressive muxed ${bestProgressive.height}p " +
+                    "itag=${bestProgressive.itag} client=${bestProgressive.client}"
+            )
+            return TrailerPlaybackSource(videoUrl = resolvedProgressive, audioUrl = null)
+        }
+
         kotlinx.coroutines.yield()
         val verifiedPair = withTimeoutOrNull(ADAPTIVE_VERIFY_BUDGET_MS) {
             pickVerifiedAdaptivePair(adaptiveVideo, adaptiveAudio)
         }
         if (verifiedPair != null) {
             return TrailerPlaybackSource(videoUrl = verifiedPair.first, audioUrl = verifiedPair.second)
-        }
-
-        val resolvedProgressive = bestProgressive?.url?.let {
-            resolveReachableUrl(it, clientUserAgent(bestProgressive.client))
-        }
-        if (resolvedProgressive != null) {
-            Log.d(TAG, "Using progressive muxed ${bestProgressive.height}p itag=${bestProgressive.itag}")
-            return TrailerPlaybackSource(videoUrl = resolvedProgressive, audioUrl = null)
         }
 
         Log.w(

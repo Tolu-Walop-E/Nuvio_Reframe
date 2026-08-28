@@ -11,6 +11,14 @@ class YoutubeChunkedRangeTest {
     }
 
     @Test
+    fun `short audio starts with proven 512KB cadence`() {
+        assertEquals(
+            listOf(512L * 1024),
+            youtubeChunkSizes(1_956_089L, 0L, shortResource = true)
+        )
+    }
+
+    @Test
     fun `video remaining uses 2MB then smaller fallbacks`() {
         val remaining = 40L * 1024 * 1024
         assertEquals(
