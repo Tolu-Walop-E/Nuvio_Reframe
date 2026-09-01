@@ -220,6 +220,18 @@ internal fun NetflixMediaCard(
     }
 
     val shouldPlayTrailer = focused && playTrailer && trailerArmed && !trailerUrl.isNullOrBlank()
+    LaunchedEffect(focused, playTrailer, trailerArmed, trailerUrl, trailerAudioUrl, mediaKey) {
+        if (focused) {
+            android.util.Log.d(
+                "NetflixTrailer",
+                "media-card trailer-state key=$mediaKey title=$title " +
+                    "playFlag=$playTrailer armed=$trailerArmed " +
+                    "urlPresent=${!trailerUrl.isNullOrBlank()} " +
+                    "audioPresent=${!trailerAudioUrl.isNullOrBlank()} " +
+                    "willPlay=$shouldPlayTrailer"
+            )
+        }
+    }
 
     Box(
         modifier = modifier

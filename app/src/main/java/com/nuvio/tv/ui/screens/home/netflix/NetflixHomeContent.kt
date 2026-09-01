@@ -181,6 +181,9 @@ fun NetflixHomeContent(
     val tabRowScales = tabScreenPack?.rowScales ?: uiState.viewPackRowScales
     val tabRowShowLabels = tabScreenPack?.rowShowLabels ?: uiState.viewPackRowShowLabels
     val tabRowTrailers = tabScreenPack?.rowTrailers ?: uiState.viewPackRowTrailers
+    val tabHasTrailerOptIns = remember(tabRowTrailers) {
+        tabRowTrailers.values.any { it }
+    }
     val tabRowPosterGrow = tabScreenPack?.rowPosterGrow ?: uiState.viewPackRowPosterGrow
     val tabCatalogPosterScale = tabScreenPack?.catalogPosterScale ?: uiState.viewPackCatalogPosterScale
     val tabCollectionLandscapeScale =
@@ -424,11 +427,34 @@ fun NetflixHomeContent(
         }
     }
     val railKeys = remember(visibleRails) { visibleRails.map { it.railKey } }
+    val netflixPackRequestsTrailers = packActiveForTab &&
+        (tabHasTrailerOptIns || tabHeroTrailerEnabled)
     val netflixTrailersEnabled = remember(
-        uiState.focusedPosterBackdropTrailerEnabled
+        uiState.focusedPosterBackdropTrailerEnabled,
+        netflixPackRequestsTrailers
     ) {
         AppFeaturePolicy.inAppTrailerPlaybackEnabled &&
-            (NetflixHomeFeature.FORCE_TRAILER_AUTOPLAY || uiState.focusedPosterBackdropTrailerEnabled)
+            (
+                NetflixHomeFeature.FORCE_TRAILER_AUTOPLAY ||
+                    uiState.focusedPosterBackdropTrailerEnabled ||
+                    netflixPackRequestsTrailers
+            )
+    }
+    LaunchedEffect(
+        netflixTrailersEnabled,
+        packActiveForTab,
+        tabHasTrailerOptIns,
+        netflixPackRequestsTrailers,
+        uiState.activeViewPackName,
+        selectedTab
+    ) {
+        Log.d(
+            NETFLIX_TRAILER_LOG,
+            "netflix-home trailer-gate enabled=$netflixTrailersEnabled " +
+                "packActive=$packActiveForTab hasRowOptIns=$tabHasTrailerOptIns " +
+                "packRequests=$netflixPackRequestsTrailers " +
+                "pack=${uiState.activeViewPackName} tab=$selectedTab"
+        )
     }
 
     LaunchedEffect(scrollToTopTrigger) {
@@ -877,7 +903,25 @@ fun NetflixHomeContent(
                         val row = rail.entry.row
                         val packShowMeta = tabRowShowLabels[rail.orderKey]
                         val packTrailer = tabRowTrailers[rail.orderKey] == true
+                        val rowTrailerEnabled = netflixTrailersEnabled &&
+                            (!packActiveForTab || packTrailer || !tabHasTrailerOptIns)
                         val packPosterGrow = tabRowPosterGrow[rail.orderKey] != false
+                        LaunchedEffect(
+                            railKey,
+                            netflixTrailersEnabled,
+                            packActiveForTab,
+                            tabHasTrailerOptIns,
+                            packTrailer,
+                            rowTrailerEnabled
+                        ) {
+                            Log.d(
+                                NETFLIX_TRAILER_LOG,
+                                "rail trailer-gate key=$railKey catalog=${row.catalogId} " +
+                                    "enabled=$rowTrailerEnabled homeGate=$netflixTrailersEnabled " +
+                                    "packActive=$packActiveForTab packTrailer=$packTrailer " +
+                                    "hasRowOptIns=$tabHasTrailerOptIns"
+                            )
+                        }
                         NetflixCatalogRail(
                             railKey = railKey,
                             row = row,
@@ -920,8 +964,7 @@ fun NetflixHomeContent(
                             posterGrow = if (packActiveForTab) packPosterGrow else true,
                             trailerPreviewUrls = trailerPreviewUrls,
                             trailerPreviewAudioUrls = trailerPreviewAudioUrls,
-                            trailerEnabled = netflixTrailersEnabled &&
-                                (!packActiveForTab || packTrailer),
+                            trailerEnabled = rowTrailerEnabled,
                             trailerMuted = uiState.focusedPosterBackdropTrailerMuted,
                             trailerStartDelayMs = uiState.trailerStartDelayMs,
                             onRequestTrailerPreview = { item ->
