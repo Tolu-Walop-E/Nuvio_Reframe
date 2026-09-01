@@ -32,4 +32,27 @@ class YoutubeChunkedRangeTest {
         assertEquals(emptyList<Long>(), youtubeChunkSizes(0L, 2L * 1024 * 1024))
     }
 
+    @Test
+    fun `googlevideo direct playback probe verifies one megabyte continuation`() {
+        val ranges = googlevideoProbeRanges(
+            "https://rr1---sn-a5mlrn6k.googlevideo.com/videoplayback?clen=1956089&itag=140",
+            requireContinuation = true
+        )
+
+        assertEquals(
+            listOf(0L to 1023L, 1_048_576L to 1_049_599L),
+            ranges
+        )
+    }
+
+    @Test
+    fun `googlevideo short stream skips continuation probe past EOF`() {
+        val ranges = googlevideoProbeRanges(
+            "https://rr1---sn-a5mlrn6k.googlevideo.com/videoplayback?clen=524288&itag=18",
+            requireContinuation = true
+        )
+
+        assertEquals(listOf(0L to 1023L), ranges)
+    }
+
 }
