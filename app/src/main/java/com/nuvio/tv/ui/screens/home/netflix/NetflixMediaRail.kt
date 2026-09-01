@@ -264,9 +264,6 @@ internal fun NetflixCatalogRail(
 
     LaunchedEffect(focusedMeta?.id) {
         val candidate = focusedMeta
-        if (candidate != null && trailerEnabled) {
-            onRequestTrailerPreview(candidate)
-        }
         kotlinx.coroutines.delay(80L)
         if (focusedMeta?.id == candidate?.id) {
             settledMeta = candidate
@@ -321,18 +318,12 @@ internal fun NetflixCatalogRail(
                     height = with(density) { geometry.railHeight.roundToPx().coerceAtLeast(1) }
                 )
             }
-            // Warm neighbour trailers so the dwell slider is not waiting on YouTube.
-            LaunchedEffect(focusedIndex, row.items, trailerEnabled) {
-                if (!trailerEnabled) return@LaunchedEffect
-                val lastIndex = row.items.lastIndex
-                if (lastIndex < 0) return@LaunchedEffect
-                val center = focusedIndex.coerceIn(0, lastIndex)
-                for (offset in listOf(0, 1, -1, 2, -2)) {
-                    val index = center + offset
-                    if (index in 0..lastIndex) {
-                        onRequestTrailerPreview(row.items[index])
-                    }
-                }
+            LaunchedEffect(focusedIndex, row.items, trailerEnabled, railHasFocus, trailerStartDelayMs) {
+                if (!trailerEnabled || !railHasFocus) return@LaunchedEffect
+                val item = row.items.getOrNull(focusedIndex.coerceIn(0, row.items.lastIndex))
+                    ?: return@LaunchedEffect
+                kotlinx.coroutines.delay(trailerStartDelayMs.coerceAtLeast(0).toLong())
+                onRequestTrailerPreview(item)
             }
             // Warm the focus artwork for the focused card and its immediate neighbours
             // so D-pad moves don't wait on a cold Coil fetch when the URL switches.
@@ -452,9 +443,6 @@ internal fun NetflixCatalogRail(
                             focusedMeta = item
                             onFocusedItemChanged(index, itemKey)
                             onItemFocused(item)
-                            if (trailerEnabled) {
-                                onRequestTrailerPreview(item)
-                            }
                             if (row.hasMore && index >= row.items.lastIndex - 5) {
                                 onLoadMore(row.catalogId, row.addonId, row.apiType)
                             }

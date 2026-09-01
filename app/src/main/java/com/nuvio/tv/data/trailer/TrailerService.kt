@@ -11,10 +11,12 @@ import com.nuvio.tv.data.remote.api.TrailerApi
 import com.nuvio.tv.data.remote.api.TrailerResponse
 import java.time.Clock
 import java.net.URI
+import java.net.UnknownHostException
 import java.time.Instant
 import java.time.Duration
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
@@ -34,6 +36,7 @@ private const val TAG = "TrailerService"
 private const val TMDB_TRAILER_FALLBACK_LANGUAGE = "en-US"
 private const val REMOTE_TRAILER_PREFER = "muxed,hls,verified_adaptive"
 private const val REMOTE_TRAILER_TIMEOUT_MS = 2_500L
+private const val REMOTE_TRAILER_RESOLVER_DNS_BACKOFF_MS = 10 * 60 * 1000L
 private val YOUTUBE_SOURCE_CACHE_TTL: Duration = Duration.ofHours(3)
 private val YOUTUBE_VIDEO_ID_REGEX = Regex("^[a-zA-Z0-9_-]{11}$")
 
@@ -95,6 +98,7 @@ class TrailerService(
     // that another focus event is already awaiting.
     private val resolveScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val minResolutionHeight = AtomicInteger(720)
+    private val remoteTrailerResolverUnavailableUntilMs = AtomicLong(0L)
 
     init {
         val store = trailerSettingsDataStore
@@ -264,6 +268,10 @@ class TrailerService(
         Log.d(TAG, "TMDB candidate count: ${candidates.size}")
 
         for (candidate in candidates) {
+            if (isYouTubeWatchPageBlocked()) {
+                Log.w(TAG, "Skipping remaining TMDB trailer candidates while YouTube watch page is rate-limited")
+                return@withContext null
+            }
             val key = candidate.key?.trim().orEmpty()
             if (key.isBlank()) continue
             triedVideoIds?.add(key)
@@ -304,6 +312,10 @@ class TrailerService(
         val attempted = skipVideoIds.toMutableSet()
         var extracts = 0
         for (query in TrailerOfficialSearch.searchQueries(title, year)) {
+            if (isYouTubeWatchPageBlocked()) {
+                Log.w(TAG, "Skipping YouTube trailer search while watch page is rate-limited")
+                return null
+            }
             val page = try {
                 inAppYouTubeExtractor.searchTrailerVideos(query)
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -324,6 +336,10 @@ class TrailerService(
                     "(top=${ranked.first().title})"
             )
             for (hit in ranked) {
+                if (isYouTubeWatchPageBlocked()) {
+                    Log.w(TAG, "Skipping remaining YouTube search hits while watch page is rate-limited")
+                    return null
+                }
                 if (!attempted.add(hit.videoId)) continue
                 val source = getTrailerPlaybackSourceFromYouTubeUrl(
                     youtubeUrl = "https://www.youtube.com/watch?v=${hit.videoId}",
@@ -442,6 +458,9 @@ class TrailerService(
         year: String?
     ): TrailerPlaybackSource? {
         if (!remoteTrailerResolverEnabled) return null
+        if (System.currentTimeMillis() < remoteTrailerResolverUnavailableUntilMs.get()) {
+            return null
+        }
 
         return try {
             Log.d(
@@ -479,6 +498,11 @@ class TrailerService(
             throw e
         } catch (e: Exception) {
             Log.w(TAG, "Remote trailer resolver error for ${summarizeUrl(youtubeUrl)}: ${e.message}")
+            if (e.hasCause<UnknownHostException>()) {
+                remoteTrailerResolverUnavailableUntilMs.set(
+                    System.currentTimeMillis() + REMOTE_TRAILER_RESOLVER_DNS_BACKOFF_MS
+                )
+            }
             null
         }
     }
@@ -615,6 +639,11 @@ class TrailerService(
         return null
     }
 
+    private fun isYouTubeWatchPageBlocked(): Boolean {
+        return runCatching { inAppYouTubeExtractor.isWatchPageBlockedForFreshConfig() }
+            .getOrDefault(false)
+    }
+
     fun clearCache() {
         cache.clear()
         youtubeSourceCache.clear()
@@ -679,6 +708,15 @@ class TrailerService(
         val cachedAt: Instant,
         val expiresAt: Instant? = null
     )
+
+    private inline fun <reified T : Throwable> Throwable.hasCause(): Boolean {
+        var current: Throwable? = this
+        while (current != null) {
+            if (current is T) return true
+            current = current.cause
+        }
+        return false
+    }
 }
 
 internal fun normalizeTmdbTrailerLanguage(language: String?): String {

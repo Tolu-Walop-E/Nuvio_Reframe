@@ -23,6 +23,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.net.URL
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -40,6 +41,7 @@ private const val ADAPTIVE_VERIFY_BUDGET_MS = 4_000L
 private const val MAX_ADAPTIVE_VERIFY_CANDIDATES = 8
 private const val SEARCH_TIMEOUT_MS = 8_000L
 private const val GOOGLEVIDEO_PROBE_BYTES = 1024L
+private const val WATCH_PAGE_RATE_LIMIT_BACKOFF_MS = 10 * 60 * 1000L
 
 private val VIDEO_ID_REGEX = Regex("^[a-zA-Z0-9_-]{11}$")
 private val API_KEY_REGEX = Regex("\"INNERTUBE_API_KEY\":\"([^\"]+)\"")
@@ -151,6 +153,7 @@ class InAppYouTubeExtractor @Inject constructor(
 ) {
     private val gson = Gson()
     private val qualityPolicy = AtomicReference(TrailerPreviewQualityPolicy.P720)
+    private val watchPageRateLimitedUntilMs = AtomicLong(0L)
 
     init {
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
@@ -211,6 +214,17 @@ class InAppYouTubeExtractor @Inject constructor(
                 }
             }
 
+            val nowMs = System.currentTimeMillis()
+            val backoffUntilMs = watchPageRateLimitedUntilMs.get()
+            if (nowMs < backoffUntilMs) {
+                val stale = cachedConfig.get()
+                if (stale != null) {
+                    Log.w(TAG, "Watch page rate-limited; using stale config")
+                    return@withLock stale
+                }
+                throw IllegalStateException("YouTube watch page rate-limited")
+            }
+
             Log.d(TAG, "Fetching watch page for visitor_data (forceRefresh=$forceRefresh)")
             val watchUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ&hl=en"
             val watchResponse = performRequest(
@@ -219,6 +233,9 @@ class InAppYouTubeExtractor @Inject constructor(
                 headers = DEFAULT_HEADERS
             )
             if (!watchResponse.ok) {
+                if (watchResponse.status == 429) {
+                    watchPageRateLimitedUntilMs.set(nowMs + WATCH_PAGE_RATE_LIMIT_BACKOFF_MS)
+                }
                 // If we have a stale config, prefer it over failing
                 val stale = cachedConfig.get()
                 if (stale != null) {
@@ -250,6 +267,10 @@ class InAppYouTubeExtractor @Inject constructor(
         Log.d(TAG, "Watch config invalidated")
     }
 
+    fun isWatchPageBlockedForFreshConfig(): Boolean {
+        return System.currentTimeMillis() < watchPageRateLimitedUntilMs.get() && cachedConfig.get() == null
+    }
+
     suspend fun extractPlaybackSource(youtubeUrl: String): TrailerPlaybackSource? = withContext(Dispatchers.IO) {
         if (youtubeUrl.isBlank()) return@withContext null
 
@@ -266,7 +287,7 @@ class InAppYouTubeExtractor @Inject constructor(
         }
 
         // Retry with fresh config if first attempt returned nothing
-        if (source == null) {
+        if (source == null && !isWatchPageBlockedForFreshConfig()) {
             Log.d(TAG, "First attempt failed, retrying with fresh watch config...")
             try {
                 source = withTimeout(EXTRACTOR_TIMEOUT_MS) {
@@ -569,8 +590,11 @@ class InAppYouTubeExtractor @Inject constructor(
             }
         }
 
-        val bestProgressive = sortCandidates(progressive)
+        val sortedProgressive = sortCandidates(progressive)
+        val bestProgressive = sortedProgressive
             .firstOrNull { TrailerPreviewQuality.isPreferred(it.height, policy()) }
+        val bestSafeProgressiveFallback = sortedProgressive
+            .firstOrNull { TrailerPreviewQuality.isBelowFloor(it.height, policy()) }
 
         val preferredAdaptive = adaptiveVideo.count { TrailerPreviewQuality.isPreferred(it.height, policy()) }
         Log.i(
@@ -621,10 +645,31 @@ class InAppYouTubeExtractor @Inject constructor(
             return TrailerPlaybackSource(videoUrl = verifiedPair.first, audioUrl = verifiedPair.second)
         }
 
+        // If YouTube only exposes 720p+ as adaptive media and those continuation
+        // ranges fail, prefer a verified lower muxed rendition over showing no
+        // trailer. Muxed progressive streams avoid the separate audio URL that
+        // caused Shield freezes, so this fallback is lower quality but safe.
+        val resolvedFallbackProgressive = bestSafeProgressiveFallback?.url?.let {
+            resolveReachableUrl(
+                it,
+                clientUserAgent(bestSafeProgressiveFallback.client),
+                requireContinuation = true
+            )
+        }
+        if (resolvedFallbackProgressive != null) {
+            Log.i(
+                TAG,
+                "Using verified fallback progressive muxed ${bestSafeProgressiveFallback.height}p " +
+                    "itag=${bestSafeProgressiveFallback.itag} client=${bestSafeProgressiveFallback.client}"
+            )
+            return TrailerPlaybackSource(videoUrl = resolvedFallbackProgressive, audioUrl = null)
+        }
+
         Log.w(
             TAG,
             "No verified trailer source for $videoId " +
-                "(hls=${bestManifest?.height ?: 0} adaptivePreferred=$preferredAdaptive)"
+                "(hls=${bestManifest?.height ?: 0} adaptivePreferred=$preferredAdaptive " +
+                "progressiveFallback=${bestSafeProgressiveFallback?.height ?: 0})"
         )
         return null
     }

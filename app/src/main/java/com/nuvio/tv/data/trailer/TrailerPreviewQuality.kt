@@ -5,8 +5,9 @@ import com.nuvio.tv.domain.model.TrailerMinResolution
 /**
  * Trailer quality ladder for in-app YouTube playback.
  *
- * [minHeight] is a hard floor: if YouTube has nothing in
- * `minHeight..maxHeight`, we skip the trailer instead of showing 360/480.
+ * [minHeight] is the preferred floor. If YouTube blocks every preferred
+ * 720p+ stream, the extractor may fall back to a verified muxed rendition
+ * below this floor so card trailers still play without adaptive-audio freezes.
  * [maxHeight] is a hard cap so Shield does not switch HDMI into a 4K decode
  * path (1080p+ used to leave audio running over a frozen poster).
  */

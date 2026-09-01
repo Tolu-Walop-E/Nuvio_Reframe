@@ -399,6 +399,7 @@ internal fun HomeViewModel.requestTrailerPreviewPipeline(
         trailerPreviewNegativeCacheTimestamps.remove(itemId)
     }
     if (trailerPreviewUrlsState.containsKey(itemId)) {
+        cancelStaleTrailerPreviewJobs(itemId)
         if (activeTrailerPreviewItemId != itemId) {
             activeTrailerPreviewItemId = itemId
         }
@@ -406,6 +407,7 @@ internal fun HomeViewModel.requestTrailerPreviewPipeline(
         return
     }
     if (!trailerPreviewLoadingIds.add(itemId)) {
+        cancelStaleTrailerPreviewJobs(itemId)
         if (activeTrailerPreviewItemId != itemId) {
             activeTrailerPreviewItemId = itemId
         }
@@ -413,6 +415,7 @@ internal fun HomeViewModel.requestTrailerPreviewPipeline(
         return
     }
 
+    cancelStaleTrailerPreviewJobs(itemId)
     activeTrailerPreviewItemId = itemId
     android.util.Log.i("NetflixTrailer", "fetch-start id=$itemId title=$title")
 
@@ -488,6 +491,15 @@ internal fun HomeViewModel.requestTrailerPreviewPipeline(
             trailerPreviewLoadingIds.remove(itemId)
             trailerPreviewJobs.remove(itemId)
         }
+    }
+}
+
+private fun HomeViewModel.cancelStaleTrailerPreviewJobs(activeItemId: String) {
+    val staleIds = trailerPreviewJobs.keys.filter { it != activeItemId }
+    staleIds.forEach { staleId ->
+        trailerPreviewJobs.remove(staleId)?.cancel()
+        trailerPreviewLoadingIds.remove(staleId)
+        android.util.Log.i("NetflixTrailer", "cancel-stale id=$staleId active=$activeItemId")
     }
 }
 
