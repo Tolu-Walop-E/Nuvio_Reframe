@@ -342,7 +342,13 @@ fun TrailerPlayer(
                     TRAILER_LOG,
                     "player-error owner=${poolOwner.hashCode()} code=${error.errorCodeName}"
                 )
+                if (resolvedPool?.isOwnedBy(poolOwner) == false) return
                 player.volume = 0f
+                player.stop()
+                player.clearMediaItems()
+                preparedMediaKey = null
+                hasRenderedFirstFrame = false
+                currentOnEnded()
             }
         }
         val observer = LifecycleEventObserver { _, event ->

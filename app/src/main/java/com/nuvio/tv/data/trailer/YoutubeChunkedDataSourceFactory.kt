@@ -19,10 +19,9 @@ import kotlin.math.min
 /**
  * Trailer googlevideo playback via YouTube `range=` query chunks.
  *
- * Video accepts 2 MB ranges. Audio itag 140 is often ~2 MB but YouTube accepts
- * only its first 1 MiB when the URL has no n-sig. A second range 403s and
- * ExoPlayer then retries until the trailer freezes. Short trailer audio does
- * not need the remainder, so expose a clean EOF after the first 1 MiB.
+ * Video accepts 2 MB ranges. Short audio uses 1 MiB ranges so the extractor can
+ * validate the exact requests that playback will make before selecting a
+ * separate adaptive track.
  */
 @UnstableApi
 class YoutubeChunkedDataSourceFactory : DataSource.Factory {
@@ -118,7 +117,7 @@ class YoutubeChunkedDataSourceFactory : DataSource.Factory {
             val sizes = youtubeChunkSizes(
                 remaining = remaining,
                 establishedChunkSize = establishedChunkSize,
-                shortResource = resourceLength in 1L..SHORT_RESOURCE_MAX
+                shortResource = resourceLength in 1L..YOUTUBE_SHORT_RESOURCE_MAX
             )
             if (sizes.isEmpty()) {
                 throw DataSourceException(PlaybackException.ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE)
@@ -128,7 +127,7 @@ class YoutubeChunkedDataSourceFactory : DataSource.Factory {
                 val end = currentChunkStart + size - 1
                 val ranges = if (
                     currentChunkStart > 0L &&
-                    resourceLength in 1L..SHORT_RESOURCE_MAX
+                    resourceLength in 1L..YOUTUBE_SHORT_RESOURCE_MAX
                 ) {
                     listOf(end, null)
                 } else {
@@ -214,7 +213,7 @@ class YoutubeChunkedDataSourceFactory : DataSource.Factory {
                     return C.RESULT_END_OF_INPUT
                 }
 
-                if (resourceLength in 1L..SHORT_RESOURCE_MAX) {
+                if (resourceLength in 1L..YOUTUBE_SHORT_RESOURCE_MAX) {
                     Log.i(
                         TAG,
                         "short-track-eof bytes=$chunkBytesReceived clen=$resourceLength"
@@ -253,11 +252,12 @@ class YoutubeChunkedDataSourceFactory : DataSource.Factory {
     }
 }
 
-private const val SHORT_RESOURCE_MAX = 4L * 1024 * 1024
-private const val SHORT_RESOURCE_CHUNK = 1024L * 1024
+internal const val YOUTUBE_SHORT_RESOURCE_MAX = 4L * 1024 * 1024
+internal const val YOUTUBE_SHORT_RESOURCE_CHUNK = 1024L * 1024
+internal const val YOUTUBE_DEFAULT_CHUNK = 2L * 1024 * 1024
 
 internal val CHUNK_SIZES = longArrayOf(
-    2L * 1024 * 1024,
+    YOUTUBE_DEFAULT_CHUNK,
     1024L * 1024,
     512L * 1024
 )
@@ -296,7 +296,7 @@ internal fun youtubeChunkSizes(
 ): List<Long> {
     if (remaining <= 0L) return emptyList()
     if (shortResource && establishedChunkSize <= 0L) {
-        return listOf(min(SHORT_RESOURCE_CHUNK, remaining))
+        return listOf(min(YOUTUBE_SHORT_RESOURCE_CHUNK, remaining))
     }
     val base = if (establishedChunkSize > 0L) {
         listOf(establishedChunkSize) + CHUNK_SIZES.filter { it < establishedChunkSize }

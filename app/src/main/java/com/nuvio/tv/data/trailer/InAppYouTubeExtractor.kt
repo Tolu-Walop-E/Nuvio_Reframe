@@ -40,7 +40,6 @@ private const val ADAPTIVE_VERIFY_BUDGET_MS = 4_000L
 private const val MAX_ADAPTIVE_VERIFY_CANDIDATES = 8
 private const val SEARCH_TIMEOUT_MS = 8_000L
 private const val GOOGLEVIDEO_PROBE_BYTES = 1024L
-private const val GOOGLEVIDEO_CONTINUATION_PROBE_START = 1024L * 1024
 
 private val VIDEO_ID_REGEX = Regex("^[a-zA-Z0-9_-]{11}$")
 private val API_KEY_REGEX = Regex("\"INNERTUBE_API_KEY\":\"([^\"]+)\"")
@@ -913,7 +912,7 @@ class InAppYouTubeExtractor @Inject constructor(
 
         for (video in orderedVideos) {
             val sameClientAudio = audios.filter { it.client == video.client }
-            val audioCandidates = (if (sameClientAudio.isNotEmpty()) sameClientAudio else audios)
+            val audioCandidates = sameClientAudio
                 .sortedWith(
                     compareBy<StreamCandidate> { audioCompatibility(video.ext, it.ext) }
                         .thenBy { if (it.hasN) 1 else 0 }
@@ -931,7 +930,8 @@ class InAppYouTubeExtractor @Inject constructor(
                 val resolvedAudio = resolveReachableUrl(
                     audio.url,
                     clientUserAgent(audio.client),
-                    requireContinuation = true
+                    requireContinuation = true,
+                    requireComplete = true
                 ) ?: continue
                 Log.d(
                     TAG,
@@ -1011,7 +1011,8 @@ class InAppYouTubeExtractor @Inject constructor(
     private suspend fun resolveReachableUrl(
         url: String,
         userAgent: String,
-        requireContinuation: Boolean
+        requireContinuation: Boolean,
+        requireComplete: Boolean = false
     ): String? {
         if (!url.contains("googlevideo.com")) return url
         val candidates = cdnCandidates(url)
@@ -1020,7 +1021,7 @@ class InAppYouTubeExtractor @Inject constructor(
         // URL advertised only one CDN node is how 403 video tracks reached the
         // player: the card got audio and a stuck 0x0 picture.
         if (candidates.size == 1) {
-            return if (isUrlReachable(candidates[0], userAgent, requireContinuation)) {
+            return if (isUrlReachable(candidates[0], userAgent, requireContinuation, requireComplete)) {
                 candidates[0]
             } else {
                 null
@@ -1031,7 +1032,7 @@ class InAppYouTubeExtractor @Inject constructor(
         val probeScope = CoroutineScope(Dispatchers.IO)
         candidates.forEach { candidate ->
             probeScope.launch {
-                val reachable = isUrlReachable(candidate, userAgent, requireContinuation)
+                val reachable = isUrlReachable(candidate, userAgent, requireContinuation, requireComplete)
                 if (reachable) result.complete(candidate)
             }
         }
@@ -1100,10 +1101,13 @@ class InAppYouTubeExtractor @Inject constructor(
     private fun isUrlReachable(
         url: String,
         userAgent: String,
-        requireContinuation: Boolean
+        requireContinuation: Boolean,
+        requireComplete: Boolean
     ): Boolean {
         return runCatching {
-            googlevideoProbeRanges(url, requireContinuation).all { (start, end) ->
+            val ranges = googlevideoProbeRanges(url, requireContinuation, requireComplete)
+            if (ranges.isEmpty()) return@runCatching false
+            ranges.all { (start, end) ->
                 val request = Request.Builder()
                     .url(googlevideoRangeProbeUrl(url, start, end))
                     .get()
@@ -1215,23 +1219,39 @@ private data class RequestResponse(
     val body: String
 )
 
-internal fun googlevideoProbeRanges(url: String, requireContinuation: Boolean): List<Pair<Long, Long>> {
+internal fun googlevideoProbeRanges(
+    url: String,
+    requireContinuation: Boolean,
+    requireComplete: Boolean = false
+): List<Pair<Long, Long>> {
     if (!url.contains("googlevideo.com")) return listOf(0L to GOOGLEVIDEO_PROBE_BYTES - 1)
 
     val contentLength = CLEN_QUERY_REGEX.find(url)?.groupValues?.getOrNull(1)?.toLongOrNull()
-    val headRange = 0L to GOOGLEVIDEO_PROBE_BYTES - 1
+    if (contentLength != null && contentLength <= 0L) return emptyList()
+    if (requireComplete && contentLength == null) return emptyList()
+
+    val headRange = 0L to minOf(GOOGLEVIDEO_PROBE_BYTES - 1, (contentLength ?: Long.MAX_VALUE) - 1)
     if (!requireContinuation) return listOf(headRange)
-    if (contentLength != null && contentLength <= GOOGLEVIDEO_CONTINUATION_PROBE_START) {
-        return listOf(headRange)
+
+    val chunkSize = if (contentLength != null && contentLength <= YOUTUBE_SHORT_RESOURCE_MAX) {
+        YOUTUBE_SHORT_RESOURCE_CHUNK
+    } else {
+        YOUTUBE_DEFAULT_CHUNK
+    }
+    val firstPlaybackRange = 0L to minOf(chunkSize - 1, (contentLength ?: Long.MAX_VALUE) - 1)
+    if (contentLength != null && contentLength <= chunkSize) return listOf(firstPlaybackRange)
+
+    if (requireComplete && contentLength != null) {
+        return generateSequence(0L) { start ->
+            (start + chunkSize).takeIf { it < contentLength }
+        }.map { start ->
+            start to minOf(start + chunkSize - 1, contentLength - 1)
+        }.toList()
     }
 
-    val continuationStart = GOOGLEVIDEO_CONTINUATION_PROBE_START
-    val continuationEnd = if (contentLength != null) {
-        minOf(contentLength - 1, continuationStart + GOOGLEVIDEO_PROBE_BYTES - 1)
-    } else {
-        continuationStart + GOOGLEVIDEO_PROBE_BYTES - 1
-    }
-    return listOf(headRange, continuationStart to continuationEnd)
+    val continuationStart = chunkSize
+    val continuationEnd = minOf(continuationStart + chunkSize - 1, (contentLength ?: Long.MAX_VALUE) - 1)
+    return listOf(firstPlaybackRange, continuationStart to continuationEnd)
 }
 
 private fun Map<*, *>.mapValue(key: String): Map<*, *>? {
