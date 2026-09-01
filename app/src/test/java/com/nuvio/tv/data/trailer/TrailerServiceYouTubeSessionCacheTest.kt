@@ -5,8 +5,10 @@ import com.nuvio.tv.core.tmdb.TmdbService
 import com.nuvio.tv.data.local.TmdbSettingsDataStore
 import com.nuvio.tv.data.remote.api.TmdbApi
 import com.nuvio.tv.data.remote.api.TrailerApi
+import com.nuvio.tv.data.remote.api.TrailerResponse
 import com.nuvio.tv.domain.model.TmdbSettings
 import io.mockk.*
+import java.time.Clock
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -14,6 +16,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
+import retrofit2.Response
 
 class TrailerServiceYouTubeSessionCacheTest {
 
@@ -40,7 +43,15 @@ class TrailerServiceYouTubeSessionCacheTest {
         val tmdbService = mockk<TmdbService>()
         every { tmdbSettingsDataStore.settings } returns flowOf(TmdbSettings(language = "en"))
         every { tmdbService.apiKey() } returns "tmdb-key"
-        val service = TrailerService(trailerApi, tmdbApi, extractor, tmdbSettingsDataStore, tmdbService)
+        val service = TrailerService(
+            trailerApi = trailerApi,
+            tmdbApi = tmdbApi,
+            inAppYouTubeExtractor = extractor,
+            tmdbSettingsDataStore = tmdbSettingsDataStore,
+            tmdbService = tmdbService,
+            clock = Clock.systemUTC(),
+            remoteTrailerResolverEnabled = false
+        )
 
         val cached = TrailerPlaybackSource(
             videoUrl = "https://cdn.example/video.mp4",
@@ -58,7 +69,7 @@ class TrailerServiceYouTubeSessionCacheTest {
         assertEquals("https://cdn.example/video.mp4", second?.videoUrl)
         assertEquals("https://cdn.example/audio.m4a", second?.audioUrl)
         coVerify(exactly = 1) { extractor.extractPlaybackSource(any()) }
-        coVerify(exactly = 0) { trailerApi.getTrailer(any(), any(), any()) }
+        coVerify(exactly = 0) { trailerApi.getTrailer(any(), any(), any(), any(), any()) }
     }
 
     @Test
@@ -70,7 +81,15 @@ class TrailerServiceYouTubeSessionCacheTest {
         val tmdbService = mockk<TmdbService>()
         every { tmdbSettingsDataStore.settings } returns flowOf(TmdbSettings(language = "en"))
         every { tmdbService.apiKey() } returns "tmdb-key"
-        val service = TrailerService(trailerApi, tmdbApi, extractor, tmdbSettingsDataStore, tmdbService)
+        val service = TrailerService(
+            trailerApi = trailerApi,
+            tmdbApi = tmdbApi,
+            inAppYouTubeExtractor = extractor,
+            tmdbSettingsDataStore = tmdbSettingsDataStore,
+            tmdbService = tmdbService,
+            clock = Clock.systemUTC(),
+            remoteTrailerResolverEnabled = false
+        )
 
         coEvery { extractor.extractPlaybackSource("https://www.youtube.com/watch?v=dQw4w9WgXcQ") } returnsMany listOf(
             null,
@@ -83,6 +102,99 @@ class TrailerServiceYouTubeSessionCacheTest {
         assertNull(first)
         assertEquals("https://cdn.example/video-after-retry.mp4", second?.videoUrl)
         coVerify(exactly = 2) { extractor.extractPlaybackSource("https://www.youtube.com/watch?v=dQw4w9WgXcQ") }
-        coVerify(exactly = 0) { trailerApi.getTrailer(any(), any(), any()) }
+        coVerify(exactly = 0) { trailerApi.getTrailer(any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `uses remote resolver source before local extractor when enabled`() = runTest {
+        val trailerApi = mockk<TrailerApi>()
+        val tmdbApi = mockk<TmdbApi>()
+        val extractor = mockk<InAppYouTubeExtractor>()
+        val tmdbSettingsDataStore = mockk<TmdbSettingsDataStore>()
+        val tmdbService = mockk<TmdbService>()
+        every { tmdbSettingsDataStore.settings } returns flowOf(TmdbSettings(language = "en"))
+        every { tmdbService.apiKey() } returns "tmdb-key"
+        val service = TrailerService(
+            trailerApi = trailerApi,
+            tmdbApi = tmdbApi,
+            inAppYouTubeExtractor = extractor,
+            tmdbSettingsDataStore = tmdbSettingsDataStore,
+            tmdbService = tmdbService,
+            clock = Clock.systemUTC(),
+            remoteTrailerResolverEnabled = true
+        )
+
+        coEvery {
+            trailerApi.getTrailer(any(), any(), any(), any(), any())
+        } returns Response.success(
+            TrailerResponse(
+                videoUrl = "https://resolver.example/video-720.mp4",
+                audioUrl = "https://resolver.example/audio.m4a",
+                verified = true,
+                height = 720,
+                format = "adaptive"
+            )
+        )
+
+        val source = service.getTrailerPlaybackSourceFromYouTubeUrl(
+            youtubeUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            title = "Example",
+            year = "2026"
+        )
+
+        assertEquals("https://resolver.example/video-720.mp4", source?.videoUrl)
+        assertEquals("https://resolver.example/audio.m4a", source?.audioUrl)
+        coVerify(exactly = 1) {
+            trailerApi.getTrailer(
+                "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                "Example",
+                "2026",
+                720,
+                "muxed,hls,verified_adaptive"
+            )
+        }
+        coVerify(exactly = 0) { extractor.extractPlaybackSource(any()) }
+    }
+
+    @Test
+    fun `rejects unverified remote adaptive audio and falls back to local extractor`() = runTest {
+        val trailerApi = mockk<TrailerApi>()
+        val tmdbApi = mockk<TmdbApi>()
+        val extractor = mockk<InAppYouTubeExtractor>()
+        val tmdbSettingsDataStore = mockk<TmdbSettingsDataStore>()
+        val tmdbService = mockk<TmdbService>()
+        every { tmdbSettingsDataStore.settings } returns flowOf(TmdbSettings(language = "en"))
+        every { tmdbService.apiKey() } returns "tmdb-key"
+        val service = TrailerService(
+            trailerApi = trailerApi,
+            tmdbApi = tmdbApi,
+            inAppYouTubeExtractor = extractor,
+            tmdbSettingsDataStore = tmdbSettingsDataStore,
+            tmdbService = tmdbService,
+            clock = Clock.systemUTC(),
+            remoteTrailerResolverEnabled = true
+        )
+
+        coEvery {
+            trailerApi.getTrailer(any(), any(), any(), any(), any())
+        } returns Response.success(
+            TrailerResponse(
+                url = "https://resolver.example/video-720.mp4",
+                audioUrl = "https://resolver.example/audio.m4a",
+                verified = false
+            )
+        )
+        coEvery {
+            extractor.extractPlaybackSource("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+        } returns TrailerPlaybackSource(videoUrl = "https://local.example/muxed-720.mp4")
+
+        val source = service.getTrailerPlaybackSourceFromYouTubeUrl("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+
+        assertEquals("https://local.example/muxed-720.mp4", source?.videoUrl)
+        assertNull(source?.audioUrl)
+        coVerify(exactly = 1) { trailerApi.getTrailer(any(), any(), any(), any(), any()) }
+        coVerify(exactly = 1) {
+            extractor.extractPlaybackSource("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+        }
     }
 }

@@ -1,12 +1,14 @@
 package com.nuvio.tv.data.trailer
 
 import android.util.Log
+import com.nuvio.tv.BuildConfig
 import com.nuvio.tv.core.tmdb.TmdbService
 import com.nuvio.tv.data.local.TrailerSettingsDataStore
 import com.nuvio.tv.data.local.TmdbSettingsDataStore
 import com.nuvio.tv.data.remote.api.TmdbApi
 import com.nuvio.tv.data.remote.api.TmdbVideoResult
 import com.nuvio.tv.data.remote.api.TrailerApi
+import com.nuvio.tv.data.remote.api.TrailerResponse
 import java.time.Clock
 import java.net.URI
 import java.time.Instant
@@ -26,9 +28,12 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 private const val TAG = "TrailerService"
 private const val TMDB_TRAILER_FALLBACK_LANGUAGE = "en-US"
+private const val REMOTE_TRAILER_PREFER = "muxed,hls,verified_adaptive"
+private const val REMOTE_TRAILER_TIMEOUT_MS = 2_500L
 private val YOUTUBE_SOURCE_CACHE_TTL: Duration = Duration.ofHours(3)
 private val YOUTUBE_VIDEO_ID_REGEX = Regex("^[a-zA-Z0-9_-]{11}$")
 
@@ -40,7 +45,8 @@ class TrailerService(
     private val tmdbSettingsDataStore: TmdbSettingsDataStore,
     private val tmdbService: TmdbService,
     private val clock: Clock,
-    private val trailerSettingsDataStore: TrailerSettingsDataStore? = null
+    private val trailerSettingsDataStore: TrailerSettingsDataStore? = null,
+    private val remoteTrailerResolverEnabled: Boolean = BuildConfig.TRAILER_API_URL.isNotBlank()
 ) {
     @Inject
     constructor(
@@ -382,6 +388,23 @@ class TrailerService(
         year: String?
     ): TrailerPlaybackSource? = withContext(Dispatchers.IO) {
         try {
+            val remoteSource = resolveRemoteYouTubeSource(youtubeUrl, title, year)
+            if (remoteSource != null) {
+                if (!youtubeKey.isNullOrBlank()) {
+                    youtubeSourceCache[youtubeKey] = CachedTrailerPlaybackSource(
+                        playbackSource = remoteSource,
+                        cachedAt = Instant.now(clock),
+                        expiresAt = extractUrlExpireInstant(remoteSource)
+                    )
+                }
+                Log.d(
+                    TAG,
+                    "Using remote YouTube resolver source for ${summarizeUrl(youtubeUrl)} " +
+                        "(audioPresent=${!remoteSource.audioUrl.isNullOrBlank()})"
+                )
+                return@withContext remoteSource
+            }
+
             Log.d(TAG, "Attempting in-app YouTube extraction for ${summarizeUrl(youtubeUrl)}")
             val localSource = inAppYouTubeExtractor.extractPlaybackSource(youtubeUrl)
             if (localSource != null) {
@@ -409,6 +432,53 @@ class TrailerService(
             throw e
         } catch (e: Exception) {
             Log.e(TAG, "Error getting trailer from YouTube: ${e.message}", e)
+            null
+        }
+    }
+
+    private suspend fun resolveRemoteYouTubeSource(
+        youtubeUrl: String,
+        title: String?,
+        year: String?
+    ): TrailerPlaybackSource? {
+        if (!remoteTrailerResolverEnabled) return null
+
+        return try {
+            Log.d(
+                TAG,
+                "Attempting remote YouTube resolver for ${summarizeUrl(youtubeUrl)} " +
+                    "minHeight=${minResolutionHeight.get()}"
+            )
+            val response = withTimeoutOrNull(REMOTE_TRAILER_TIMEOUT_MS) {
+                trailerApi.getTrailer(
+                    youtubeUrl = youtubeUrl,
+                    title = title,
+                    year = year,
+                    minHeight = minResolutionHeight.get(),
+                    prefer = REMOTE_TRAILER_PREFER
+                )
+            } ?: run {
+                Log.w(TAG, "Remote trailer resolver timed out for ${summarizeUrl(youtubeUrl)}")
+                return null
+            }
+            if (!response.isSuccessful) {
+                Log.w(TAG, "Remote trailer resolver failed (${response.code()}) for ${summarizeUrl(youtubeUrl)}")
+                return null
+            }
+
+            val body = response.body()
+            val source = body.toPlaybackSource()
+            if (source == null) {
+                val reason = body?.error?.takeIf { it.isNotBlank() } ?: "empty/invalid response"
+                Log.w(TAG, "Remote trailer resolver miss for ${summarizeUrl(youtubeUrl)}: $reason")
+                return null
+            }
+
+            source
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Remote trailer resolver error for ${summarizeUrl(youtubeUrl)}: ${e.message}")
             null
         }
     }
@@ -492,6 +562,27 @@ class TrailerService(
     private fun isValidUrl(url: String?): Boolean {
         if (url.isNullOrBlank()) return false
         return url.startsWith("http://") || url.startsWith("https://")
+    }
+
+    private fun TrailerResponse?.toPlaybackSource(): TrailerPlaybackSource? {
+        val body = this ?: return null
+        val videoUrl = body.videoUrl?.takeIf { isValidUrl(it) }
+            ?: body.url?.takeIf { isValidUrl(it) }
+            ?: return null
+        val audioUrl = body.audioUrl?.takeIf { isValidUrl(it) }
+            ?: body.audioUrlCamel?.takeIf { isValidUrl(it) }
+
+        // Separate adaptive audio is exactly where Shield freezes came from.
+        // Trust it only when the resolver explicitly says it verified the pair.
+        if (audioUrl != null && body.verified != true) {
+            Log.w(TAG, "Remote trailer resolver returned unverified adaptive audio; ignoring")
+            return null
+        }
+
+        return TrailerPlaybackSource(
+            videoUrl = videoUrl,
+            audioUrl = audioUrl
+        )
     }
 
     private fun summarizeUrl(url: String): String {

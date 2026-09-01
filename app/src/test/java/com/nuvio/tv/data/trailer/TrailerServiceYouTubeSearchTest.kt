@@ -12,6 +12,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkStatic
+import java.time.Clock
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -64,7 +65,15 @@ class TrailerServiceYouTubeSearchTest {
             extractor.extractPlaybackSource("https://www.youtube.com/watch?v=official123")
         } returns TrailerPlaybackSource(videoUrl = "https://cdn.example/dune.mp4")
 
-        val service = TrailerService(trailerApi, tmdbApi, extractor, tmdbSettingsDataStore, tmdbService)
+        val service = TrailerService(
+            trailerApi = trailerApi,
+            tmdbApi = tmdbApi,
+            inAppYouTubeExtractor = extractor,
+            tmdbSettingsDataStore = tmdbSettingsDataStore,
+            tmdbService = tmdbService,
+            clock = Clock.systemUTC(),
+            remoteTrailerResolverEnabled = false
+        )
         val result = service.getTrailerPlaybackSource(
             title = "Dune",
             year = "2021",
@@ -79,6 +88,6 @@ class TrailerServiceYouTubeSearchTest {
         coVerify(exactly = 0) {
             extractor.extractPlaybackSource("https://www.youtube.com/watch?v=reaction123")
         }
-        coVerify(exactly = 0) { trailerApi.getTrailer(any(), any(), any()) }
+        coVerify(exactly = 0) { trailerApi.getTrailer(any(), any(), any(), any(), any()) }
     }
 }

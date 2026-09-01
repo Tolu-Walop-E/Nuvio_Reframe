@@ -62,7 +62,7 @@ class TrailerServiceUseTrailersGateTest {
         coVerify(exactly = 0) { tmdbApi.getTvVideos(any(), any(), any()) }
         coVerify(exactly = 0) { extractor.extractPlaybackSource(any()) }
         coVerify(exactly = 0) { extractor.searchTrailerVideos(any()) }
-        coVerify(exactly = 0) { trailerApi.getTrailer(any(), any(), any()) }
+        coVerify(exactly = 0) { trailerApi.getTrailer(any(), any(), any(), any(), any()) }
     }
 
     @Test
