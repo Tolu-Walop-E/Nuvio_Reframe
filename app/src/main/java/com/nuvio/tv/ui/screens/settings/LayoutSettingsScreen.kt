@@ -224,6 +224,11 @@ fun LayoutSettingsContent(
                 ViewPackImportCard(
                     packName = uiState.activeViewPackName,
                     rotateEnabled = uiState.activeViewPackRotateEnabled,
+                    showFocusedInfo = uiState.activeViewPackShowFocusedInfo,
+                    catalogScalePercent = uiState.activeViewPackCatalogScalePercent,
+                    landscapeScalePercent = uiState.activeViewPackLandscapeScalePercent,
+                    titleScalePercent = uiState.activeViewPackTitleScalePercent,
+                    rails = uiState.activeViewPackRails,
                     importFocusRequester = viewPackImportFocus,
                     onImport = {
                         viewModel.onEvent(LayoutSettingsEvent.ImportViewPackFromClipboard)
@@ -233,6 +238,35 @@ fun LayoutSettingsContent(
                     },
                     onRemove = {
                         viewModel.onEvent(LayoutSettingsEvent.ClearActiveViewPack)
+                    },
+                    onFocusedInfoToggle = {
+                        viewModel.onEvent(
+                            LayoutSettingsEvent.SetViewPackFocusedInfo(!uiState.activeViewPackShowFocusedInfo)
+                        )
+                    },
+                    onCatalogScaleChange = { percent ->
+                        viewModel.onEvent(LayoutSettingsEvent.SetViewPackCatalogScalePercent(percent))
+                    },
+                    onLandscapeScaleChange = { percent ->
+                        viewModel.onEvent(LayoutSettingsEvent.SetViewPackLandscapeScalePercent(percent))
+                    },
+                    onTitleScaleChange = { percent ->
+                        viewModel.onEvent(LayoutSettingsEvent.SetViewPackTitleScalePercent(percent))
+                    },
+                    onRailScaleChange = { blockId, percent ->
+                        viewModel.onEvent(LayoutSettingsEvent.SetViewPackRailScalePercent(blockId, percent))
+                    },
+                    onRailTextPillsToggle = { blockId, enabled ->
+                        viewModel.onEvent(LayoutSettingsEvent.SetViewPackRailTextPills(blockId, enabled))
+                    },
+                    onRailFocusedInfoToggle = { blockId, enabled ->
+                        viewModel.onEvent(LayoutSettingsEvent.SetViewPackRailFocusedInfo(blockId, enabled))
+                    },
+                    onRailPosterGrowToggle = { blockId, enabled ->
+                        viewModel.onEvent(LayoutSettingsEvent.SetViewPackRailPosterGrow(blockId, enabled))
+                    },
+                    onRailTrailerToggle = { blockId, enabled ->
+                        viewModel.onEvent(LayoutSettingsEvent.SetViewPackRailTrailer(blockId, enabled))
                     },
                     onFocused = { focusedSection = LayoutSettingsSection.VIEW_PACK }
                 )
@@ -1152,10 +1186,24 @@ private fun CollapsibleSectionCard(
 private fun ViewPackImportCard(
     packName: String?,
     rotateEnabled: Boolean,
+    showFocusedInfo: Boolean,
+    catalogScalePercent: Int,
+    landscapeScalePercent: Int,
+    titleScalePercent: Int,
+    rails: List<ViewPackRailEditorItem>,
     importFocusRequester: FocusRequester,
     onImport: () -> Unit,
     onReshuffle: () -> Unit,
     onRemove: () -> Unit,
+    onFocusedInfoToggle: () -> Unit,
+    onCatalogScaleChange: (Int) -> Unit,
+    onLandscapeScaleChange: (Int) -> Unit,
+    onTitleScaleChange: (Int) -> Unit,
+    onRailScaleChange: (String, Int) -> Unit,
+    onRailTextPillsToggle: (String, Boolean) -> Unit,
+    onRailFocusedInfoToggle: (String, Boolean) -> Unit,
+    onRailPosterGrowToggle: (String, Boolean) -> Unit,
+    onRailTrailerToggle: (String, Boolean) -> Unit,
     onFocused: () -> Unit
 ) {
     Column(
@@ -1219,6 +1267,191 @@ private fun ViewPackImportCard(
                 ) {
                     Text(text = stringResource(R.string.layout_view_pack_clear))
                 }
+            }
+        }
+        if (packName != null) {
+            ViewPackInlineEditor(
+                showFocusedInfo = showFocusedInfo,
+                catalogScalePercent = catalogScalePercent,
+                landscapeScalePercent = landscapeScalePercent,
+                titleScalePercent = titleScalePercent,
+                rails = rails,
+                onFocusedInfoToggle = onFocusedInfoToggle,
+                onCatalogScaleChange = onCatalogScaleChange,
+                onLandscapeScaleChange = onLandscapeScaleChange,
+                onTitleScaleChange = onTitleScaleChange,
+                onRailScaleChange = onRailScaleChange,
+                onRailTextPillsToggle = onRailTextPillsToggle,
+                onRailFocusedInfoToggle = onRailFocusedInfoToggle,
+                onRailPosterGrowToggle = onRailPosterGrowToggle,
+                onRailTrailerToggle = onRailTrailerToggle,
+                onFocused = onFocused
+            )
+        }
+    }
+}
+
+@Composable
+private fun ViewPackInlineEditor(
+    showFocusedInfo: Boolean,
+    catalogScalePercent: Int,
+    landscapeScalePercent: Int,
+    titleScalePercent: Int,
+    rails: List<ViewPackRailEditorItem>,
+    onFocusedInfoToggle: () -> Unit,
+    onCatalogScaleChange: (Int) -> Unit,
+    onLandscapeScaleChange: (Int) -> Unit,
+    onTitleScaleChange: (Int) -> Unit,
+    onRailScaleChange: (String, Int) -> Unit,
+    onRailTextPillsToggle: (String, Boolean) -> Unit,
+    onRailFocusedInfoToggle: (String, Boolean) -> Unit,
+    onRailPosterGrowToggle: (String, Boolean) -> Unit,
+    onRailTrailerToggle: (String, Boolean) -> Unit,
+    onFocused: () -> Unit
+) {
+    Spacer(modifier = Modifier.height(NuvioTheme.spacing.sm))
+    Text(
+        text = stringResource(R.string.layout_view_pack_editor_title),
+        style = MaterialTheme.typography.titleMedium,
+        color = NuvioTheme.colors.TextPrimary
+    )
+    CompactToggleRow(
+        title = stringResource(R.string.layout_view_pack_focused_info),
+        subtitle = stringResource(R.string.layout_view_pack_focused_info_sub),
+        checked = showFocusedInfo,
+        onToggle = onFocusedInfoToggle,
+        onFocused = onFocused
+    )
+    SliderSettingsItem(
+        icon = null,
+        title = stringResource(R.string.layout_view_pack_catalog_scale),
+        value = catalogScalePercent.coerceIn(70, 200),
+        valueText = "$catalogScalePercent%",
+        minValue = 70,
+        maxValue = 200,
+        step = 5,
+        onValueChange = onCatalogScaleChange,
+        onFocused = onFocused
+    )
+    SliderSettingsItem(
+        icon = null,
+        title = stringResource(R.string.layout_view_pack_landscape_scale),
+        value = landscapeScalePercent.coerceIn(70, 200),
+        valueText = "$landscapeScalePercent%",
+        minValue = 70,
+        maxValue = 200,
+        step = 5,
+        onValueChange = onLandscapeScaleChange,
+        onFocused = onFocused
+    )
+    SliderSettingsItem(
+        icon = null,
+        title = stringResource(R.string.layout_view_pack_title_scale),
+        value = titleScalePercent.coerceIn(70, 200),
+        valueText = "$titleScalePercent%",
+        minValue = 70,
+        maxValue = 200,
+        step = 5,
+        onValueChange = onTitleScaleChange,
+        onFocused = onFocused
+    )
+    if (rails.isNotEmpty()) {
+        Text(
+            text = stringResource(R.string.layout_view_pack_rail_editor_title),
+            style = MaterialTheme.typography.labelLarge,
+            color = NuvioTheme.colors.TextSecondary
+        )
+        rails.forEach { rail ->
+            ViewPackRailEditorRow(
+                rail = rail,
+                onScaleChange = { percent -> onRailScaleChange(rail.blockId, percent) },
+                onTextPillsToggle = { onRailTextPillsToggle(rail.blockId, !rail.isTextPills) },
+                showFocusedInfoControl = !showFocusedInfo,
+                onFocusedInfoToggle = { onRailFocusedInfoToggle(rail.blockId, !rail.showFocusedInfo) },
+                onPosterGrowToggle = { onRailPosterGrowToggle(rail.blockId, !rail.posterGrow) },
+                onTrailerToggle = { onRailTrailerToggle(rail.blockId, !rail.trailerEnabled) },
+                onFocused = onFocused
+            )
+        }
+    }
+}
+
+@Composable
+private fun ViewPackRailEditorRow(
+    rail: ViewPackRailEditorItem,
+    onScaleChange: (Int) -> Unit,
+    onTextPillsToggle: () -> Unit,
+    showFocusedInfoControl: Boolean,
+    onFocusedInfoToggle: () -> Unit,
+    onPosterGrowToggle: () -> Unit,
+    onTrailerToggle: () -> Unit,
+    onFocused: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(NuvioTheme.colors.Background.copy(alpha = 0.62f))
+            .padding(NuvioTheme.spacing.sm),
+        verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.xs)
+    ) {
+        Text(
+            text = rail.title,
+            style = MaterialTheme.typography.titleSmall,
+            color = NuvioTheme.colors.TextPrimary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        SliderSettingsItem(
+            icon = null,
+            title = stringResource(R.string.layout_view_pack_rail_scale),
+            value = rail.scalePercent.coerceIn(55, 250),
+            valueText = "${rail.scalePercent}%",
+            minValue = 55,
+            maxValue = 250,
+            step = 5,
+            onValueChange = onScaleChange,
+            onFocused = onFocused
+        )
+        LazyRow(
+            contentPadding = PaddingValues(end = NuvioTheme.spacing.sm),
+            horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.sm)
+        ) {
+            if (rail.canBecomeTextPills) {
+                item(key = "${rail.blockId}_pills") {
+                    SettingsChoiceChip(
+                        label = stringResource(R.string.layout_view_pack_text_pills),
+                        selected = rail.isTextPills,
+                        onClick = onTextPillsToggle,
+                        onFocused = onFocused
+                    )
+                }
+            }
+            if (showFocusedInfoControl) {
+                item(key = "${rail.blockId}_detail") {
+                    SettingsChoiceChip(
+                        label = stringResource(R.string.layout_view_pack_tile_detail),
+                        selected = rail.showFocusedInfo,
+                        onClick = onFocusedInfoToggle,
+                        onFocused = onFocused
+                    )
+                }
+            }
+            item(key = "${rail.blockId}_grow") {
+                SettingsChoiceChip(
+                    label = stringResource(R.string.layout_view_pack_focus_grow),
+                    selected = rail.posterGrow,
+                    onClick = onPosterGrowToggle,
+                    onFocused = onFocused
+                )
+            }
+            item(key = "${rail.blockId}_trailer") {
+                SettingsChoiceChip(
+                    label = stringResource(R.string.layout_view_pack_trailers),
+                    selected = rail.trailerEnabled,
+                    onClick = onTrailerToggle,
+                    onFocused = onFocused
+                )
             }
         }
     }

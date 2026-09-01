@@ -24,6 +24,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 
 private const val TAG = "ViewPackSyncService"
@@ -234,6 +236,41 @@ class ViewPackSyncService @Inject constructor(
         dismissedUpdatedAt = offer?.updatedAt
         _pendingOffer.value = null
         Log.i(TAG, "User dismissed view pack offer “${offer?.packName}”")
+    }
+
+    /**
+     * Save an edited pack locally and publish it to the account blob when signed in.
+     * Local save is the source of truth for this TV; remote publish is best-effort.
+     */
+    suspend fun saveActivePack(serializedJson: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val pack = parseViewPackJson(serializedJson)
+            val normalizedJson = serializeViewPackJson(pack)
+            layoutPreferenceDataStore.setActiveViewPackJson(normalizedJson)
+            if (!authManager.isAuthenticated) {
+                return@withContext Result.success(Unit)
+            }
+            val profileId = profileManager.activeProfileId.value
+            try {
+                val params = buildJsonObject {
+                    put("p_profile_id", profileId)
+                    put("p_pack_json", Json.parseToJsonElement(normalizedJson).jsonObject)
+                    putSyncOriginClientId(syncClientIdentity)
+                }
+                withJwtRefreshRetry {
+                    postgrest.rpc("sync_push_view_pack", params)
+                }
+                dismissedUpdatedAt = null
+                _pendingOffer.value = null
+                Log.i(TAG, "Saved edited view pack “${pack.name}” for profile $profileId")
+            } catch (e: Exception) {
+                Log.w(TAG, "Saved edited view pack locally; remote publish failed", e)
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save edited view pack", e)
+            Result.failure(e)
+        }
     }
 
     /**

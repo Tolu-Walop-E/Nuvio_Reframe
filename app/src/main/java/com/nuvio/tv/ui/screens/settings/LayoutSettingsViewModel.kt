@@ -11,6 +11,17 @@ import com.nuvio.tv.core.server.StreamBadgeConfigServer
 import com.nuvio.tv.core.streams.StreamBadgePlacement
 import com.nuvio.tv.core.streams.StreamBadgeRules
 import com.nuvio.tv.core.streams.StreamBadgeSettings
+import com.nuvio.tv.core.viewpack.MAX_PACK_CARD_SCALE
+import com.nuvio.tv.core.viewpack.MIN_PACK_CARD_SCALE
+import com.nuvio.tv.core.viewpack.PACK_LABELED_METADATA_RESERVE_PX
+import com.nuvio.tv.core.viewpack.PACK_LABELED_TITLE_RESERVE_PX
+import com.nuvio.tv.core.viewpack.ViewBlock
+import com.nuvio.tv.core.viewpack.ViewPack
+import com.nuvio.tv.core.viewpack.homeOrderKeyForDataSource
+import com.nuvio.tv.core.viewpack.homeRowScalesFromPack
+import com.nuvio.tv.core.viewpack.normalizePackCardScale
+import com.nuvio.tv.core.viewpack.parseViewPackJson
+import com.nuvio.tv.core.viewpack.serializeViewPackJson
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
 import com.nuvio.tv.data.local.StreamBadgeSettingsDataStore
 import com.nuvio.tv.data.local.TraktSettingsDataStore
@@ -35,6 +46,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 import javax.inject.Inject
 
 data class LayoutSettingsUiState(
@@ -81,7 +93,25 @@ data class LayoutSettingsUiState(
     val continueWatchingCardStyle: ContinueWatchingCardStyle = ContinueWatchingCardStyle.CARD,
     val activeViewPackName: String? = null,
     val activeViewPackRotateEnabled: Boolean = false,
+    val activeViewPackShowFocusedInfo: Boolean = false,
+    val activeViewPackCatalogScalePercent: Int = 100,
+    val activeViewPackLandscapeScalePercent: Int = 100,
+    val activeViewPackTitleScalePercent: Int = 100,
+    val activeViewPackRails: List<ViewPackRailEditorItem> = emptyList(),
     val viewPackMessage: String? = null
+)
+
+data class ViewPackRailEditorItem(
+    val blockId: String,
+    val title: String,
+    val orderKey: String,
+    val dataSource: String,
+    val canBecomeTextPills: Boolean,
+    val isTextPills: Boolean,
+    val showFocusedInfo: Boolean,
+    val posterGrow: Boolean,
+    val trailerEnabled: Boolean,
+    val scalePercent: Int
 )
 
 data class CatalogInfo(
@@ -141,6 +171,15 @@ sealed class LayoutSettingsEvent {
     data object ImportViewPackFromClipboard : LayoutSettingsEvent()
     data object ClearActiveViewPack : LayoutSettingsEvent()
     data object ForceReshuffleViewPack : LayoutSettingsEvent()
+    data class SetViewPackFocusedInfo(val enabled: Boolean) : LayoutSettingsEvent()
+    data class SetViewPackCatalogScalePercent(val percent: Int) : LayoutSettingsEvent()
+    data class SetViewPackLandscapeScalePercent(val percent: Int) : LayoutSettingsEvent()
+    data class SetViewPackTitleScalePercent(val percent: Int) : LayoutSettingsEvent()
+    data class SetViewPackRailScalePercent(val blockId: String, val percent: Int) : LayoutSettingsEvent()
+    data class SetViewPackRailTextPills(val blockId: String, val enabled: Boolean) : LayoutSettingsEvent()
+    data class SetViewPackRailFocusedInfo(val blockId: String, val enabled: Boolean) : LayoutSettingsEvent()
+    data class SetViewPackRailPosterGrow(val blockId: String, val enabled: Boolean) : LayoutSettingsEvent()
+    data class SetViewPackRailTrailer(val blockId: String, val enabled: Boolean) : LayoutSettingsEvent()
     data object ClearViewPackMessage : LayoutSettingsEvent()
 }
 
@@ -383,24 +422,39 @@ class LayoutSettingsViewModel @Inject constructor(
                         updateUiStateIfChanged {
                             it.copy(
                                 activeViewPackName = null,
-                                activeViewPackRotateEnabled = false
+                                activeViewPackRotateEnabled = false,
+                                activeViewPackShowFocusedInfo = false,
+                                activeViewPackCatalogScalePercent = 100,
+                                activeViewPackLandscapeScalePercent = 100,
+                                activeViewPackTitleScalePercent = 100,
+                                activeViewPackRails = emptyList()
                             )
                         }
                         return@collectLatest
                     }
                     try {
-                        val pack = com.nuvio.tv.core.viewpack.parseViewPackJson(json)
+                        val pack = parseViewPackJson(json)
                         updateUiStateIfChanged {
                             it.copy(
                                 activeViewPackName = pack.name,
-                                activeViewPackRotateEnabled = pack.rotateUnlocked
+                                activeViewPackRotateEnabled = pack.rotateUnlocked,
+                                activeViewPackShowFocusedInfo = pack.showFocusedPosterInfo,
+                                activeViewPackCatalogScalePercent = scaleToPercent(pack.catalogPosterScale),
+                                activeViewPackLandscapeScalePercent = scaleToPercent(pack.collectionLandscapeScale),
+                                activeViewPackTitleScalePercent = scaleToPercent(pack.collectionTitleScale),
+                                activeViewPackRails = pack.toRailEditorItems()
                             )
                         }
                     } catch (_: Exception) {
                         updateUiStateIfChanged {
                             it.copy(
                                 activeViewPackName = null,
-                                activeViewPackRotateEnabled = false
+                                activeViewPackRotateEnabled = false,
+                                activeViewPackShowFocusedInfo = false,
+                                activeViewPackCatalogScalePercent = 100,
+                                activeViewPackLandscapeScalePercent = 100,
+                                activeViewPackTitleScalePercent = 100,
+                                activeViewPackRails = emptyList()
                             )
                         }
                     }
@@ -458,6 +512,46 @@ class LayoutSettingsViewModel @Inject constructor(
             LayoutSettingsEvent.ImportViewPackFromClipboard -> importViewPackFromClipboard()
             LayoutSettingsEvent.ClearActiveViewPack -> clearActiveViewPack()
             LayoutSettingsEvent.ForceReshuffleViewPack -> forceReshuffleViewPack()
+            is LayoutSettingsEvent.SetViewPackFocusedInfo -> updateActiveViewPack { pack ->
+                pack.withFocusedInfoPreservingRailHeights(event.enabled)
+            }
+            is LayoutSettingsEvent.SetViewPackCatalogScalePercent -> updateActiveViewPack {
+                it.copy(catalogPosterScale = percentToScale(event.percent))
+            }
+            is LayoutSettingsEvent.SetViewPackLandscapeScalePercent -> updateActiveViewPack {
+                it.copy(collectionLandscapeScale = percentToScale(event.percent))
+            }
+            is LayoutSettingsEvent.SetViewPackTitleScalePercent -> updateActiveViewPack {
+                it.copy(collectionTitleScale = percentToScale(event.percent))
+            }
+            is LayoutSettingsEvent.SetViewPackRailScalePercent -> updateActiveViewPack { pack ->
+                pack.copy(blocks = pack.blocks.withEditedBlock(event.blockId) { block ->
+                    block.copy(h = pack.heightForRailScale(event.percent))
+                })
+            }
+            is LayoutSettingsEvent.SetViewPackRailTextPills -> updateActiveViewPack { pack ->
+                pack.copy(blocks = pack.blocks.withEditedBlock(event.blockId) { block ->
+                    block.copy(
+                        type = if (event.enabled) "genreRail" else "collectionRail",
+                        collectionOpenStyle = if (event.enabled) null else block.collectionOpenStyle
+                    )
+                })
+            }
+            is LayoutSettingsEvent.SetViewPackRailFocusedInfo -> updateActiveViewPack { pack ->
+                pack.copy(blocks = pack.blocks.withEditedBlock(event.blockId) { block ->
+                    block.copy(showPosterLabels = event.enabled)
+                })
+            }
+            is LayoutSettingsEvent.SetViewPackRailPosterGrow -> updateActiveViewPack { pack ->
+                pack.copy(blocks = pack.blocks.withEditedBlock(event.blockId) { block ->
+                    block.copy(posterGrow = event.enabled)
+                })
+            }
+            is LayoutSettingsEvent.SetViewPackRailTrailer -> updateActiveViewPack { pack ->
+                pack.copy(blocks = pack.blocks.withEditedBlock(event.blockId) { block ->
+                    block.copy(trailer = event.enabled)
+                })
+            }
             LayoutSettingsEvent.ClearViewPackMessage ->
                 updateUiStateIfChanged { it.copy(viewPackMessage = null) }
         }
@@ -488,6 +582,36 @@ class LayoutSettingsViewModel @Inject constructor(
                             name
                         )
                     )
+                }
+            } catch (e: Exception) {
+                updateUiStateIfChanged {
+                    it.copy(
+                        viewPackMessage = context.getString(
+                            R.string.layout_view_pack_import_failed,
+                            e.message ?: "unknown"
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    private fun updateActiveViewPack(transform: (ViewPack) -> ViewPack) {
+        viewModelScope.launch {
+            val json = layoutPreferenceDataStore.activeViewPackJson.first()
+            if (json.isNullOrBlank()) {
+                updateUiStateIfChanged {
+                    it.copy(viewPackMessage = context.getString(R.string.layout_view_pack_none))
+                }
+                return@launch
+            }
+            try {
+                val updated = transform(parseViewPackJson(json))
+                val serialized = serializeViewPackJson(updated)
+                viewPackSyncService.saveActivePack(serialized)
+                    .onFailure { throw it }
+                updateUiStateIfChanged {
+                    it.copy(viewPackMessage = context.getString(R.string.layout_view_pack_saved, updated.name))
                 }
             } catch (e: Exception) {
                 updateUiStateIfChanged {
@@ -953,6 +1077,108 @@ class LayoutSettingsViewModel @Inject constructor(
         stopStreamBadgeServer()
         super.onCleared()
     }
+}
+
+private fun scaleToPercent(scale: Float): Int =
+    (normalizePackCardScale(scale) * 100f).roundToInt()
+
+private fun percentToScale(percent: Int): Float =
+    normalizePackCardScale(percent.coerceIn(
+        (MIN_PACK_CARD_SCALE * 100f).roundToInt(),
+        (MAX_PACK_CARD_SCALE * 100f).roundToInt()
+    ) / 100f)
+
+private fun ViewPack.toRailEditorItems(): List<ViewPackRailEditorItem> {
+    val scales = homeRowScalesFromPack(this)
+    return blocks
+        .sortedWith(compareBy({ it.y }, { it.x }, { it.id }))
+        .mapNotNull { block ->
+            val ds = block.dataSource.trim()
+            if (ds == "continueWatching" || ds == "genres") return@mapNotNull null
+            if (block.type != "mediaRail" && block.type != "collectionRail" && block.type != "genreRail") {
+                return@mapNotNull null
+            }
+            val orderKey = homeOrderKeyForDataSource(ds) ?: return@mapNotNull null
+            ViewPackRailEditorItem(
+                blockId = block.id,
+                title = block.editorTitle(),
+                orderKey = orderKey,
+                dataSource = ds,
+                canBecomeTextPills = ds.startsWith("collection:") && !ds.contains(":folder:"),
+                isTextPills = block.type == "genreRail",
+                showFocusedInfo = showFocusedPosterInfo || block.showPosterLabels == true,
+                posterGrow = block.posterGrow != false,
+                trailerEnabled = block.trailer,
+                scalePercent = ((scales[orderKey] ?: 1f).coerceIn(0.55f, 2.5f) * 100f).roundToInt()
+            )
+        }
+}
+
+private fun ViewBlock.editorTitle(): String {
+    label?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
+    val ds = dataSource.trim()
+    return when {
+        ds.startsWith("catalog:") -> ds
+            .removePrefix("catalog:")
+            .split(":")
+            .lastOrNull()
+            ?.replace("-", " ")
+            ?.replace("_", " ")
+            ?.replaceFirstChar { it.uppercase() }
+            ?: "Catalog rail"
+        ds.startsWith("collection:") -> "Collection ${ds.removePrefix("collection:").substringBefore(":folder:")}"
+        else -> ds.ifEmpty { id }
+    }
+}
+
+private fun ViewPack.heightForRailScale(percent: Int): Int {
+    val scale = percent.coerceIn(55, 250) / 100f
+    val catalogBlocks = blocks.filter {
+        val ds = it.dataSource.trim()
+        ds.startsWith("catalog:") || ds.startsWith("collection:")
+    }
+    val baseline = blocks
+        .firstOrNull { it.dataSource.trim() == "continueWatching" }
+        ?.h
+        ?.takeIf { it > 0 }
+        ?: catalogBlocks
+            .map { com.nuvio.tv.core.viewpack.packRailPosterHeightPx(it, this) }
+            .sorted()
+            .let { heights -> heights.getOrNull(heights.size / 2) }
+        ?: 210
+    val reserve = if (showFocusedPosterInfo) {
+        PACK_LABELED_TITLE_RESERVE_PX + PACK_LABELED_METADATA_RESERVE_PX
+    } else {
+        0
+    }
+    return (baseline * scale).roundToInt().coerceAtLeast(1) + reserve
+}
+
+private fun ViewPack.withFocusedInfoPreservingRailHeights(enabled: Boolean): ViewPack {
+    if (showFocusedPosterInfo == enabled) return this
+    val reserve = PACK_LABELED_TITLE_RESERVE_PX + PACK_LABELED_METADATA_RESERVE_PX
+    return copy(
+        showFocusedPosterInfo = enabled,
+        blocks = blocks.map { block ->
+            val ds = block.dataSource.trim()
+            val isScalableRail = ds.startsWith("catalog:") || ds.startsWith("collection:")
+            if (!isScalableRail) return@map block
+            block.copy(
+                h = if (enabled) {
+                    block.h + reserve
+                } else {
+                    (block.h - reserve).coerceAtLeast(1)
+                }
+            )
+        }
+    )
+}
+
+private inline fun List<ViewBlock>.withEditedBlock(
+    blockId: String,
+    edit: (ViewBlock) -> ViewBlock
+): List<ViewBlock> = map { block ->
+    if (block.id == blockId) edit(block) else block
 }
 
 data class StreamBadgeSettingsUiState(
