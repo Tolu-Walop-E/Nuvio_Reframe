@@ -598,6 +598,9 @@ fun NetflixHomeContent(
     }
 
     suspend fun focusHeroNow(): Boolean {
+        if (heroItem == null) {
+            return railKeys.firstOrNull()?.let { focusRailNow(it) } ?: false
+        }
         pendingFocusRailKey = null
         runCatching { listState.scrollToItem(NETFLIX_HOME_HERO_ROW_INDEX) }
         repeat(NETFLIX_FOCUS_RETRY_FRAMES) {
@@ -719,6 +722,8 @@ fun NetflixHomeContent(
         val preferred = lastContentRailKey?.takeIf { it in railKeys }
         return if (preferred != null) {
             requestRailFocus(preferred)
+        } else if (heroItem == null) {
+            requestRailFocus(railKeys.firstOrNull())
         } else {
             requestHeroFocus()
         }
