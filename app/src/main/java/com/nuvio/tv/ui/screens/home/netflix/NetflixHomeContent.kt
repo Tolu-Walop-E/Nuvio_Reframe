@@ -331,35 +331,10 @@ fun NetflixHomeContent(
             .take(3)
             .map { entry -> entry.key.replaceFirstChar { it.uppercase() } }
     }
-    // Stock Netflix fans For You / New & Latest / Anime into title rails.
-    // An active Studio pack is the source of truth — keep authored collection hubs.
+    // Active packs can author collection folders as title rails. Without a pack,
+    // collections stay as normal Nuvio hubs so Remove restores the stock home.
     val fanOutRequests = remember(orderedContentRails, selectedTab, packActiveForTab) {
-        if (packActiveForTab) {
-            emptyList()
-        } else {
-            orderedContentRails
-                .filterIsInstance<NetflixHomeRail.Collection>()
-                .filter { NetflixCollectionLayout.shouldFanOut(it.collection) }
-                .flatMap { rail ->
-                    rail.collection.folders
-                        .asSequence()
-                        .mapNotNull { folder ->
-                            val source = NetflixCollectionLayout.pickSource(folder, selectedTab)
-                                ?: return@mapNotNull null
-                            NetflixFolderRailRequest(
-                                railKey = NetflixCollectionLayout.railKey(
-                                    rail.collection.id,
-                                    folder.id,
-                                    source
-                                ),
-                                title = folder.title,
-                                source = source
-                            )
-                        }
-                        .take(12)
-                        .toList()
-                }
-        }
+        emptyList<NetflixFolderRailRequest>()
     }
     LaunchedEffect(fanOutRequests) {
         onEnsureFolderRails(fanOutRequests)
@@ -393,7 +368,7 @@ fun NetflixHomeContent(
             orderedContentRails = orderedContentRails,
             selectedTab = if (packActiveForTab) NetflixContentTab.HOME else selectedTab,
             folderRails = netflixFolderRails,
-            fanOutCollections = !packActiveForTab
+            fanOutCollections = false
         )
         val fanOutCatalogIds = fanOutRequests.map { it.source.catalogId }.toSet()
         val withoutDuplicatePlaceholders = if (packActiveForTab || fanOutCatalogIds.isEmpty()) {
@@ -1291,7 +1266,7 @@ private fun expandNetflixRails(
                 }
 
                 is NetflixHomeRail.Collection -> {
-                    if (NetflixCollectionLayout.shouldFanOut(rail.collection)) {
+                    if (fanOutCollections && NetflixCollectionLayout.shouldFanOut(rail.collection)) {
                         rail.collection.folders.asSequence().take(12).forEach { folder ->
                             val source = NetflixCollectionLayout.pickSource(folder, selectedTab)
                                 ?: return@forEach
@@ -1314,7 +1289,7 @@ private fun expandNetflixRails(
                                 )
                             )
                         }
-                    } else if (selectedTab == NetflixContentTab.HOME || !fanOutCollections) {
+                    } else if (selectedTab == NetflixContentTab.HOME) {
                         add(rail)
                     }
                 }
