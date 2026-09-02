@@ -427,6 +427,7 @@ fun NetflixHomeContent(
         }
     }
     val railKeys = remember(visibleRails) { visibleRails.map { it.railKey } }
+    val heroRowCount = if (heroItem != null) 1 else 0
     val netflixPackRequestsTrailers = packActiveForTab &&
         (tabHasTrailerOptIns || tabHeroTrailerEnabled)
     val netflixTrailersEnabled = remember(
@@ -526,7 +527,7 @@ fun NetflixHomeContent(
         if (focusState.hasSavedFocus && focusedRowKey != null && focusedRowKey in railKeys) {
             lastFocusedIndexByRail[focusedRowKey] = focusState.focusedItemIndex.coerceAtLeast(0)
             lastContentRailKey = focusedRowKey
-            val lazyListIndex = railKeys.indexOf(focusedRowKey) + NETFLIX_HOME_STATIC_ROW_COUNT
+            val lazyListIndex = railKeys.indexOf(focusedRowKey) + heroRowCount
             if (listState.firstVisibleItemIndex != lazyListIndex) {
                 runCatching { listState.scrollToItem(lazyListIndex) }
             }
@@ -581,7 +582,7 @@ fun NetflixHomeContent(
     suspend fun focusRailNow(railKey: String): Boolean {
         val railIndex = railKeys.indexOf(railKey)
         if (railIndex < 0) return false
-        val lazyListIndex = railIndex + NETFLIX_HOME_STATIC_ROW_COUNT
+        val lazyListIndex = railIndex + heroRowCount
         val visible = listState.layoutInfo.visibleItemsInfo.any { it.index == lazyListIndex }
         if (!visible) {
             runCatching { listState.scrollToItem(lazyListIndex) }
@@ -708,7 +709,7 @@ fun NetflixHomeContent(
         lastFocusedIndexByRail[railKey] = itemIndex
         lastContentRailKey = railKey
         onSaveFocusState(
-            railIndex + NETFLIX_HOME_STATIC_ROW_COUNT,
+            railIndex + heroRowCount,
             0,
             railKey,
             mapOf(railKey to itemKey),
@@ -779,47 +780,49 @@ fun NetflixHomeContent(
                 contentPadding = PaddingValues(top = NetflixHomeTokens.HeroTopGap),
                 verticalArrangement = Arrangement.spacedBy(NetflixHomeTokens.RailSpacing)
             ) {
-            item(key = "hero") {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = NetflixHomeTokens.PageHorizontalPadding),
-                    contentAlignment = Alignment.Center
-                ) {
-                    NetflixHero(
-                        item = heroItem,
-                        modifier = Modifier,
-                        topNavigationRequester = topNavigationRequesters.getOrElse(focusedTopNavigationIndex) {
-                            topNavigationRequesters[NETFLIX_HOME_NAV_INDEX]
-                        },
-                        primaryActionRequester = heroPrimaryRequester,
-                        onMoveDownFromHero = {
-                            requestRailFocus(railKeys.firstOrNull())
-                        },
-                        onMoveUpFromHero = {
-                            requestTopNavFocus()
-                        },
-                        trailerPreviewUrl = heroItem?.catalogItemId()?.let { trailerPreviewUrls[it] },
-                        trailerPreviewAudioUrl = heroItem?.catalogItemId()?.let { trailerPreviewAudioUrls[it] },
-                        playTrailerPreview = heroActionFocused &&
-                            previewTrailerHeroKey == heroItem?.key &&
-                            heroItem?.key?.let { playedTrailerKeys[it] } != true &&
-                            !heroItem?.catalogItemId()?.let { trailerPreviewUrls[it] }.isNullOrBlank() &&
-                            (!packActiveForTab || tabHeroTrailerEnabled),
-                        trailerPreviewMuted = uiState.focusedPosterBackdropTrailerMuted,
-                        trailerStartDelayMs = uiState.trailerStartDelayMs,
-                        onTrailerEnded = {
-                            heroItem?.key?.let { playedTrailerKeys[it] = true }
-                            previewTrailerHeroKey = null
-                        },
-                        onFocusedChanged = {
-                            heroActionFocused = it
-                            if (it) {
-                                ambientArtUrl = heroItem?.backdrop ?: heroItem?.poster
-                            }
-                        },
-                        onViewDetails = { target -> navigateToTargetDetails(target, onNavigateToDetail) }
-                    )
+            if (heroItem != null) {
+                item(key = "hero") {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = NetflixHomeTokens.PageHorizontalPadding),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        NetflixHero(
+                            item = heroItem,
+                            modifier = Modifier,
+                            topNavigationRequester = topNavigationRequesters.getOrElse(focusedTopNavigationIndex) {
+                                topNavigationRequesters[NETFLIX_HOME_NAV_INDEX]
+                            },
+                            primaryActionRequester = heroPrimaryRequester,
+                            onMoveDownFromHero = {
+                                requestRailFocus(railKeys.firstOrNull())
+                            },
+                            onMoveUpFromHero = {
+                                requestTopNavFocus()
+                            },
+                            trailerPreviewUrl = heroItem?.catalogItemId()?.let { trailerPreviewUrls[it] },
+                            trailerPreviewAudioUrl = heroItem?.catalogItemId()?.let { trailerPreviewAudioUrls[it] },
+                            playTrailerPreview = heroActionFocused &&
+                                previewTrailerHeroKey == heroItem?.key &&
+                                heroItem?.key?.let { playedTrailerKeys[it] } != true &&
+                                !heroItem?.catalogItemId()?.let { trailerPreviewUrls[it] }.isNullOrBlank() &&
+                                (!packActiveForTab || tabHeroTrailerEnabled),
+                            trailerPreviewMuted = uiState.focusedPosterBackdropTrailerMuted,
+                            trailerStartDelayMs = uiState.trailerStartDelayMs,
+                            onTrailerEnded = {
+                                heroItem?.key?.let { playedTrailerKeys[it] = true }
+                                previewTrailerHeroKey = null
+                            },
+                            onFocusedChanged = {
+                                heroActionFocused = it
+                                if (it) {
+                                    ambientArtUrl = heroItem?.backdrop ?: heroItem?.poster
+                                }
+                            },
+                            onViewDetails = { target -> navigateToTargetDetails(target, onNavigateToDetail) }
+                        )
+                    }
                 }
             }
             items(
@@ -837,7 +840,11 @@ fun NetflixHomeContent(
                             pumpVerticalNavigation()
                             true
                         }
-                        from <= 0 -> queueVerticalTarget(VERTICAL_TARGET_HERO)
+                        from <= 0 -> if (heroItem != null) {
+                            queueVerticalTarget(VERTICAL_TARGET_HERO)
+                        } else {
+                            queueVerticalTarget(VERTICAL_TARGET_TOP_NAV)
+                        }
                         else -> queueVerticalTarget(from - 1)
                     }
                 }
