@@ -1081,6 +1081,11 @@
     <string name="layout_preset_pill">Pill</string>
     <string name="layout_card_width">Width</string>
     <string name="layout_global_rail_size">Global rail size</string>
+    <string name="layout_home_shuffle_title">Shuffle unlocked Home rails</string>
+    <string name="layout_home_shuffle_sub">Locked rails stay in place. Movies and TV Shows keep their natural filtered order.</string>
+    <string name="layout_home_shuffle_interval">Shuffle interval</string>
+    <string name="layout_home_shuffle_hours">%1$d hours</string>
+    <string name="layout_home_shuffle_now">Shuffle now</string>
     <string name="layout_card_radius">Corner Radius</string>
     <string name="layout_reset_default">Reset to Default</string>
     <string name="layout_custom">Custom</string>
@@ -2180,6 +2185,7 @@
 
     <string name="home_customize_rail_hint">Editing this rail. Press Back or Done to return home.</string>
     <string name="home_customize_rail_size">Rail size: %1$d%%</string>
+    <string name="home_customize_lock_rail">Lock rail position</string>
     <string name="home_customize_tile_detail">Tile detail</string>
     <string name="home_customize_focus_grow">Focus grow</string>
     <string name="home_customize_trailers">Trailers</string>

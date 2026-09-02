@@ -120,6 +120,9 @@ class LayoutPreferenceDataStore @Inject constructor(
     private val activeViewPackJsonKey = stringPreferencesKey("active_view_pack_json")
     private val viewPackCustomizationModeEnabledKey = booleanPreferencesKey("view_pack_customization_mode_enabled")
     private val homeRailCustomizationsKey = stringPreferencesKey("home_rail_customizations")
+    private val homeRailShuffleEnabledKey = booleanPreferencesKey("home_rail_shuffle_enabled")
+    private val homeRailShuffleIntervalHoursKey = intPreferencesKey("home_rail_shuffle_interval_hours")
+    private val homeRailShuffleNonceKey = longPreferencesKey("home_rail_shuffle_nonce")
     private val viewPackShuffleSeedKey = stringPreferencesKey("view_pack_shuffle_seed")
     private val viewPackLastShuffleAtKey = longPreferencesKey("view_pack_last_shuffle_at")
 
@@ -421,6 +424,18 @@ class LayoutPreferenceDataStore @Inject constructor(
         parseHomeRailCustomizations(prefs[homeRailCustomizationsKey])
     }.distinctUntilChanged()
 
+    val homeRailShuffleEnabled: Flow<Boolean> = profileFlow { prefs ->
+        prefs[homeRailShuffleEnabledKey] ?: false
+    }.distinctUntilChanged()
+
+    val homeRailShuffleIntervalHours: Flow<Int> = profileFlow { prefs ->
+        (prefs[homeRailShuffleIntervalHoursKey] ?: 24).coerceIn(1, 168)
+    }.distinctUntilChanged()
+
+    val homeRailShuffleNonce: Flow<Long> = profileFlow { prefs ->
+        prefs[homeRailShuffleNonceKey] ?: 0L
+    }.distinctUntilChanged()
+
     /** Rail rotation bookkeeping, kept out of the pack so sync cannot revert it. */
     val viewPackRotationState: Flow<ViewPackRotationState> = profileFlow { prefs ->
         readViewPackRotationState(prefs)
@@ -524,6 +539,18 @@ class LayoutPreferenceDataStore @Inject constructor(
                 prefs[homeRailCustomizationsKey] = gson.toJson(current)
             }
         }
+    }
+
+    suspend fun setHomeRailShuffleEnabled(enabled: Boolean) {
+        store().edit { prefs -> prefs[homeRailShuffleEnabledKey] = enabled }
+    }
+
+    suspend fun setHomeRailShuffleIntervalHours(hours: Int) {
+        store().edit { prefs -> prefs[homeRailShuffleIntervalHoursKey] = hours.coerceIn(1, 168) }
+    }
+
+    suspend fun shuffleHomeRailsNow() {
+        store().edit { prefs -> prefs[homeRailShuffleNonceKey] = System.currentTimeMillis() }
     }
 
     suspend fun setLayout(layout: HomeLayout) {
@@ -1017,7 +1044,8 @@ class LayoutPreferenceDataStore @Inject constructor(
             showFocusedInfo == null &&
             posterGrow == null &&
             trailer == null &&
-            expandedFolders == null
+            expandedFolders == null &&
+            locked == null
 }
 
 internal val legacySearchDiscoverEnabledKey = booleanPreferencesKey("search_discover_enabled")

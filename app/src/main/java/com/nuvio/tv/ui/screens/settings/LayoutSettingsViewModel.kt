@@ -103,6 +103,8 @@ data class LayoutSettingsUiState(
     val activeViewPackLandscapeScalePercent: Int = 100,
     val activeViewPackTitleScalePercent: Int = 100,
     val viewPackCustomizationModeEnabled: Boolean = false,
+    val homeRailShuffleEnabled: Boolean = false,
+    val homeRailShuffleIntervalHours: Int = 24,
     val viewPackMessage: String? = null
 )
 
@@ -178,6 +180,9 @@ sealed class LayoutSettingsEvent {
     data object ClearActiveViewPack : LayoutSettingsEvent()
     data object ForceReshuffleViewPack : LayoutSettingsEvent()
     data class SetViewPackCustomizationModeEnabled(val enabled: Boolean) : LayoutSettingsEvent()
+    data class SetHomeRailShuffleEnabled(val enabled: Boolean) : LayoutSettingsEvent()
+    data class SetHomeRailShuffleIntervalHours(val hours: Int) : LayoutSettingsEvent()
+    data object ShuffleHomeRailsNow : LayoutSettingsEvent()
     data class SetViewPackFocusedInfo(val enabled: Boolean) : LayoutSettingsEvent()
     data class SetViewPackCatalogScalePercent(val percent: Int) : LayoutSettingsEvent()
     data class SetViewPackLandscapeScalePercent(val percent: Int) : LayoutSettingsEvent()
@@ -430,6 +435,16 @@ class LayoutSettingsViewModel @Inject constructor(
                 }
         }
         viewModelScope.launch {
+            layoutPreferenceDataStore.homeRailShuffleEnabled.collectLatest { enabled ->
+                updateUiStateIfChanged { it.copy(homeRailShuffleEnabled = enabled) }
+            }
+        }
+        viewModelScope.launch {
+            layoutPreferenceDataStore.homeRailShuffleIntervalHours.collectLatest { hours ->
+                updateUiStateIfChanged { it.copy(homeRailShuffleIntervalHours = hours) }
+            }
+        }
+        viewModelScope.launch {
             layoutPreferenceDataStore.activeViewPackJson
                 .distinctUntilChanged()
                 .collectLatest { json ->
@@ -526,6 +541,15 @@ class LayoutSettingsViewModel @Inject constructor(
             LayoutSettingsEvent.ClearActiveViewPack -> clearActiveViewPack()
             LayoutSettingsEvent.ForceReshuffleViewPack -> forceReshuffleViewPack()
             is LayoutSettingsEvent.SetViewPackCustomizationModeEnabled -> setViewPackCustomizationModeEnabled(event.enabled)
+            is LayoutSettingsEvent.SetHomeRailShuffleEnabled -> viewModelScope.launch {
+                layoutPreferenceDataStore.setHomeRailShuffleEnabled(event.enabled)
+            }
+            is LayoutSettingsEvent.SetHomeRailShuffleIntervalHours -> viewModelScope.launch {
+                layoutPreferenceDataStore.setHomeRailShuffleIntervalHours(event.hours)
+            }
+            LayoutSettingsEvent.ShuffleHomeRailsNow -> viewModelScope.launch {
+                layoutPreferenceDataStore.shuffleHomeRailsNow()
+            }
             is LayoutSettingsEvent.SetViewPackFocusedInfo -> updateActiveViewPack { pack ->
                 pack.withFocusedInfoPreservingRailHeights(event.enabled)
             }

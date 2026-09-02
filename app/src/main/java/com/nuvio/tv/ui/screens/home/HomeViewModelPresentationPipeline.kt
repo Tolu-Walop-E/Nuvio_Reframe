@@ -63,6 +63,12 @@ private data class PosterCardPrefs(
     val railCustomizations: Map<String, HomeRailCustomization>
 )
 
+private data class HomeShufflePrefs(
+    val enabled: Boolean,
+    val intervalHours: Int,
+    val nonce: Long
+)
+
 private data class LayoutUiPrefs(
     val layout: HomeLayout,
     val heroCatalogKeys: List<String>,
@@ -85,7 +91,10 @@ private data class LayoutUiPrefs(
     val posterCardHeightDp: Int,
     val posterCardCornerRadiusDp: Int,
     val viewPackCustomizationModeEnabled: Boolean,
-    val homeRailCustomizations: Map<String, HomeRailCustomization>
+    val homeRailCustomizations: Map<String, HomeRailCustomization>,
+    val homeRailShuffleEnabled: Boolean,
+    val homeRailShuffleIntervalHours: Int,
+    val homeRailShuffleNonce: Long
 )
 
 @OptIn(FlowPreview::class)
@@ -172,11 +181,20 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
         )
     }
 
+    val homeShufflePrefsFlow = combine(
+        layoutPreferenceDataStore.homeRailShuffleEnabled,
+        layoutPreferenceDataStore.homeRailShuffleIntervalHours,
+        layoutPreferenceDataStore.homeRailShuffleNonce
+    ) { enabled, intervalHours, nonce ->
+        HomeShufflePrefs(enabled, intervalHours, nonce)
+    }
+
     val baseLayoutUiPrefsFlow = combine(
         coreLayoutPrefsFlow,
         focusedBackdropPrefsFlow,
-        posterCardPrefsFlow
-    ) { corePrefs, focusedBackdropPrefs, posterCardPrefs ->
+        posterCardPrefsFlow,
+        homeShufflePrefsFlow
+    ) { corePrefs, focusedBackdropPrefs, posterCardPrefs, shufflePrefs ->
         LayoutUiPrefs(
             layout = corePrefs.layout,
             heroCatalogKeys = corePrefs.heroCatalogKeys,
@@ -200,7 +218,10 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
             posterCardHeightDp = posterCardPrefs.heightDp,
             posterCardCornerRadiusDp = posterCardPrefs.cornerRadiusDp,
             viewPackCustomizationModeEnabled = posterCardPrefs.customizationModeEnabled,
-            homeRailCustomizations = posterCardPrefs.railCustomizations
+            homeRailCustomizations = posterCardPrefs.railCustomizations,
+            homeRailShuffleEnabled = shufflePrefs.enabled,
+            homeRailShuffleIntervalHours = shufflePrefs.intervalHours,
+            homeRailShuffleNonce = shufflePrefs.nonce
         )
     }
 
@@ -268,7 +289,10 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
                         posterCardHeightDp = prefs.posterCardHeightDp,
                         posterCardCornerRadiusDp = prefs.posterCardCornerRadiusDp,
                         viewPackCustomizationModeEnabled = prefs.viewPackCustomizationModeEnabled,
-                        homeRailCustomizations = prefs.homeRailCustomizations
+                        homeRailCustomizations = prefs.homeRailCustomizations,
+                        homeRailShuffleEnabled = prefs.homeRailShuffleEnabled,
+                        homeRailShuffleIntervalHours = prefs.homeRailShuffleIntervalHours,
+                        homeRailShuffleNonce = prefs.homeRailShuffleNonce
                     )
                 }
                 if (shouldRefreshCatalogPresentation) {

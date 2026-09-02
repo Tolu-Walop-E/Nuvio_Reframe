@@ -230,6 +230,8 @@ fun LayoutSettingsContent(
                     titleScalePercent = uiState.activeViewPackTitleScalePercent,
                     globalRailWidthDp = uiState.posterCardWidthDp,
                     customizationModeEnabled = uiState.viewPackCustomizationModeEnabled,
+                    shuffleEnabled = uiState.homeRailShuffleEnabled,
+                    shuffleIntervalHours = uiState.homeRailShuffleIntervalHours,
                     importFocusRequester = viewPackImportFocus,
                     onImport = {
                         viewModel.onEvent(LayoutSettingsEvent.ImportViewPackFromClipboard)
@@ -257,6 +259,17 @@ fun LayoutSettingsContent(
                     },
                     onGlobalRailWidthChange = { width ->
                         viewModel.onEvent(LayoutSettingsEvent.SetPosterCardWidth(width))
+                    },
+                    onShuffleToggle = {
+                        viewModel.onEvent(
+                            LayoutSettingsEvent.SetHomeRailShuffleEnabled(!uiState.homeRailShuffleEnabled)
+                        )
+                    },
+                    onShuffleIntervalChange = { hours ->
+                        viewModel.onEvent(LayoutSettingsEvent.SetHomeRailShuffleIntervalHours(hours))
+                    },
+                    onShuffleNow = {
+                        viewModel.onEvent(LayoutSettingsEvent.ShuffleHomeRailsNow)
                     },
                     onCatalogScaleChange = { percent ->
                         viewModel.onEvent(LayoutSettingsEvent.SetViewPackCatalogScalePercent(percent))
@@ -1191,6 +1204,8 @@ private fun ViewPackImportCard(
     titleScalePercent: Int,
     globalRailWidthDp: Int,
     customizationModeEnabled: Boolean,
+    shuffleEnabled: Boolean,
+    shuffleIntervalHours: Int,
     importFocusRequester: FocusRequester,
     onImport: () -> Unit,
     onCreateFromHome: () -> Unit,
@@ -1198,6 +1213,9 @@ private fun ViewPackImportCard(
     onRemove: () -> Unit,
     onCustomizationModeToggle: () -> Unit,
     onGlobalRailWidthChange: (Int) -> Unit,
+    onShuffleToggle: () -> Unit,
+    onShuffleIntervalChange: (Int) -> Unit,
+    onShuffleNow: () -> Unit,
     onFocusedInfoToggle: () -> Unit,
     onCatalogScaleChange: (Int) -> Unit,
     onLandscapeScaleChange: (Int) -> Unit,
@@ -1280,6 +1298,33 @@ private fun ViewPackImportCard(
             onSelected = onGlobalRailWidthChange,
             onFocused = onFocused
         )
+
+        CompactToggleRow(
+            title = stringResource(R.string.layout_home_shuffle_title),
+            subtitle = stringResource(R.string.layout_home_shuffle_sub),
+            checked = shuffleEnabled,
+            onToggle = onShuffleToggle,
+            onFocused = onFocused
+        )
+        if (shuffleEnabled) {
+            SliderSettingsItem(
+                icon = null,
+                title = stringResource(R.string.layout_home_shuffle_interval),
+                value = shuffleIntervalHours.coerceIn(1, 168),
+                valueText = stringResource(R.string.layout_home_shuffle_hours, shuffleIntervalHours),
+                minValue = 1,
+                maxValue = 168,
+                step = 1,
+                onValueChange = onShuffleIntervalChange,
+                onFocused = onFocused
+            )
+            Button(
+                onClick = onShuffleNow,
+                modifier = Modifier.onFocusChanged { if (it.isFocused) onFocused() }
+            ) {
+                Text(text = stringResource(R.string.layout_home_shuffle_now))
+            }
+        }
 
         if (active) {
             Row(

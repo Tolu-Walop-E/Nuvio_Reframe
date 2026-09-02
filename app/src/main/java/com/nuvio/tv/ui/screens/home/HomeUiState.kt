@@ -83,6 +83,9 @@ data class HomeUiState(
     val viewPackCustomizationModeEnabled: Boolean = false,
     /** Live Nuvio-owned home overrides, layered over imported packs/default rails. */
     val homeRailCustomizations: Map<String, HomeRailCustomization> = emptyMap(),
+    val homeRailShuffleEnabled: Boolean = false,
+    val homeRailShuffleIntervalHours: Int = 24,
+    val homeRailShuffleNonce: Long = 0L,
     val activeViewPackRotateEnabled: Boolean = false,
     /** Home-tab pack rail order (excludes nested Movies/Shows extras). */
     val viewPackOrderKeys: List<String> = emptyList(),

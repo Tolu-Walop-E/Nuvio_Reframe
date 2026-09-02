@@ -71,6 +71,7 @@ import com.nuvio.tv.ui.screens.home.HomeRow
 import com.nuvio.tv.ui.screens.home.HomeUiState
 import com.nuvio.tv.ui.screens.home.NetflixScreenPackState
 import com.nuvio.tv.core.viewpack.packOrderKeyMatchesRail
+import com.nuvio.tv.core.viewpack.hashSeed
 import com.nuvio.tv.core.viewpack.resolvePackHeroMeta
 import com.nuvio.tv.ui.screens.home.contentId
 import com.nuvio.tv.ui.screens.home.contentType
@@ -118,6 +119,7 @@ fun NetflixHomeContent(
     onRailFocusedInfoToggle: (String, Boolean) -> Unit = { _, _ -> },
     onRailPosterGrowToggle: (String, Boolean) -> Unit = { _, _ -> },
     onRailTrailerToggle: (String, Boolean) -> Unit = { _, _ -> },
+    onRailLockedToggle: (String, Boolean) -> Unit = { _, _ -> },
     onCollectionExpandedToggle: (String, Boolean) -> Unit = { _, _ -> },
     selectedContentTab: NetflixContentTab = NetflixContentTab.HOME,
     onContentTabChanged: (NetflixContentTab) -> Unit = {}
@@ -192,10 +194,12 @@ fun NetflixHomeContent(
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
     val homePackActive = !uiState.activeViewPackName.isNullOrBlank()
+    val dynamicHomeTemplate = uiState.viewPackCustomizationModeEnabled ||
+        uiState.homeRailCustomizations.isNotEmpty()
     val tabScreenPack = when (selectedTab) {
         NetflixContentTab.HOME -> null
-        NetflixContentTab.MOVIES -> uiState.moviesScreenPack
-        NetflixContentTab.SHOWS -> uiState.showsScreenPack
+        NetflixContentTab.MOVIES -> uiState.moviesScreenPack.takeUnless { dynamicHomeTemplate }
+        NetflixContentTab.SHOWS -> uiState.showsScreenPack.takeUnless { dynamicHomeTemplate }
     }
     val packActiveForTab = when (selectedTab) {
         NetflixContentTab.HOME -> homePackActive
@@ -366,6 +370,37 @@ fun NetflixHomeContent(
             withGenres
         }
     }
+    var homeShuffleClock by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(uiState.homeRailShuffleEnabled, uiState.homeRailShuffleIntervalHours) {
+        while (uiState.homeRailShuffleEnabled) {
+            val intervalMs = uiState.homeRailShuffleIntervalHours.coerceIn(1, 168) * 60L * 60L * 1000L
+            val now = System.currentTimeMillis()
+            delay((intervalMs - (now % intervalMs)).coerceAtLeast(1_000L))
+            homeShuffleClock = System.currentTimeMillis()
+        }
+    }
+    val templateContentRails = remember(
+        orderedContentRails,
+        selectedTab,
+        uiState.homeRailShuffleEnabled,
+        uiState.homeRailShuffleIntervalHours,
+        uiState.homeRailShuffleNonce,
+        uiState.homeRailCustomizations,
+        homeShuffleClock
+    ) {
+        if (!uiState.homeRailShuffleEnabled || selectedTab != NetflixContentTab.HOME) {
+            orderedContentRails
+        } else {
+            val intervalMs = uiState.homeRailShuffleIntervalHours.coerceIn(1, 168) * 60L * 60L * 1000L
+            shuffleUnlockedHomeRails(
+                rails = orderedContentRails,
+                lockedKeys = uiState.homeRailCustomizations
+                    .filterValues { it.locked == true }
+                    .keys,
+                seed = "${uiState.homeRailShuffleNonce}:${homeShuffleClock / intervalMs}"
+            )
+        }
+    }
     val continueWatchingGenres = remember(uiState.continueWatchingItems) {
         uiState.continueWatchingItems
             .flatMap { item ->
@@ -392,8 +427,8 @@ fun NetflixHomeContent(
             }
         }.toSet()
     }
-    val fanOutRequests = remember(orderedContentRails, selectedTab, expandedCollectionIds) {
-        orderedContentRails.flatMap { rail ->
+    val fanOutRequests = remember(templateContentRails, selectedTab, expandedCollectionIds) {
+        templateContentRails.flatMap { rail ->
             val collection = (rail as? NetflixHomeRail.Collection)?.collection ?: return@flatMap emptyList()
             if (collection.id !in expandedCollectionIds) return@flatMap emptyList()
             collection.folders.asSequence().take(12).mapNotNull { folder ->
@@ -430,7 +465,7 @@ fun NetflixHomeContent(
     }
     val visibleRails = remember(
         uiState.continueWatchingItems,
-        orderedContentRails,
+        templateContentRails,
         selectedTab,
         discoveryRails,
         netflixFolderRails,
@@ -440,7 +475,7 @@ fun NetflixHomeContent(
         expandedCollectionIds
     ) {
         val expanded = expandNetflixRails(
-            orderedContentRails = orderedContentRails,
+            orderedContentRails = templateContentRails,
             selectedTab = selectedTab,
             folderRails = netflixFolderRails,
             fanOutCollections = false,
@@ -1028,7 +1063,8 @@ fun NetflixHomeContent(
                                         trailerEnabled = rowTrailerEnabled,
                                         scalePercent = (rowScale * 100f).roundToInt(),
                                         canExpandFolders = false,
-                                        foldersExpanded = false
+                                        foldersExpanded = false,
+                                        locked = uiState.homeRailCustomizations[rail.orderKey]?.locked == true
                                     )
                                     true
                                 }
@@ -1095,7 +1131,8 @@ fun NetflixHomeContent(
                                     trailerEnabled = tabRowTrailers[rail.orderKey] == true,
                                     scalePercent = ((tabRowScales[rail.orderKey] ?: 1f) * 100f).roundToInt(),
                                     canExpandFolders = hasExpandableFolders,
-                                    foldersExpanded = rail.collection.id in expandedCollectionIds
+                                    foldersExpanded = rail.collection.id in expandedCollectionIds,
+                                    locked = uiState.homeRailCustomizations[rail.orderKey]?.locked == true
                                 )
                                 true
                             }
@@ -1153,6 +1190,11 @@ fun NetflixHomeContent(
                         onCollectionExpandedToggle(collectionId, next)
                         railCustomizationTarget = target.copy(foldersExpanded = next)
                     }
+                },
+                onLockedToggle = {
+                    val next = !target.locked
+                    onRailLockedToggle(target.orderKey, next)
+                    railCustomizationTarget = target.copy(locked = next)
                 }
             )
         }
@@ -1234,7 +1276,8 @@ private data class NetflixRailCustomizationTarget(
     val trailerEnabled: Boolean,
     val scalePercent: Int,
     val canExpandFolders: Boolean,
-    val foldersExpanded: Boolean
+    val foldersExpanded: Boolean,
+    val locked: Boolean
 )
 
 @Composable
@@ -1246,7 +1289,8 @@ private fun NetflixRailCustomizationPanel(
     onPosterGrowToggle: () -> Unit,
     onTrailerToggle: () -> Unit,
     onTextPillsToggle: () -> Unit,
-    onExpandFoldersToggle: () -> Unit
+    onExpandFoldersToggle: () -> Unit,
+    onLockedToggle: () -> Unit
 ) {
     val firstControlRequester = remember { FocusRequester() }
     LaunchedEffect(target.orderKey) {
@@ -1299,6 +1343,11 @@ private fun NetflixRailCustomizationPanel(
                     text = stringResource(R.string.home_customize_rail_hint),
                     color = NetflixThemeChrome.textSecondary,
                     style = MaterialTheme.typography.bodySmall
+                )
+                NetflixRailEditorButton(
+                    label = stringResource(R.string.home_customize_lock_rail),
+                    selected = target.locked,
+                    onClick = onLockedToggle
                 )
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -1413,6 +1462,26 @@ private sealed interface NetflixHomeRail {
     ) : NetflixHomeRail {
         override val railKey: String = "collection_${collection.id}"
         override val orderKey: String = railKey
+    }
+}
+
+private fun shuffleUnlockedHomeRails(
+    rails: List<NetflixHomeRail>,
+    lockedKeys: Set<String>,
+    seed: String
+): List<NetflixHomeRail> {
+    val unlocked = rails.filter { it.orderKey !in lockedKeys }.toMutableList()
+    if (unlocked.size <= 1) return rails
+    val random = hashSeed(seed)
+    for (index in unlocked.lastIndex downTo 1) {
+        val swapIndex = (random() * (index + 1)).toInt().coerceIn(0, index)
+        val item = unlocked[index]
+        unlocked[index] = unlocked[swapIndex]
+        unlocked[swapIndex] = item
+    }
+    var next = 0
+    return rails.map { rail ->
+        if (rail.orderKey in lockedKeys) rail else unlocked[next++]
     }
 }
 

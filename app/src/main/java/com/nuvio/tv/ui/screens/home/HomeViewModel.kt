@@ -211,6 +211,14 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    fun updateHomeRailLocked(orderKey: String, locked: Boolean) {
+        viewModelScope.launch {
+            layoutPreferenceDataStore.updateHomeRailCustomization(orderKey) {
+                it.copy(locked = locked)
+            }
+        }
+    }
+
     fun updateActiveViewPackRailTextPills(orderKey: String, enabled: Boolean) {
         // Text-pill conversion remains a Studio/template concern until the
         // dynamic home renderer has a first-class pill rail for arbitrary hubs.

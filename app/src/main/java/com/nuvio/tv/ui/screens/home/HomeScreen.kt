@@ -711,6 +711,9 @@ private fun ModernHomeRoute(
             onRailTrailerToggle = remember(viewModel) {
                 { orderKey, enabled -> viewModel.updateActiveViewPackRailTrailer(orderKey, enabled) }
             },
+            onRailLockedToggle = remember(viewModel) {
+                { orderKey, locked -> viewModel.updateHomeRailLocked(orderKey, locked) }
+            },
             onCollectionExpandedToggle = remember(viewModel) {
                 { collectionId, expanded -> viewModel.setActiveViewPackCollectionExpanded(collectionId, expanded) }
             },
