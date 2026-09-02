@@ -1210,6 +1210,7 @@ private fun ViewPackImportCard(
     onRailTrailerToggle: (String, Boolean) -> Unit,
     onFocused: () -> Unit
 ) {
+    val active = packName != null
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1219,49 +1220,52 @@ private fun ViewPackImportCard(
         verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.sm)
     ) {
         Text(
-            text = stringResource(R.string.layout_view_pack_import_title),
+            text = stringResource(R.string.layout_view_pack_customization_title),
             style = MaterialTheme.typography.titleMedium,
             color = NuvioTheme.colors.TextPrimary
         )
         Text(
-            text = if (packName != null) {
-                stringResource(R.string.layout_view_pack_active, packName)
-            } else {
-                stringResource(R.string.layout_view_pack_import_sub)
-            },
+            text = stringResource(R.string.layout_view_pack_customization_sub),
             style = MaterialTheme.typography.bodySmall,
             color = NuvioTheme.colors.TextSecondary
         )
-        if (packName != null && rotateEnabled) {
-            Text(
-                text = stringResource(R.string.layout_view_pack_rotate_on),
-                style = MaterialTheme.typography.bodySmall,
-                color = NuvioTheme.colors.TextTertiary
-            )
-        }
+
+        ViewPackSectionLabel(text = stringResource(R.string.layout_view_pack_source_title))
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.sm)
         ) {
-            Button(
-                onClick = onImport,
-                modifier = Modifier
-                    .weight(1f)
-                    .focusRequester(importFocusRequester)
-                    .onFocusChanged { if (it.isFocused) onFocused() }
-            ) {
-                Text(text = stringResource(R.string.layout_view_pack_import_clipboard))
-            }
-            Button(
+            ViewPackSourceAction(
+                title = stringResource(R.string.layout_view_pack_create_from_home),
+                subtitle = stringResource(R.string.layout_view_pack_create_from_home_sub),
+                icon = Icons.Default.Tune,
+                primary = true,
                 onClick = onCreateFromHome,
                 modifier = Modifier
                     .weight(1f)
-                    .onFocusChanged { if (it.isFocused) onFocused() }
-            ) {
-                Text(text = stringResource(R.string.layout_view_pack_create_from_home))
-            }
+                    .focusRequester(importFocusRequester),
+                onFocused = onFocused
+            )
+            ViewPackSourceAction(
+                title = stringResource(R.string.layout_view_pack_import_clipboard),
+                subtitle = stringResource(R.string.layout_view_pack_import_sub),
+                icon = Icons.Default.Image,
+                primary = false,
+                onClick = onImport,
+                modifier = Modifier.weight(1f),
+                onFocused = onFocused
+            )
         }
-        if (packName != null) {
+
+        if (active) {
+            ViewPackActiveSummary(
+                packName = packName.orEmpty(),
+                rowCount = rails.size,
+                rotateEnabled = rotateEnabled
+            )
+        }
+
+        if (active) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.sm)
@@ -1286,7 +1290,7 @@ private fun ViewPackImportCard(
                 }
             }
         }
-        if (packName != null) {
+        if (active) {
             ViewPackInlineEditor(
                 showFocusedInfo = showFocusedInfo,
                 catalogScalePercent = catalogScalePercent,
@@ -1303,6 +1307,129 @@ private fun ViewPackImportCard(
                 onRailPosterGrowToggle = onRailPosterGrowToggle,
                 onRailTrailerToggle = onRailTrailerToggle,
                 onFocused = onFocused
+            )
+        }
+    }
+}
+
+@Composable
+private fun ViewPackSectionLabel(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelLarge,
+        color = NuvioTheme.colors.TextSecondary
+    )
+}
+
+@Composable
+private fun ViewPackSourceAction(
+    title: String,
+    subtitle: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    primary: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    onFocused: () -> Unit
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    Card(
+        onClick = onClick,
+        modifier = modifier
+            .heightIn(min = 112.dp)
+            .onFocusChanged { state ->
+                isFocused = state.isFocused
+                if (state.isFocused) onFocused()
+            },
+        colors = CardDefaults.colors(
+            containerColor = if (primary) {
+                NuvioTheme.colors.FocusRing.copy(alpha = 0.18f)
+            } else {
+                NuvioTheme.colors.Background.copy(alpha = 0.74f)
+            },
+            focusedContainerColor = NuvioTheme.colors.BackgroundCard
+        ),
+        border = CardDefaults.border(
+            border = Border(
+                border = BorderStroke(
+                    NuvioTheme.spacing.hairline,
+                    if (primary) NuvioTheme.colors.FocusRing.copy(alpha = 0.52f) else NuvioTheme.colors.Border
+                ),
+                shape = RoundedCornerShape(12.dp)
+            ),
+            focusedBorder = Border(
+                border = BorderStroke(NuvioTheme.spacing.xxs, NuvioTheme.colors.FocusRing),
+                shape = RoundedCornerShape(12.dp)
+            )
+        ),
+        shape = CardDefaults.shape(RoundedCornerShape(12.dp)),
+        scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(NuvioTheme.spacing.sm),
+            verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.xs)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.sm)
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = if (primary || isFocused) NuvioTheme.colors.TextPrimary else NuvioTheme.colors.TextSecondary,
+                    modifier = Modifier.size(20.dp)
+                )
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = NuvioTheme.colors.TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (isFocused) NuvioTheme.colors.TextSecondary else NuvioTheme.colors.TextTertiary,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun ViewPackActiveSummary(
+    packName: String,
+    rowCount: Int,
+    rotateEnabled: Boolean
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(NuvioTheme.colors.Background.copy(alpha = 0.64f))
+            .padding(NuvioTheme.spacing.sm),
+        verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.xs)
+    ) {
+        Text(
+            text = stringResource(R.string.layout_view_pack_active, packName),
+            style = MaterialTheme.typography.titleSmall,
+            color = NuvioTheme.colors.TextPrimary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            text = stringResource(R.string.layout_view_pack_row_count, rowCount),
+            style = MaterialTheme.typography.bodySmall,
+            color = NuvioTheme.colors.TextSecondary
+        )
+        if (rotateEnabled) {
+            Text(
+                text = stringResource(R.string.layout_view_pack_rotate_on),
+                style = MaterialTheme.typography.bodySmall,
+                color = NuvioTheme.colors.TextTertiary
             )
         }
     }
@@ -1328,10 +1455,11 @@ private fun ViewPackInlineEditor(
 ) {
     Spacer(modifier = Modifier.height(NuvioTheme.spacing.sm))
     Text(
-        text = stringResource(R.string.layout_view_pack_editor_title),
+        text = stringResource(R.string.layout_view_pack_style_title),
         style = MaterialTheme.typography.titleMedium,
         color = NuvioTheme.colors.TextPrimary
     )
+    ViewPackSectionLabel(text = stringResource(R.string.layout_view_pack_global_title))
     CompactToggleRow(
         title = stringResource(R.string.layout_view_pack_focused_info),
         subtitle = stringResource(R.string.layout_view_pack_focused_info_sub),

@@ -900,13 +900,20 @@
     <string name="layout_section_view_pack">Studio View Pack</string>
     <string name="layout_section_view_pack_desc">Paste a Reframe Studio export to redesign home rail order.</string>
     <string name="layout_view_pack_import_title">Import Studio view</string>
-    <string name="layout_view_pack_import_sub">Copy an Install / Publish HTTPS link or .view.json from Reframe Studio, then press Import. Also accepts nuvio://viewpack?url=… deep links. File: current.view.json in app files also auto-imports.</string>
+    <string name="layout_view_pack_customization_title">Home customization</string>
+    <string name="layout_view_pack_customization_sub">Use your current Nuvio home as an editable pack, or import one from Reframe Studio.</string>
+    <string name="layout_view_pack_source_title">Source</string>
+    <string name="layout_view_pack_style_title">Style</string>
+    <string name="layout_view_pack_global_title">Global</string>
+    <string name="layout_view_pack_import_sub">Import a Reframe Studio link or .view.json from the clipboard.</string>
     <string name="layout_view_pack_installing">Installing Studio view…</string>
     <string name="layout_view_pack_none">No view pack — home uses your catalog order.</string>
     <string name="layout_view_pack_active">Using “%1$s”</string>
+    <string name="layout_view_pack_row_count">Editable rows: %1$d</string>
     <string name="layout_view_pack_rotate_on">Unlocked rails rotate every 12+ hours.</string>
     <string name="layout_view_pack_import_clipboard">Import</string>
     <string name="layout_view_pack_create_from_home">Create from Nuvio</string>
+    <string name="layout_view_pack_create_from_home_sub">Snapshot this profile and expand collection folders into real rails.</string>
     <string name="layout_view_pack_reshuffle_now">Reshuffle</string>
     <string name="layout_view_pack_clear">Remove</string>
     <string name="layout_view_pack_clipboard_empty">Clipboard is empty. Copy a Publish HTTPS link or .view.json first.</string>
