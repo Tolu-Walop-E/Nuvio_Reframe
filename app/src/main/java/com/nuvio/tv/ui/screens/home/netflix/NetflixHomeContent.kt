@@ -3,19 +3,26 @@ package com.nuvio.tv.ui.screens.home.netflix
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -28,12 +35,22 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.tv.material3.Border
+import androidx.tv.material3.Button
+import androidx.tv.material3.Card
+import androidx.tv.material3.CardDefaults
+import androidx.tv.material3.Icon
+import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import com.nuvio.tv.R
 import com.nuvio.tv.core.sync.GENRE_ROW_TARGET_CATALOG
@@ -60,6 +77,7 @@ import android.util.Log
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 private const val NETFLIX_TRAILER_LOG = "NetflixTrailer"
 
@@ -91,6 +109,12 @@ fun NetflixHomeContent(
     onRequestLazyCatalogLoad: (String) -> Unit = {},
     netflixFolderRails: Map<String, com.nuvio.tv.domain.model.CatalogRow> = emptyMap(),
     onEnsureFolderRails: (List<NetflixFolderRailRequest>) -> Unit = {},
+    onRailScaleChange: (String, Int) -> Unit = { _, _ -> },
+    onRailTextPillsToggle: (String, Boolean) -> Unit = { _, _ -> },
+    onRailFocusedInfoToggle: (String, Boolean) -> Unit = { _, _ -> },
+    onRailPosterGrowToggle: (String, Boolean) -> Unit = { _, _ -> },
+    onRailTrailerToggle: (String, Boolean) -> Unit = { _, _ -> },
+    onCollectionExpandedToggle: (String, Boolean) -> Unit = { _, _ -> },
     selectedContentTab: NetflixContentTab = NetflixContentTab.HOME,
     onContentTabChanged: (NetflixContentTab) -> Unit = {}
 ) {
@@ -137,6 +161,7 @@ fun NetflixHomeContent(
     var heroActionFocused by remember { mutableStateOf(false) }
     var topNavFocused by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableStateOf(selectedContentTab) }
+    var railCustomizationTarget by remember { mutableStateOf<NetflixRailCustomizationTarget?>(null) }
     var lastContentRailKey by remember {
         mutableStateOf(seededFocusRailKey)
     }
@@ -919,6 +944,27 @@ fun NetflixHomeContent(
                             onFirstCardRequesterReady = registerRequester,
                             onMoveUp = moveUp,
                             onMoveDown = moveDown,
+                            onFirstItemMoveLeft = {
+                                if (!uiState.viewPackCustomizationModeEnabled || !packActiveForTab) {
+                                    false
+                                } else {
+                                    railCustomizationTarget = NetflixRailCustomizationTarget(
+                                        orderKey = rail.orderKey,
+                                        title = row.catalogName.replaceFirstChar { it.uppercase() },
+                                        isCollection = false,
+                                        collectionId = null,
+                                        canBecomeTextPills = false,
+                                        isTextPills = false,
+                                        showFocusedInfo = packShowMeta == true,
+                                        posterGrow = packPosterGrow,
+                                        trailerEnabled = packTrailer,
+                                        scalePercent = ((tabRowScales[rail.orderKey] ?: 1f) * 100f).roundToInt(),
+                                        canExpandFolders = false,
+                                        foldersExpanded = false
+                                    )
+                                    true
+                                }
+                            },
                             posterLabelsEnabled = if (packActiveForTab) {
                                 packShowMeta == true
                             } else {
@@ -966,6 +1012,30 @@ fun NetflixHomeContent(
                         onFirstCardRequesterReady = registerRequester,
                         onMoveUp = moveUp,
                         onMoveDown = moveDown,
+                        onFirstItemMoveLeft = {
+                            if (!uiState.viewPackCustomizationModeEnabled || !packActiveForTab) {
+                                false
+                            } else {
+                                val folderKeys = rail.collection.folders.map {
+                                    com.nuvio.tv.core.viewpack.packFolderOrderKey(rail.collection.id, it.id)
+                                }
+                                railCustomizationTarget = NetflixRailCustomizationTarget(
+                                    orderKey = rail.orderKey,
+                                    title = rail.collection.title,
+                                    isCollection = true,
+                                    collectionId = rail.collection.id,
+                                    canBecomeTextPills = true,
+                                    isTextPills = false,
+                                    showFocusedInfo = tabRowShowLabels[rail.orderKey] == true,
+                                    posterGrow = tabRowPosterGrow[rail.orderKey] != false,
+                                    trailerEnabled = tabRowTrailers[rail.orderKey] == true,
+                                    scalePercent = ((tabRowScales[rail.orderKey] ?: 1f) * 100f).roundToInt(),
+                                    canExpandFolders = folderKeys.isNotEmpty(),
+                                    foldersExpanded = folderKeys.any { it in uiState.viewPackOrderKeys }
+                                )
+                                true
+                            }
+                        },
                         landscapeScale = if (packActiveForTab) {
                             tabCollectionLandscapeScale
                         } else {
@@ -985,6 +1055,45 @@ fun NetflixHomeContent(
             }
             } // LazyColumn
             } // else !skeleton
+        }
+
+        railCustomizationTarget?.let { target ->
+            NetflixRailCustomizationPanel(
+                target = target,
+                onDismiss = { railCustomizationTarget = null },
+                onScaleChange = { percent ->
+                    onRailScaleChange(target.orderKey, percent)
+                    railCustomizationTarget = target.copy(scalePercent = percent)
+                },
+                onFocusedInfoToggle = {
+                    val next = !target.showFocusedInfo
+                    onRailFocusedInfoToggle(target.orderKey, next)
+                    railCustomizationTarget = target.copy(showFocusedInfo = next)
+                },
+                onPosterGrowToggle = {
+                    val next = !target.posterGrow
+                    onRailPosterGrowToggle(target.orderKey, next)
+                    railCustomizationTarget = target.copy(posterGrow = next)
+                },
+                onTrailerToggle = {
+                    val next = !target.trailerEnabled
+                    onRailTrailerToggle(target.orderKey, next)
+                    railCustomizationTarget = target.copy(trailerEnabled = next)
+                },
+                onTextPillsToggle = {
+                    val next = !target.isTextPills
+                    onRailTextPillsToggle(target.orderKey, next)
+                    railCustomizationTarget = target.copy(isTextPills = next)
+                },
+                onExpandFoldersToggle = {
+                    val collectionId = target.collectionId
+                    if (collectionId != null) {
+                        val next = !target.foldersExpanded
+                        onCollectionExpandedToggle(collectionId, next)
+                        railCustomizationTarget = target.copy(foldersExpanded = next)
+                    }
+                }
+            )
         }
 
         val optionsItem = continueWatchingOptionsItem
@@ -1049,6 +1158,148 @@ fun NetflixHomeContent(
                 }
             )
         }
+    }
+}
+
+private data class NetflixRailCustomizationTarget(
+    val orderKey: String,
+    val title: String,
+    val isCollection: Boolean,
+    val collectionId: String?,
+    val canBecomeTextPills: Boolean,
+    val isTextPills: Boolean,
+    val showFocusedInfo: Boolean,
+    val posterGrow: Boolean,
+    val trailerEnabled: Boolean,
+    val scalePercent: Int,
+    val canExpandFolders: Boolean,
+    val foldersExpanded: Boolean
+)
+
+@Composable
+private fun NetflixRailCustomizationPanel(
+    target: NetflixRailCustomizationTarget,
+    onDismiss: () -> Unit,
+    onScaleChange: (Int) -> Unit,
+    onFocusedInfoToggle: () -> Unit,
+    onPosterGrowToggle: () -> Unit,
+    onTrailerToggle: () -> Unit,
+    onTextPillsToggle: () -> Unit,
+    onExpandFoldersToggle: () -> Unit
+) {
+    BackHandler(onBack = onDismiss)
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.28f))
+            .padding(horizontal = NetflixHomeTokens.PageHorizontalPadding, vertical = 84.dp),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        Card(
+            onClick = {},
+            modifier = Modifier.widthIn(min = 420.dp, max = 520.dp),
+            colors = CardDefaults.colors(
+                containerColor = NetflixThemeChrome.background.copy(alpha = 0.96f),
+                focusedContainerColor = NetflixThemeChrome.background.copy(alpha = 0.96f)
+            ),
+            border = CardDefaults.border(
+                border = Border(
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.18f)),
+                    shape = RoundedCornerShape(14.dp)
+                ),
+                focusedBorder = Border(
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.18f)),
+                    shape = RoundedCornerShape(14.dp)
+                )
+            ),
+            shape = CardDefaults.shape(RoundedCornerShape(14.dp)),
+            scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
+        ) {
+            Column(
+                modifier = Modifier.padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = target.title,
+                    color = NetflixThemeChrome.textPrimary,
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = stringResource(R.string.home_customize_rail_hint),
+                    color = NetflixThemeChrome.textSecondary,
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Button(onClick = { onScaleChange((target.scalePercent - 5).coerceAtLeast(55)) }) {
+                        Icon(Icons.Default.Remove, contentDescription = null)
+                    }
+                    Text(
+                        text = stringResource(R.string.home_customize_rail_size, target.scalePercent),
+                        color = NetflixThemeChrome.textPrimary,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Button(onClick = { onScaleChange((target.scalePercent + 5).coerceAtMost(250)) }) {
+                        Icon(Icons.Default.Add, contentDescription = null)
+                    }
+                }
+                NetflixRailEditorButton(
+                    label = stringResource(R.string.home_customize_tile_detail),
+                    selected = target.showFocusedInfo,
+                    onClick = onFocusedInfoToggle
+                )
+                NetflixRailEditorButton(
+                    label = stringResource(R.string.home_customize_focus_grow),
+                    selected = target.posterGrow,
+                    onClick = onPosterGrowToggle
+                )
+                NetflixRailEditorButton(
+                    label = stringResource(R.string.home_customize_trailers),
+                    selected = target.trailerEnabled,
+                    onClick = onTrailerToggle
+                )
+                if (target.canBecomeTextPills) {
+                    NetflixRailEditorButton(
+                        label = stringResource(R.string.home_customize_text_pills),
+                        selected = target.isTextPills,
+                        onClick = onTextPillsToggle
+                    )
+                }
+                if (target.canExpandFolders) {
+                    NetflixRailEditorButton(
+                        label = stringResource(R.string.home_customize_expand_folders),
+                        selected = target.foldersExpanded,
+                        onClick = onExpandFoldersToggle
+                    )
+                }
+                Button(onClick = onDismiss) {
+                    Text(text = stringResource(R.string.action_done))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NetflixRailEditorButton(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Button(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = if (selected) {
+                stringResource(R.string.home_customize_enabled, label)
+            } else {
+                stringResource(R.string.home_customize_disabled, label)
+            },
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 

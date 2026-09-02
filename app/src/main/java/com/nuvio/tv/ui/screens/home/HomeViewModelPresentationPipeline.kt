@@ -54,6 +54,13 @@ private data class FocusedBackdropPrefs(
     val trailerStartDelayMs: Int
 )
 
+private data class PosterCardPrefs(
+    val widthDp: Int,
+    val heightDp: Int,
+    val cornerRadiusDp: Int,
+    val customizationModeEnabled: Boolean
+)
+
 private data class LayoutUiPrefs(
     val layout: HomeLayout,
     val heroCatalogKeys: List<String>,
@@ -74,7 +81,8 @@ private data class LayoutUiPrefs(
     val trailerStartDelayMs: Int,
     val posterCardWidthDp: Int,
     val posterCardHeightDp: Int,
-    val posterCardCornerRadiusDp: Int
+    val posterCardCornerRadiusDp: Int,
+    val viewPackCustomizationModeEnabled: Boolean
 )
 
 @OptIn(FlowPreview::class)
@@ -145,13 +153,25 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
         landscapePosters to fullScreenBackdrop
     }
 
+    val posterCardPrefsFlow = combine(
+        layoutPreferenceDataStore.posterCardWidthDp,
+        layoutPreferenceDataStore.posterCardHeightDp,
+        layoutPreferenceDataStore.posterCardCornerRadiusDp,
+        layoutPreferenceDataStore.viewPackCustomizationModeEnabled
+    ) { widthDp, heightDp, cornerRadiusDp, customizationModeEnabled ->
+        PosterCardPrefs(
+            widthDp = widthDp,
+            heightDp = heightDp,
+            cornerRadiusDp = cornerRadiusDp,
+            customizationModeEnabled = customizationModeEnabled
+        )
+    }
+
     val baseLayoutUiPrefsFlow = combine(
         coreLayoutPrefsFlow,
         focusedBackdropPrefsFlow,
-        layoutPreferenceDataStore.posterCardWidthDp,
-        layoutPreferenceDataStore.posterCardHeightDp,
-        layoutPreferenceDataStore.posterCardCornerRadiusDp
-    ) { corePrefs, focusedBackdropPrefs, posterCardWidthDp, posterCardHeightDp, posterCardCornerRadiusDp ->
+        posterCardPrefsFlow
+    ) { corePrefs, focusedBackdropPrefs, posterCardPrefs ->
         LayoutUiPrefs(
             layout = corePrefs.layout,
             heroCatalogKeys = corePrefs.heroCatalogKeys,
@@ -171,9 +191,10 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
             focusedBackdropTrailerMuted = focusedBackdropPrefs.trailerMuted,
             focusedBackdropTrailerPlaybackTarget = focusedBackdropPrefs.trailerPlaybackTarget,
             trailerStartDelayMs = focusedBackdropPrefs.trailerStartDelayMs,
-            posterCardWidthDp = posterCardWidthDp,
-            posterCardHeightDp = posterCardHeightDp,
-            posterCardCornerRadiusDp = posterCardCornerRadiusDp
+            posterCardWidthDp = posterCardPrefs.widthDp,
+            posterCardHeightDp = posterCardPrefs.heightDp,
+            posterCardCornerRadiusDp = posterCardPrefs.cornerRadiusDp,
+            viewPackCustomizationModeEnabled = posterCardPrefs.customizationModeEnabled
         )
     }
 
@@ -239,7 +260,8 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
                         trailerStartDelayMs = prefs.trailerStartDelayMs,
                         posterCardWidthDp = prefs.posterCardWidthDp,
                         posterCardHeightDp = prefs.posterCardHeightDp,
-                        posterCardCornerRadiusDp = prefs.posterCardCornerRadiusDp
+                        posterCardCornerRadiusDp = prefs.posterCardCornerRadiusDp,
+                        viewPackCustomizationModeEnabled = prefs.viewPackCustomizationModeEnabled
                     )
                 }
                 if (shouldRefreshCatalogPresentation) {

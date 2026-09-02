@@ -96,6 +96,7 @@ internal fun NetflixContinueWatchingRail(
     onFirstCardRequesterReady: (FocusRequester) -> Unit,
     onMoveUp: () -> Boolean,
     onMoveDown: () -> Boolean,
+    onFirstItemMoveLeft: () -> Boolean = { false },
     /** Pack-global rail heading text scale (1 = Netflix default). */
     titleScale: Float = 1f,
     modifier: Modifier = Modifier
@@ -209,6 +210,7 @@ internal fun NetflixCatalogRail(
     onFirstCardRequesterReady: (FocusRequester) -> Unit,
     onMoveUp: () -> Boolean,
     onMoveDown: () -> Boolean,
+    onFirstItemMoveLeft: () -> Boolean = { false },
     posterLabelsEnabled: Boolean,
     /** Pack-driven card size multiplier against Netflix catalogue geometry. */
     railScale: Float = 1f,
@@ -282,7 +284,8 @@ internal fun NetflixCatalogRail(
         onPendingFocusConsumed = onPendingFocusConsumed,
         onFirstCardRequesterReady = onFirstCardRequesterReady,
         modifier = modifier,
-        titleScale = titleScale
+        titleScale = titleScale,
+        onFirstItemMoveLeft = onFirstItemMoveLeft
     ) { rowState, focusedIndex, onCardFocused, onMoveLeft, onMoveRight, railHasFocus ->
         val context = LocalContext.current
         val imageLoader = context.imageLoader
@@ -504,6 +507,7 @@ internal fun NetflixRailScaffold(
     onFirstCardRequesterReady: (FocusRequester) -> Unit,
     modifier: Modifier = Modifier,
     titleScale: Float = 1f,
+    onFirstItemMoveLeft: () -> Boolean = { false },
     content: @Composable (
         LazyListState,
         Int,
@@ -572,12 +576,18 @@ internal fun NetflixRailScaffold(
     val moveLeft = {
         if (itemRequesters.isNotEmpty()) {
             val from = pendingIndex ?: focusedIndex
-            val next = (from - 1).coerceAtLeast(0)
-            if (next != from) {
-                pendingIndex = next
+            if (from <= 0 && onFirstItemMoveLeft()) {
+                true
+            } else {
+                val next = (from - 1).coerceAtLeast(0)
+                if (next != from) {
+                    pendingIndex = next
+                }
+                true
             }
+        } else {
+            true
         }
-        true
     }
     val moveRight = {
         if (itemRequesters.isNotEmpty()) {

@@ -102,7 +102,7 @@ data class LayoutSettingsUiState(
     val activeViewPackCatalogScalePercent: Int = 100,
     val activeViewPackLandscapeScalePercent: Int = 100,
     val activeViewPackTitleScalePercent: Int = 100,
-    val activeViewPackRails: List<ViewPackRailEditorItem> = emptyList(),
+    val viewPackCustomizationModeEnabled: Boolean = false,
     val viewPackMessage: String? = null
 )
 
@@ -177,6 +177,7 @@ sealed class LayoutSettingsEvent {
     data object CreateViewPackFromCurrentHome : LayoutSettingsEvent()
     data object ClearActiveViewPack : LayoutSettingsEvent()
     data object ForceReshuffleViewPack : LayoutSettingsEvent()
+    data class SetViewPackCustomizationModeEnabled(val enabled: Boolean) : LayoutSettingsEvent()
     data class SetViewPackFocusedInfo(val enabled: Boolean) : LayoutSettingsEvent()
     data class SetViewPackCatalogScalePercent(val percent: Int) : LayoutSettingsEvent()
     data class SetViewPackLandscapeScalePercent(val percent: Int) : LayoutSettingsEvent()
@@ -422,6 +423,13 @@ class LayoutSettingsViewModel @Inject constructor(
                 }
         }
         viewModelScope.launch {
+            layoutPreferenceDataStore.viewPackCustomizationModeEnabled
+                .distinctUntilChanged()
+                .collectLatest { enabled ->
+                    updateUiStateIfChanged { it.copy(viewPackCustomizationModeEnabled = enabled) }
+                }
+        }
+        viewModelScope.launch {
             layoutPreferenceDataStore.activeViewPackJson
                 .distinctUntilChanged()
                 .collectLatest { json ->
@@ -433,8 +441,7 @@ class LayoutSettingsViewModel @Inject constructor(
                                 activeViewPackShowFocusedInfo = false,
                                 activeViewPackCatalogScalePercent = 100,
                                 activeViewPackLandscapeScalePercent = 100,
-                                activeViewPackTitleScalePercent = 100,
-                                activeViewPackRails = emptyList()
+                                activeViewPackTitleScalePercent = 100
                             )
                         }
                         return@collectLatest
@@ -448,8 +455,7 @@ class LayoutSettingsViewModel @Inject constructor(
                                 activeViewPackShowFocusedInfo = pack.showFocusedPosterInfo,
                                 activeViewPackCatalogScalePercent = scaleToPercent(pack.catalogPosterScale),
                                 activeViewPackLandscapeScalePercent = scaleToPercent(pack.collectionLandscapeScale),
-                                activeViewPackTitleScalePercent = scaleToPercent(pack.collectionTitleScale),
-                                activeViewPackRails = pack.toRailEditorItems()
+                                activeViewPackTitleScalePercent = scaleToPercent(pack.collectionTitleScale)
                             )
                         }
                     } catch (_: Exception) {
@@ -460,8 +466,7 @@ class LayoutSettingsViewModel @Inject constructor(
                                 activeViewPackShowFocusedInfo = false,
                                 activeViewPackCatalogScalePercent = 100,
                                 activeViewPackLandscapeScalePercent = 100,
-                                activeViewPackTitleScalePercent = 100,
-                                activeViewPackRails = emptyList()
+                                activeViewPackTitleScalePercent = 100
                             )
                         }
                     }
@@ -520,6 +525,7 @@ class LayoutSettingsViewModel @Inject constructor(
             LayoutSettingsEvent.CreateViewPackFromCurrentHome -> createViewPackFromCurrentHome()
             LayoutSettingsEvent.ClearActiveViewPack -> clearActiveViewPack()
             LayoutSettingsEvent.ForceReshuffleViewPack -> forceReshuffleViewPack()
+            is LayoutSettingsEvent.SetViewPackCustomizationModeEnabled -> setViewPackCustomizationModeEnabled(event.enabled)
             is LayoutSettingsEvent.SetViewPackFocusedInfo -> updateActiveViewPack { pack ->
                 pack.withFocusedInfoPreservingRailHeights(event.enabled)
             }
@@ -632,6 +638,13 @@ class LayoutSettingsViewModel @Inject constructor(
                     )
                 }
             }
+        }
+    }
+
+    private fun setViewPackCustomizationModeEnabled(enabled: Boolean) {
+        if (_uiState.value.viewPackCustomizationModeEnabled == enabled) return
+        viewModelScope.launch {
+            layoutPreferenceDataStore.setViewPackCustomizationModeEnabled(enabled)
         }
     }
 

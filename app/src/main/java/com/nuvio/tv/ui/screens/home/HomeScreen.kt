@@ -696,6 +696,24 @@ private fun ModernHomeRoute(
             onEnsureFolderRails = remember(viewModel) {
                 { requests -> viewModel.ensureNetflixFolderRails(requests) }
             },
+            onRailScaleChange = remember(viewModel) {
+                { orderKey, percent -> viewModel.updateActiveViewPackRailScale(orderKey, percent) }
+            },
+            onRailTextPillsToggle = remember(viewModel) {
+                { orderKey, enabled -> viewModel.updateActiveViewPackRailTextPills(orderKey, enabled) }
+            },
+            onRailFocusedInfoToggle = remember(viewModel) {
+                { orderKey, enabled -> viewModel.updateActiveViewPackRailPosterLabels(orderKey, enabled) }
+            },
+            onRailPosterGrowToggle = remember(viewModel) {
+                { orderKey, enabled -> viewModel.updateActiveViewPackRailPosterGrow(orderKey, enabled) }
+            },
+            onRailTrailerToggle = remember(viewModel) {
+                { orderKey, enabled -> viewModel.updateActiveViewPackRailTrailer(orderKey, enabled) }
+            },
+            onCollectionExpandedToggle = remember(viewModel) {
+                { collectionId, expanded -> viewModel.setActiveViewPackCollectionExpanded(collectionId, expanded) }
+            },
             selectedContentTab = remember(netflixContentTab) {
                 runCatching { NetflixContentTab.valueOf(netflixContentTab) }
                     .getOrDefault(NetflixContentTab.HOME)

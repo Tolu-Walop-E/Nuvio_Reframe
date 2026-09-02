@@ -78,6 +78,8 @@ data class HomeUiState(
     val collections: List<Collection> = emptyList(),
     /** Active Studio view pack name when imported; null = default catalog order. */
     val activeViewPackName: String? = null,
+    /** Enables first-card Left rail editing on Netflix home. */
+    val viewPackCustomizationModeEnabled: Boolean = false,
     val activeViewPackRotateEnabled: Boolean = false,
     /** Home-tab pack rail order (excludes nested Movies/Shows extras). */
     val viewPackOrderKeys: List<String> = emptyList(),

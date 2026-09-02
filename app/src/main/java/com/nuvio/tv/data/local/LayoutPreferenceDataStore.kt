@@ -117,6 +117,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     private val followAddonsOrderKey = booleanPreferencesKey("follow_addons_order")
     private val composeHighlighterEnabledKey = booleanPreferencesKey("compose_highlighter_enabled")
     private val activeViewPackJsonKey = stringPreferencesKey("active_view_pack_json")
+    private val viewPackCustomizationModeEnabledKey = booleanPreferencesKey("view_pack_customization_mode_enabled")
     private val viewPackShuffleSeedKey = stringPreferencesKey("view_pack_shuffle_seed")
     private val viewPackLastShuffleAtKey = longPreferencesKey("view_pack_last_shuffle_at")
 
@@ -410,6 +411,10 @@ class LayoutPreferenceDataStore @Inject constructor(
         prefs[activeViewPackJsonKey]?.trim()?.takeIf { it.isNotEmpty() }
     }.distinctUntilChanged()
 
+    val viewPackCustomizationModeEnabled: Flow<Boolean> = profileFlow { prefs ->
+        prefs[viewPackCustomizationModeEnabledKey] ?: false
+    }.distinctUntilChanged()
+
     /** Rail rotation bookkeeping, kept out of the pack so sync cannot revert it. */
     val viewPackRotationState: Flow<ViewPackRotationState> = profileFlow { prefs ->
         readViewPackRotationState(prefs)
@@ -485,6 +490,12 @@ class LayoutPreferenceDataStore @Inject constructor(
 
     suspend fun clearActiveViewPack() {
         setActiveViewPackJson(null)
+    }
+
+    suspend fun setViewPackCustomizationModeEnabled(enabled: Boolean) {
+        store().edit { prefs ->
+            prefs[viewPackCustomizationModeEnabledKey] = enabled
+        }
     }
 
     suspend fun setLayout(layout: HomeLayout) {
