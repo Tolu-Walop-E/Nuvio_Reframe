@@ -31,6 +31,7 @@ import kotlinx.coroutines.withContext
 
 /** Soft TTL so a failed YouTube extract on home does not stick forever. */
 private const val TRAILER_PREVIEW_NEGATIVE_CACHE_TTL_MS = 90_000L
+private const val NETFLIX_HOME_DEFAULT_TRAILER_START_DELAY_MS = 1_500
 
 private data class CoreLayoutPrefs(
     val layout: HomeLayout,
@@ -130,7 +131,11 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
         },
         layoutPreferenceDataStore.trailerStartDelayMs
     ) { prefs, trailerStartDelayMs ->
-        prefs.copy(trailerStartDelayMs = trailerStartDelayMs)
+        prefs.copy(
+            trailerStartDelayMs = trailerStartDelayMs
+                .takeIf { it > 0 }
+                ?: NETFLIX_HOME_DEFAULT_TRAILER_START_DELAY_MS
+        )
     }
 
     val modernLayoutPrefsFlow = combine(

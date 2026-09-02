@@ -78,6 +78,8 @@ import kotlin.math.floor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+private const val CATALOG_TRAILER_REQUEST_SETTLE_DELAY_MS = 120L
+
 @Composable
 internal fun NetflixContinueWatchingRail(
     railKey: String,
@@ -318,11 +320,17 @@ internal fun NetflixCatalogRail(
                     height = with(density) { geometry.railHeight.roundToPx().coerceAtLeast(1) }
                 )
             }
-            LaunchedEffect(focusedIndex, row.items, trailerEnabled, railHasFocus, trailerStartDelayMs) {
+            LaunchedEffect(focusedIndex, row.items, trailerEnabled, railHasFocus) {
                 if (!trailerEnabled || !railHasFocus) return@LaunchedEffect
                 val item = row.items.getOrNull(focusedIndex.coerceIn(0, row.items.lastIndex))
                     ?: return@LaunchedEffect
-                kotlinx.coroutines.delay(trailerStartDelayMs.coerceAtLeast(0).toLong())
+                kotlinx.coroutines.delay(CATALOG_TRAILER_REQUEST_SETTLE_DELAY_MS)
+                android.util.Log.i(
+                    "NetflixTrailer",
+                    "rail request trailer id=${item.id} title=${item.name} " +
+                        "requestDelayMs=$CATALOG_TRAILER_REQUEST_SETTLE_DELAY_MS " +
+                        "playDelayMs=$trailerStartDelayMs"
+                )
                 onRequestTrailerPreview(item)
             }
             // Warm the focus artwork for the focused card and its immediate neighbours
