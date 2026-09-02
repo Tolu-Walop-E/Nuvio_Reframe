@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -161,6 +162,21 @@ internal fun NetflixTopNavigation(
                     index = 6,
                     focusRequester = itemFocusRequesters.getOrElse(6) { FocusRequester.Default },
                     selected = selectedIndex == 6,
+                    onItemFocusChanged = ::onItemFocusChanged,
+                    onMoveDown = onMoveDown,
+                    onClick = { routeNavigator?.invoke(Screen.LayoutSettings.route) }
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Tune,
+                        contentDescription = stringResource(R.string.nav_customize),
+                        tint = NetflixThemeChrome.textPrimary,
+                        modifier = Modifier.size(19.dp)
+                    )
+                }
+                NetflixTopIconButton(
+                    index = 7,
+                    focusRequester = itemFocusRequesters.getOrElse(7) { FocusRequester.Default },
+                    selected = selectedIndex == 7,
                     onItemFocusChanged = ::onItemFocusChanged,
                     onMoveDown = onMoveDown,
                     onClick = { routeNavigator?.invoke(Screen.Settings.route) }

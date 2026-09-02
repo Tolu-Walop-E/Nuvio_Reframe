@@ -22,12 +22,16 @@ import com.nuvio.tv.core.viewpack.homeRowScalesFromPack
 import com.nuvio.tv.core.viewpack.normalizePackCardScale
 import com.nuvio.tv.core.viewpack.parseViewPackJson
 import com.nuvio.tv.core.viewpack.serializeViewPackJson
+import com.nuvio.tv.data.local.CollectionsDataStore
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
 import com.nuvio.tv.data.local.StreamBadgeSettingsDataStore
 import com.nuvio.tv.data.local.TraktSettingsDataStore
 import com.nuvio.tv.data.local.TrailerSettingsDataStore
+import com.nuvio.tv.domain.model.Addon
+import com.nuvio.tv.domain.model.AddonCatalogCollectionSource
 import com.nuvio.tv.domain.model.CardDepthStyle
 import com.nuvio.tv.domain.model.CardDepthSurface
+import com.nuvio.tv.domain.model.Collection
 import com.nuvio.tv.domain.model.ContinueWatchingCardStyle
 import com.nuvio.tv.domain.model.ContinueWatchingSortMode
 import com.nuvio.tv.domain.model.DiscoverLocation
@@ -38,6 +42,7 @@ import com.nuvio.tv.domain.model.enabledAddons
 import com.nuvio.tv.domain.repository.AddonRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import com.nuvio.tv.ui.screens.home.shouldShowOnHome
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -169,6 +174,7 @@ sealed class LayoutSettingsEvent {
     data object ResetPosterCardStyle : LayoutSettingsEvent()
     data object ResetCardDepthStyle : LayoutSettingsEvent()
     data object ImportViewPackFromClipboard : LayoutSettingsEvent()
+    data object CreateViewPackFromCurrentHome : LayoutSettingsEvent()
     data object ClearActiveViewPack : LayoutSettingsEvent()
     data object ForceReshuffleViewPack : LayoutSettingsEvent()
     data class SetViewPackFocusedInfo(val enabled: Boolean) : LayoutSettingsEvent()
@@ -187,6 +193,7 @@ sealed class LayoutSettingsEvent {
 class LayoutSettingsViewModel @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val layoutPreferenceDataStore: LayoutPreferenceDataStore,
+    private val collectionsDataStore: CollectionsDataStore,
     private val streamBadgeSettingsDataStore: StreamBadgeSettingsDataStore,
     private val traktSettingsDataStore: TraktSettingsDataStore,
     private val trailerSettingsDataStore: TrailerSettingsDataStore,
@@ -510,6 +517,7 @@ class LayoutSettingsViewModel @Inject constructor(
             LayoutSettingsEvent.ResetPosterCardStyle -> resetPosterCardStyle()
             LayoutSettingsEvent.ResetCardDepthStyle -> resetCardDepthStyle()
             LayoutSettingsEvent.ImportViewPackFromClipboard -> importViewPackFromClipboard()
+            LayoutSettingsEvent.CreateViewPackFromCurrentHome -> createViewPackFromCurrentHome()
             LayoutSettingsEvent.ClearActiveViewPack -> clearActiveViewPack()
             LayoutSettingsEvent.ForceReshuffleViewPack -> forceReshuffleViewPack()
             is LayoutSettingsEvent.SetViewPackFocusedInfo -> updateActiveViewPack { pack ->
@@ -582,6 +590,37 @@ class LayoutSettingsViewModel @Inject constructor(
                             name
                         )
                     )
+                }
+            } catch (e: Exception) {
+                updateUiStateIfChanged {
+                    it.copy(
+                        viewPackMessage = context.getString(
+                            R.string.layout_view_pack_import_failed,
+                            e.message ?: "unknown"
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    private fun createViewPackFromCurrentHome() {
+        viewModelScope.launch {
+            try {
+                val addons = addonRepository.getInstalledAddons().first().enabledAddons()
+                val collections = collectionsDataStore.collections.first()
+                val pack = buildNuvioHomeViewPack(
+                    addons = addons,
+                    collections = collections,
+                    orderedCatalogKeys = layoutPreferenceDataStore.homeCatalogOrderKeys.first(),
+                    disabledCatalogKeys = layoutPreferenceDataStore.disabledHomeCatalogKeys.first().toSet(),
+                    showFocusedInfo = _uiState.value.posterLabelsEnabled
+                )
+                val serialized = serializeViewPackJson(pack)
+                viewPackSyncService.saveActivePack(serialized)
+                    .onFailure { throw it }
+                updateUiStateIfChanged {
+                    it.copy(viewPackMessage = context.getString(R.string.layout_view_pack_created_from_home))
                 }
             } catch (e: Exception) {
                 updateUiStateIfChanged {
@@ -1077,6 +1116,170 @@ class LayoutSettingsViewModel @Inject constructor(
         stopStreamBadgeServer()
         super.onCleared()
     }
+}
+
+private data class LocalViewPackCatalogRail(
+    val key: String,
+    val addonId: String,
+    val type: String,
+    val catalogId: String,
+    val label: String
+)
+
+private fun buildNuvioHomeViewPack(
+    addons: List<Addon>,
+    collections: List<Collection>,
+    orderedCatalogKeys: List<String>,
+    disabledCatalogKeys: Set<String>,
+    showFocusedInfo: Boolean
+): ViewPack {
+    val catalogRails = addons.flatMap { addon ->
+        addon.catalogs
+            .filter { catalog -> catalog.shouldShowOnHome() }
+            .mapNotNull { catalog ->
+                val key = "${addon.id}_${catalog.apiType}_${catalog.id}"
+                if (key in disabledCatalogKeys) return@mapNotNull null
+                LocalViewPackCatalogRail(
+                    key = key,
+                    addonId = addon.id,
+                    type = catalog.apiType,
+                    catalogId = catalog.id,
+                    label = catalog.name.ifBlank { addon.displayName }
+                )
+            }
+    }
+    val catalogsByKey = catalogRails.associateBy { it.key }
+    val collectionKeys = collections.map { "collection_${it.id}" }
+    val availableKeys = catalogsByKey.keys + collectionKeys
+    val orderedKeys = buildList {
+        add("_special_genres")
+        orderedCatalogKeys
+            .asSequence()
+            .filter { it in availableKeys }
+            .distinct()
+            .forEach { add(it) }
+        catalogRails.map { it.key }.filterNot { it in this }.forEach { add(it) }
+        collectionKeys.filterNot { it in this }.forEach { add(it) }
+    }.distinct()
+
+    var nextY = 0
+    fun block(
+        id: String,
+        type: String,
+        dataSource: String,
+        label: String? = null,
+        height: Int = 210,
+        trailer: Boolean = false,
+        locked: Boolean? = null
+    ): ViewBlock {
+        val out = ViewBlock(
+            id = id.toPackBlockId(),
+            type = type,
+            y = nextY,
+            h = height,
+            dataSource = dataSource,
+            label = label,
+            trailer = trailer,
+            locked = locked,
+            posterGrow = true
+        )
+        nextY += height + 24
+        return out
+    }
+
+    val blocks = mutableListOf<ViewBlock>()
+    blocks += block(
+        id = "top-nav",
+        type = "topNav",
+        dataSource = "none",
+        height = 84,
+        locked = true
+    )
+    blocks += block(
+        id = "hero",
+        type = "hero",
+        dataSource = "featured",
+        label = "Featured",
+        height = 360,
+        trailer = showFocusedInfo,
+        locked = true
+    )
+    blocks += block(
+        id = "continue-watching",
+        type = "mediaRail",
+        dataSource = "continueWatching",
+        label = "Continue Watching",
+        locked = true
+    )
+
+    val collectionsByKey = collections.associateBy { "collection_${it.id}" }
+    val addedFolderRails = LinkedHashSet<String>()
+    for (key in orderedKeys) {
+        when {
+            key == "_special_genres" -> {
+                blocks += block(
+                    id = "genres",
+                    type = "genreRail",
+                    dataSource = "genres",
+                    label = "Genres",
+                    height = 96,
+                    locked = true
+                )
+            }
+            key in catalogsByKey -> {
+                val rail = catalogsByKey.getValue(key)
+                blocks += block(
+                    id = "catalog-${rail.key}",
+                    type = "mediaRail",
+                    dataSource = "catalog:${rail.addonId}:${rail.type}:${rail.catalogId}",
+                    label = rail.label,
+                    trailer = showFocusedInfo
+                )
+            }
+            key in collectionsByKey -> {
+                val collection = collectionsByKey.getValue(key)
+                blocks += block(
+                    id = "collection-${collection.id}",
+                    type = "collectionRail",
+                    dataSource = "collection:${collection.id}",
+                    label = collection.title,
+                    trailer = showFocusedInfo
+                )
+                collection.folders.forEach { folder ->
+                    val hasAddonCatalogSource = folder.sources
+                        .filterIsInstance<AddonCatalogCollectionSource>()
+                        .any()
+                    if (!hasAddonCatalogSource) return@forEach
+                    val folderKey = "${collection.id}:${folder.id}"
+                    if (!addedFolderRails.add(folderKey)) return@forEach
+                    blocks += block(
+                        id = "folder-${collection.id}-${folder.id}",
+                        type = "mediaRail",
+                        dataSource = "collection:${collection.id}:folder:${folder.id}",
+                        label = folder.title,
+                        trailer = showFocusedInfo
+                    )
+                }
+            }
+        }
+    }
+
+    return ViewPack(
+        id = "nuvio-home-${System.currentTimeMillis()}",
+        name = "My Nuvio Home",
+        description = "Generated from this Nuvio profile's current home catalogs and collections.",
+        blocks = blocks,
+        showFocusedPosterInfo = showFocusedInfo,
+        collectionsOpenInReframe = true
+    )
+}
+
+private fun String.toPackBlockId(): String {
+    return lowercase()
+        .replace(Regex("[^a-z0-9_-]+"), "-")
+        .trim('-')
+        .take(80)
+        .ifBlank { "block" }
 }
 
 private fun scaleToPercent(scale: Float): Int =

@@ -233,6 +233,9 @@ fun LayoutSettingsContent(
                     onImport = {
                         viewModel.onEvent(LayoutSettingsEvent.ImportViewPackFromClipboard)
                     },
+                    onCreateFromHome = {
+                        viewModel.onEvent(LayoutSettingsEvent.CreateViewPackFromCurrentHome)
+                    },
                     onReshuffle = {
                         viewModel.onEvent(LayoutSettingsEvent.ForceReshuffleViewPack)
                     },
@@ -1193,6 +1196,7 @@ private fun ViewPackImportCard(
     rails: List<ViewPackRailEditorItem>,
     importFocusRequester: FocusRequester,
     onImport: () -> Unit,
+    onCreateFromHome: () -> Unit,
     onReshuffle: () -> Unit,
     onRemove: () -> Unit,
     onFocusedInfoToggle: () -> Unit,
@@ -1235,14 +1239,27 @@ private fun ViewPackImportCard(
                 color = NuvioTheme.colors.TextTertiary
             )
         }
-        Button(
-            onClick = onImport,
-            modifier = Modifier
-                .fillMaxWidth()
-                .focusRequester(importFocusRequester)
-                .onFocusChanged { if (it.isFocused) onFocused() }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.sm)
         ) {
-            Text(text = stringResource(R.string.layout_view_pack_import_clipboard))
+            Button(
+                onClick = onImport,
+                modifier = Modifier
+                    .weight(1f)
+                    .focusRequester(importFocusRequester)
+                    .onFocusChanged { if (it.isFocused) onFocused() }
+            ) {
+                Text(text = stringResource(R.string.layout_view_pack_import_clipboard))
+            }
+            Button(
+                onClick = onCreateFromHome,
+                modifier = Modifier
+                    .weight(1f)
+                    .onFocusChanged { if (it.isFocused) onFocused() }
+            ) {
+                Text(text = stringResource(R.string.layout_view_pack_create_from_home))
+            }
         }
         if (packName != null) {
             Row(

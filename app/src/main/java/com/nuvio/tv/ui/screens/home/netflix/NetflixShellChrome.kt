@@ -50,7 +50,7 @@ internal fun NetflixOffHomeChrome(
 
     val shell = LocalNetflixShellController.current
     val routeNavigator = LocalNetflixRouteNavigator.current ?: shell?.navigate
-    val topNavigationRequesters = remember { List(7) { FocusRequester() } }
+    val topNavigationRequesters = remember { List(8) { FocusRequester() } }
     // Top-nav intercepts Down; without this requester content can never reclaim focus
     // after Right/Left escapes into the Settings/Search/Library icon.
     val contentFocusRequester = remember { FocusRequester() }
@@ -59,7 +59,7 @@ internal fun NetflixOffHomeChrome(
         NetflixShellDestination.Home -> 1
         NetflixShellDestination.Search -> 5
         NetflixShellDestination.Library -> 4
-        NetflixShellDestination.Settings -> 6
+        NetflixShellDestination.Settings -> 7
     }
 
     // First Back lands on this screen's top-nav icon (Settings/Search/Library).
