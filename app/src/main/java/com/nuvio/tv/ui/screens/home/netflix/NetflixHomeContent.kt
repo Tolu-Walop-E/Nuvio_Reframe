@@ -5,6 +5,7 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -1199,6 +1201,10 @@ private fun NetflixRailCustomizationPanel(
     onTextPillsToggle: () -> Unit,
     onExpandFoldersToggle: () -> Unit
 ) {
+    val firstControlRequester = remember { FocusRequester() }
+    LaunchedEffect(target.orderKey) {
+        firstControlRequester.requestFocusAfterFrames(2)
+    }
     BackHandler(onBack = onDismiss)
     Box(
         modifier = Modifier
@@ -1209,7 +1215,9 @@ private fun NetflixRailCustomizationPanel(
     ) {
         Card(
             onClick = {},
-            modifier = Modifier.widthIn(min = 420.dp, max = 520.dp),
+            modifier = Modifier
+                .widthIn(min = 420.dp, max = 520.dp)
+                .focusGroup(),
             colors = CardDefaults.colors(
                 containerColor = NetflixThemeChrome.background.copy(alpha = 0.96f),
                 focusedContainerColor = NetflixThemeChrome.background.copy(alpha = 0.96f)
@@ -1247,7 +1255,10 @@ private fun NetflixRailCustomizationPanel(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Button(onClick = { onScaleChange((target.scalePercent - 5).coerceAtLeast(55)) }) {
+                    Button(
+                        onClick = { onScaleChange((target.scalePercent - 5).coerceAtLeast(55)) },
+                        modifier = Modifier.focusRequester(firstControlRequester)
+                    ) {
                         Icon(Icons.Default.Remove, contentDescription = null)
                     }
                     Text(
