@@ -29,6 +29,7 @@ import com.nuvio.tv.domain.model.DEFAULT_CARD_DEPTH_EDGE_STRENGTH
 import com.nuvio.tv.domain.model.DEFAULT_CARD_DEPTH_SHEEN_STRENGTH
 import com.nuvio.tv.domain.model.DiscoverLocation
 import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
+import com.nuvio.tv.domain.model.HomeRailCustomization
 import com.nuvio.tv.domain.model.HomeLayout
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -118,6 +119,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     private val composeHighlighterEnabledKey = booleanPreferencesKey("compose_highlighter_enabled")
     private val activeViewPackJsonKey = stringPreferencesKey("active_view_pack_json")
     private val viewPackCustomizationModeEnabledKey = booleanPreferencesKey("view_pack_customization_mode_enabled")
+    private val homeRailCustomizationsKey = stringPreferencesKey("home_rail_customizations")
     private val viewPackShuffleSeedKey = stringPreferencesKey("view_pack_shuffle_seed")
     private val viewPackLastShuffleAtKey = longPreferencesKey("view_pack_last_shuffle_at")
 
@@ -415,6 +417,10 @@ class LayoutPreferenceDataStore @Inject constructor(
         prefs[viewPackCustomizationModeEnabledKey] ?: false
     }.distinctUntilChanged()
 
+    val homeRailCustomizations: Flow<Map<String, HomeRailCustomization>> = profileFlow { prefs ->
+        parseHomeRailCustomizations(prefs[homeRailCustomizationsKey])
+    }.distinctUntilChanged()
+
     /** Rail rotation bookkeeping, kept out of the pack so sync cannot revert it. */
     val viewPackRotationState: Flow<ViewPackRotationState> = profileFlow { prefs ->
         readViewPackRotationState(prefs)
@@ -495,6 +501,28 @@ class LayoutPreferenceDataStore @Inject constructor(
     suspend fun setViewPackCustomizationModeEnabled(enabled: Boolean) {
         store().edit { prefs ->
             prefs[viewPackCustomizationModeEnabledKey] = enabled
+        }
+    }
+
+    suspend fun updateHomeRailCustomization(
+        orderKey: String,
+        transform: (HomeRailCustomization) -> HomeRailCustomization
+    ) {
+        val normalizedKey = orderKey.trim()
+        if (normalizedKey.isEmpty()) return
+        store().edit { prefs ->
+            val current = parseHomeRailCustomizations(prefs[homeRailCustomizationsKey]).toMutableMap()
+            val updated = transform(current[normalizedKey] ?: HomeRailCustomization()).normalized()
+            if (updated.isEmpty()) {
+                current.remove(normalizedKey)
+            } else {
+                current[normalizedKey] = updated
+            }
+            if (current.isEmpty()) {
+                prefs.remove(homeRailCustomizationsKey)
+            } else {
+                prefs[homeRailCustomizationsKey] = gson.toJson(current)
+            }
         }
     }
 
@@ -963,6 +991,33 @@ class LayoutPreferenceDataStore @Inject constructor(
             genreTargets = parseGenreRowTargets(prefs[genreRowTargetsKey])
         )
     }
+
+    private fun parseHomeRailCustomizations(raw: String?): Map<String, HomeRailCustomization> {
+        val trimmed = raw?.trim().orEmpty()
+        if (trimmed.isEmpty()) return emptyMap()
+        return runCatching {
+            val type = object : TypeToken<Map<String, HomeRailCustomization>>() {}.type
+            gson.fromJson<Map<String, HomeRailCustomization>>(trimmed, type)
+                .orEmpty()
+                .mapNotNull { (key, value) ->
+                    val normalizedKey = key.trim()
+                    if (normalizedKey.isEmpty()) null else normalizedKey to value.normalized()
+                }
+                .filterNot { (_, value) -> value.isEmpty() }
+                .toMap()
+        }.getOrDefault(emptyMap())
+    }
+
+    private fun HomeRailCustomization.normalized(): HomeRailCustomization = copy(
+        scalePercent = scalePercent?.coerceIn(55, 250)
+    )
+
+    private fun HomeRailCustomization.isEmpty(): Boolean =
+        scalePercent == null &&
+            showFocusedInfo == null &&
+            posterGrow == null &&
+            trailer == null &&
+            expandedFolders == null
 }
 
 internal val legacySearchDiscoverEnabledKey = booleanPreferencesKey("search_discover_enabled")

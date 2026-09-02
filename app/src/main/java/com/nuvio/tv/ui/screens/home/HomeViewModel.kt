@@ -26,7 +26,6 @@ import com.nuvio.tv.data.trailer.TrailerService
 import com.nuvio.tv.domain.model.Addon
 import com.nuvio.tv.domain.model.CatalogDescriptor
 import com.nuvio.tv.domain.model.CatalogRow
-import com.nuvio.tv.domain.model.CollectionFolder
 import com.nuvio.tv.domain.model.Collection
 import com.nuvio.tv.domain.model.ContinueWatchingSortMode
 import com.nuvio.tv.domain.model.LibraryEntryInput
@@ -181,104 +180,47 @@ class HomeViewModel @Inject constructor(
     }
 
     fun updateActiveViewPackRailScale(orderKey: String, percent: Int) {
-        updateActiveViewPackBlock(orderKey) { pack, block ->
-            block.copy(h = pack.heightForRailScale(percent))
+        viewModelScope.launch {
+            layoutPreferenceDataStore.updateHomeRailCustomization(orderKey) {
+                it.copy(scalePercent = percent.coerceIn(55, 250))
+            }
         }
     }
 
     fun updateActiveViewPackRailPosterLabels(orderKey: String, enabled: Boolean) {
-        updateActiveViewPackBlock(orderKey) { _, block -> block.copy(showPosterLabels = enabled) }
+        viewModelScope.launch {
+            layoutPreferenceDataStore.updateHomeRailCustomization(orderKey) {
+                it.copy(showFocusedInfo = enabled)
+            }
+        }
     }
 
     fun updateActiveViewPackRailPosterGrow(orderKey: String, enabled: Boolean) {
-        updateActiveViewPackBlock(orderKey) { _, block -> block.copy(posterGrow = enabled) }
+        viewModelScope.launch {
+            layoutPreferenceDataStore.updateHomeRailCustomization(orderKey) {
+                it.copy(posterGrow = enabled)
+            }
+        }
     }
 
     fun updateActiveViewPackRailTrailer(orderKey: String, enabled: Boolean) {
-        updateActiveViewPackBlock(orderKey) { _, block -> block.copy(trailer = enabled) }
+        viewModelScope.launch {
+            layoutPreferenceDataStore.updateHomeRailCustomization(orderKey) {
+                it.copy(trailer = enabled)
+            }
+        }
     }
 
     fun updateActiveViewPackRailTextPills(orderKey: String, enabled: Boolean) {
-        updateActiveViewPackBlock(orderKey) { _, block ->
-            block.copy(
-                type = if (enabled) "genreRail" else "collectionRail",
-                collectionOpenStyle = if (enabled) null else block.collectionOpenStyle
-            )
-        }
+        // Text-pill conversion remains a Studio/template concern until the
+        // dynamic home renderer has a first-class pill rail for arbitrary hubs.
     }
 
     fun setActiveViewPackCollectionExpanded(collectionId: String, expanded: Boolean) {
         viewModelScope.launch {
-            val json = layoutPreferenceDataStore.activeViewPackJson.first() ?: return@launch
-            val collection = collectionsCache.firstOrNull { it.id == collectionId } ?: return@launch
-            val folderDataSources = collection.folders
-                .filter { folder -> folder.primaryAddonSourceForPackEdit() != null }
-                .map { folder -> "collection:${collection.id}:folder:${folder.id}" }
-                .toSet()
-            if (folderDataSources.isEmpty()) return@launch
-            val pack = runCatching { com.nuvio.tv.core.viewpack.parseViewPackJson(json) }.getOrNull()
-                ?: return@launch
-            val hasExpanded = pack.blocks.any { it.dataSource in folderDataSources }
-            if (hasExpanded == expanded) return@launch
-            val updatedBlocks = if (!expanded) {
-                pack.blocks.filterNot { it.dataSource in folderDataSources }
-            } else {
-                val collectionBlockIndex = pack.blocks.indexOfFirst {
-                    com.nuvio.tv.core.viewpack.homeOrderKeyForDataSource(it.dataSource) == "collection_$collectionId"
-                }
-                val baseY = (pack.blocks.getOrNull(collectionBlockIndex)?.y ?: pack.blocks.maxOfOrNull { it.y } ?: 0) + 234
-                val folderBlocks = collection.folders
-                    .filter { folder -> folder.primaryAddonSourceForPackEdit() != null }
-                    .mapIndexed { index, folder ->
-                        com.nuvio.tv.core.viewpack.ViewBlock(
-                            id = "folder-${collection.id}-${folder.id}".toPackBlockIdForHomeEdit(),
-                            type = "mediaRail",
-                            y = baseY + (index * 234),
-                            h = 210,
-                            dataSource = "collection:${collection.id}:folder:${folder.id}",
-                            label = folder.title,
-                            trailer = true,
-                            posterGrow = true
-                        )
-                    }
-                val mutable = pack.blocks.toMutableList()
-                if (collectionBlockIndex >= 0) {
-                    mutable.addAll(collectionBlockIndex + 1, folderBlocks)
-                } else {
-                    mutable.addAll(folderBlocks)
-                }
-                mutable
+            layoutPreferenceDataStore.updateHomeRailCustomization("collection_$collectionId") {
+                it.copy(expandedFolders = expanded)
             }
-            layoutPreferenceDataStore.setActiveViewPackJson(
-                com.nuvio.tv.core.viewpack.serializeViewPackJson(pack.copy(blocks = updatedBlocks))
-            )
-        }
-    }
-
-    private fun updateActiveViewPackBlock(
-        orderKey: String,
-        transform: (
-            com.nuvio.tv.core.viewpack.ViewPack,
-            com.nuvio.tv.core.viewpack.ViewBlock
-        ) -> com.nuvio.tv.core.viewpack.ViewBlock
-    ) {
-        viewModelScope.launch {
-            val json = layoutPreferenceDataStore.activeViewPackJson.first() ?: return@launch
-            val pack = runCatching { com.nuvio.tv.core.viewpack.parseViewPackJson(json) }.getOrNull()
-                ?: return@launch
-            var changed = false
-            val blocks = pack.blocks.map { block ->
-                if (com.nuvio.tv.core.viewpack.homeOrderKeyForDataSource(block.dataSource) == orderKey) {
-                    changed = true
-                    transform(pack, block)
-                } else {
-                    block
-                }
-            }
-            if (!changed) return@launch
-            layoutPreferenceDataStore.setActiveViewPackJson(
-                com.nuvio.tv.core.viewpack.serializeViewPackJson(pack.copy(blocks = blocks))
-            )
         }
     }
 
@@ -1289,30 +1231,4 @@ class HomeViewModel @Inject constructor(
         movieWatchedObserverJobs.clear()
         super.onCleared()
     }
-}
-
-private fun com.nuvio.tv.core.viewpack.ViewPack.heightForRailScale(percent: Int): Int {
-    val normalized = (percent.coerceIn(55, 250) / 100f).coerceIn(0.55f, 2.5f)
-    return (210 * normalized).toInt().coerceAtLeast(96)
-}
-
-private fun CollectionFolder.primaryAddonSourceForPackEdit(): com.nuvio.tv.domain.model.AddonCatalogCollectionSource? {
-    sources.filterIsInstance<com.nuvio.tv.domain.model.AddonCatalogCollectionSource>().firstOrNull()?.let {
-        return it
-    }
-    val legacy = catalogSources.firstOrNull() ?: return null
-    return com.nuvio.tv.domain.model.AddonCatalogCollectionSource(
-        addonId = legacy.addonId,
-        type = legacy.type,
-        catalogId = legacy.catalogId,
-        genre = legacy.genre
-    )
-}
-
-private fun String.toPackBlockIdForHomeEdit(): String {
-    return lowercase()
-        .replace(Regex("[^a-z0-9_-]+"), "-")
-        .trim('-')
-        .take(80)
-        .ifBlank { "block" }
 }

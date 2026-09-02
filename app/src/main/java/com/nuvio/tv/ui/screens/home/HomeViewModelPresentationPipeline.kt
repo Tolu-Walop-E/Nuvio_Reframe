@@ -9,6 +9,7 @@ import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.core.tmdb.TmdbEnrichment
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
 import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
+import com.nuvio.tv.domain.model.HomeRailCustomization
 import com.nuvio.tv.domain.model.HomeLayout
 import com.nuvio.tv.domain.model.Meta
 import com.nuvio.tv.domain.model.MetaPreview
@@ -58,7 +59,8 @@ private data class PosterCardPrefs(
     val widthDp: Int,
     val heightDp: Int,
     val cornerRadiusDp: Int,
-    val customizationModeEnabled: Boolean
+    val customizationModeEnabled: Boolean,
+    val railCustomizations: Map<String, HomeRailCustomization>
 )
 
 private data class LayoutUiPrefs(
@@ -82,7 +84,8 @@ private data class LayoutUiPrefs(
     val posterCardWidthDp: Int,
     val posterCardHeightDp: Int,
     val posterCardCornerRadiusDp: Int,
-    val viewPackCustomizationModeEnabled: Boolean
+    val viewPackCustomizationModeEnabled: Boolean,
+    val homeRailCustomizations: Map<String, HomeRailCustomization>
 )
 
 @OptIn(FlowPreview::class)
@@ -157,13 +160,15 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
         layoutPreferenceDataStore.posterCardWidthDp,
         layoutPreferenceDataStore.posterCardHeightDp,
         layoutPreferenceDataStore.posterCardCornerRadiusDp,
-        layoutPreferenceDataStore.viewPackCustomizationModeEnabled
-    ) { widthDp, heightDp, cornerRadiusDp, customizationModeEnabled ->
+        layoutPreferenceDataStore.viewPackCustomizationModeEnabled,
+        layoutPreferenceDataStore.homeRailCustomizations
+    ) { widthDp, heightDp, cornerRadiusDp, customizationModeEnabled, railCustomizations ->
         PosterCardPrefs(
             widthDp = widthDp,
             heightDp = heightDp,
             cornerRadiusDp = cornerRadiusDp,
-            customizationModeEnabled = customizationModeEnabled
+            customizationModeEnabled = customizationModeEnabled,
+            railCustomizations = railCustomizations
         )
     }
 
@@ -194,7 +199,8 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
             posterCardWidthDp = posterCardPrefs.widthDp,
             posterCardHeightDp = posterCardPrefs.heightDp,
             posterCardCornerRadiusDp = posterCardPrefs.cornerRadiusDp,
-            viewPackCustomizationModeEnabled = posterCardPrefs.customizationModeEnabled
+            viewPackCustomizationModeEnabled = posterCardPrefs.customizationModeEnabled,
+            homeRailCustomizations = posterCardPrefs.railCustomizations
         )
     }
 
@@ -261,7 +267,8 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
                         posterCardWidthDp = prefs.posterCardWidthDp,
                         posterCardHeightDp = prefs.posterCardHeightDp,
                         posterCardCornerRadiusDp = prefs.posterCardCornerRadiusDp,
-                        viewPackCustomizationModeEnabled = prefs.viewPackCustomizationModeEnabled
+                        viewPackCustomizationModeEnabled = prefs.viewPackCustomizationModeEnabled,
+                        homeRailCustomizations = prefs.homeRailCustomizations
                     )
                 }
                 if (shouldRefreshCatalogPresentation) {

@@ -7,6 +7,7 @@ import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.ContinueWatchingCardStyle
 import com.nuvio.tv.domain.model.Collection
 import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
+import com.nuvio.tv.domain.model.HomeRailCustomization
 import com.nuvio.tv.domain.model.HomeLayout
 import com.nuvio.tv.domain.model.LibraryListTab
 import com.nuvio.tv.domain.model.LibrarySourceMode
@@ -80,6 +81,8 @@ data class HomeUiState(
     val activeViewPackName: String? = null,
     /** Enables first-card Left rail editing on Netflix home. */
     val viewPackCustomizationModeEnabled: Boolean = false,
+    /** Live Nuvio-owned home overrides, layered over imported packs/default rails. */
+    val homeRailCustomizations: Map<String, HomeRailCustomization> = emptyMap(),
     val activeViewPackRotateEnabled: Boolean = false,
     /** Home-tab pack rail order (excludes nested Movies/Shows extras). */
     val viewPackOrderKeys: List<String> = emptyList(),

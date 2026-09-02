@@ -20,7 +20,9 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Remove
@@ -205,13 +207,33 @@ fun NetflixHomeContent(
         tabScreenPack != null -> tabScreenPack.orderKeys
         else -> emptyList()
     }
-    val tabRowScales = tabScreenPack?.rowScales ?: uiState.viewPackRowScales
-    val tabRowShowLabels = tabScreenPack?.rowShowLabels ?: uiState.viewPackRowShowLabels
-    val tabRowTrailers = tabScreenPack?.rowTrailers ?: uiState.viewPackRowTrailers
+    val baseTabRowScales = tabScreenPack?.rowScales ?: uiState.viewPackRowScales
+    val baseTabRowShowLabels = tabScreenPack?.rowShowLabels ?: uiState.viewPackRowShowLabels
+    val baseTabRowTrailers = tabScreenPack?.rowTrailers ?: uiState.viewPackRowTrailers
+    val tabRowScales = remember(baseTabRowScales, uiState.homeRailCustomizations) {
+        baseTabRowScales + uiState.homeRailCustomizations.mapNotNull { (key, value) ->
+            value.scalePercent?.let { key to (it.coerceIn(55, 250) / 100f) }
+        }.toMap()
+    }
+    val tabRowShowLabels = remember(baseTabRowShowLabels, uiState.homeRailCustomizations) {
+        baseTabRowShowLabels + uiState.homeRailCustomizations.mapNotNull { (key, value) ->
+            value.showFocusedInfo?.let { key to it }
+        }.toMap()
+    }
+    val tabRowTrailers = remember(baseTabRowTrailers, uiState.homeRailCustomizations) {
+        baseTabRowTrailers + uiState.homeRailCustomizations.mapNotNull { (key, value) ->
+            value.trailer?.let { key to it }
+        }.toMap()
+    }
     val tabHasTrailerOptIns = remember(tabRowTrailers) {
         tabRowTrailers.values.any { it }
     }
-    val tabRowPosterGrow = tabScreenPack?.rowPosterGrow ?: uiState.viewPackRowPosterGrow
+    val baseTabRowPosterGrow = tabScreenPack?.rowPosterGrow ?: uiState.viewPackRowPosterGrow
+    val tabRowPosterGrow = remember(baseTabRowPosterGrow, uiState.homeRailCustomizations) {
+        baseTabRowPosterGrow + uiState.homeRailCustomizations.mapNotNull { (key, value) ->
+            value.posterGrow?.let { key to it }
+        }.toMap()
+    }
     val tabCatalogPosterScale = tabScreenPack?.catalogPosterScale ?: uiState.viewPackCatalogPosterScale
     val tabCollectionLandscapeScale =
         tabScreenPack?.collectionLandscapeScale ?: uiState.viewPackCollectionLandscapeScale
@@ -358,10 +380,32 @@ fun NetflixHomeContent(
             .take(3)
             .map { entry -> entry.key.replaceFirstChar { it.uppercase() } }
     }
-    // Active packs can author collection folders as title rails. Without a pack,
-    // collections stay as normal Nuvio hubs so Remove restores the stock home.
-    val fanOutRequests = remember(orderedContentRails, selectedTab, packActiveForTab) {
-        emptyList<NetflixFolderRailRequest>()
+    // Dynamic home customization expands selected Nuvio hubs into title rails
+    // without rewriting the imported Studio pack JSON.
+    val expandedCollectionIds = remember(uiState.homeRailCustomizations) {
+        uiState.homeRailCustomizations.mapNotNull { (key, value) ->
+            key.removePrefix("collection_").takeIf {
+                key.startsWith("collection_") && value.expandedFolders == true && it.isNotBlank()
+            }
+        }.toSet()
+    }
+    val fanOutRequests = remember(orderedContentRails, selectedTab, expandedCollectionIds) {
+        orderedContentRails.flatMap { rail ->
+            val collection = (rail as? NetflixHomeRail.Collection)?.collection ?: return@flatMap emptyList()
+            if (collection.id !in expandedCollectionIds) return@flatMap emptyList()
+            collection.folders.mapNotNull { folder ->
+                val source = NetflixCollectionLayout.pickSource(folder, selectedTab) ?: return@mapNotNull null
+                NetflixFolderRailRequest(
+                    railKey = NetflixCollectionLayout.railKey(
+                        collectionId = collection.id,
+                        folderId = folder.id,
+                        source = source
+                    ),
+                    title = folder.title,
+                    source = source
+                )
+            }
+        }
     }
     LaunchedEffect(fanOutRequests) {
         onEnsureFolderRails(fanOutRequests)
@@ -389,13 +433,15 @@ fun NetflixHomeContent(
         netflixFolderRails,
         fanOutRequests,
         packActiveForTab,
-        tabScreenPack
+        tabScreenPack,
+        expandedCollectionIds
     ) {
         val expanded = expandNetflixRails(
             orderedContentRails = orderedContentRails,
-            selectedTab = if (packActiveForTab) NetflixContentTab.HOME else selectedTab,
+            selectedTab = selectedTab,
             folderRails = netflixFolderRails,
-            fanOutCollections = false
+            fanOutCollections = false,
+            expandCollectionIds = expandedCollectionIds
         )
         val fanOutCatalogIds = fanOutRequests.map { it.source.catalogId }.toSet()
         val withoutDuplicatePlaceholders = if (packActiveForTab || fanOutCatalogIds.isEmpty()) {
@@ -915,24 +961,29 @@ fun NetflixHomeContent(
 
                     is NetflixHomeRail.Catalog -> {
                         val row = rail.entry.row
-                        val packShowMeta = tabRowShowLabels[rail.orderKey]
-                        val packTrailer = tabRowTrailers[rail.orderKey] == true
+                        val rowShowMeta = tabRowShowLabels[rail.orderKey]
+                        val rowTrailerOverride = tabRowTrailers[rail.orderKey]
                         val rowTrailerEnabled = netflixTrailersEnabled &&
-                            (!packActiveForTab || packTrailer || !tabHasTrailerOptIns)
-                        val packPosterGrow = tabRowPosterGrow[rail.orderKey] != false
+                            when {
+                                rowTrailerOverride != null -> rowTrailerOverride
+                                packActiveForTab -> !tabHasTrailerOptIns
+                                else -> true
+                            }
+                        val rowPosterGrow = tabRowPosterGrow[rail.orderKey] != false
+                        val rowScale = tabRowScales[rail.orderKey] ?: 1f
                         LaunchedEffect(
                             railKey,
                             netflixTrailersEnabled,
                             packActiveForTab,
                             tabHasTrailerOptIns,
-                            packTrailer,
+                            rowTrailerOverride,
                             rowTrailerEnabled
                         ) {
                             Log.d(
                                 NETFLIX_TRAILER_LOG,
                                 "rail trailer-gate key=$railKey catalog=${row.catalogId} " +
                                     "enabled=$rowTrailerEnabled homeGate=$netflixTrailersEnabled " +
-                                    "packActive=$packActiveForTab packTrailer=$packTrailer " +
+                                    "packActive=$packActiveForTab rowTrailer=$rowTrailerOverride " +
                                     "hasRowOptIns=$tabHasTrailerOptIns"
                             )
                         }
@@ -959,7 +1010,7 @@ fun NetflixHomeContent(
                             onMoveUp = moveUp,
                             onMoveDown = moveDown,
                             onFirstItemMoveLeft = {
-                                if (!uiState.viewPackCustomizationModeEnabled || !packActiveForTab) {
+                                if (!uiState.viewPackCustomizationModeEnabled) {
                                     false
                                 } else {
                                     railCustomizationTarget = NetflixRailCustomizationTarget(
@@ -969,34 +1020,29 @@ fun NetflixHomeContent(
                                         collectionId = null,
                                         canBecomeTextPills = false,
                                         isTextPills = false,
-                                        showFocusedInfo = packShowMeta == true,
-                                        posterGrow = packPosterGrow,
-                                        trailerEnabled = packTrailer,
-                                        scalePercent = ((tabRowScales[rail.orderKey] ?: 1f) * 100f).roundToInt(),
+                                        showFocusedInfo = rowShowMeta ?: if (packActiveForTab) false else true,
+                                        posterGrow = rowPosterGrow,
+                                        trailerEnabled = rowTrailerEnabled,
+                                        scalePercent = (rowScale * 100f).roundToInt(),
                                         canExpandFolders = false,
                                         foldersExpanded = false
                                     )
                                     true
                                 }
                             },
-                            posterLabelsEnabled = if (packActiveForTab) {
-                                packShowMeta == true
+                            posterLabelsEnabled = if (rowShowMeta != null || packActiveForTab) {
+                                rowShowMeta == true
                             } else {
                                 uiState.posterLabelsEnabled
                             },
-                            railScale = if (packActiveForTab) {
-                                (tabRowScales[rail.orderKey] ?: 1f) *
-                                    tabCatalogPosterScale
-                            } else {
-                                1f
-                            },
+                            railScale = rowScale * if (packActiveForTab) tabCatalogPosterScale else 1f,
                             // Stock Netflix always shows the catalogue footer; packs opt in/out.
-                            showFocusedMetadata = if (packActiveForTab) {
-                                packShowMeta == true
+                            showFocusedMetadata = if (rowShowMeta != null || packActiveForTab) {
+                                rowShowMeta == true
                             } else {
                                 true
                             },
-                            posterGrow = if (packActiveForTab) packPosterGrow else true,
+                            posterGrow = rowPosterGrow,
                             trailerPreviewUrls = trailerPreviewUrls,
                             trailerPreviewAudioUrls = trailerPreviewAudioUrls,
                             trailerEnabled = rowTrailerEnabled,
@@ -1027,34 +1073,31 @@ fun NetflixHomeContent(
                         onMoveUp = moveUp,
                         onMoveDown = moveDown,
                         onFirstItemMoveLeft = {
-                            if (!uiState.viewPackCustomizationModeEnabled || !packActiveForTab) {
+                            if (!uiState.viewPackCustomizationModeEnabled) {
                                 false
                             } else {
-                                val folderKeys = rail.collection.folders.map {
-                                    com.nuvio.tv.core.viewpack.packFolderOrderKey(rail.collection.id, it.id)
+                                val hasExpandableFolders = rail.collection.folders.any { folder ->
+                                    NetflixCollectionLayout.pickSource(folder, selectedTab) != null
                                 }
                                 railCustomizationTarget = NetflixRailCustomizationTarget(
                                     orderKey = rail.orderKey,
                                     title = rail.collection.title,
                                     isCollection = true,
                                     collectionId = rail.collection.id,
-                                    canBecomeTextPills = true,
+                                    canBecomeTextPills = false,
                                     isTextPills = false,
                                     showFocusedInfo = tabRowShowLabels[rail.orderKey] == true,
                                     posterGrow = tabRowPosterGrow[rail.orderKey] != false,
                                     trailerEnabled = tabRowTrailers[rail.orderKey] == true,
                                     scalePercent = ((tabRowScales[rail.orderKey] ?: 1f) * 100f).roundToInt(),
-                                    canExpandFolders = folderKeys.isNotEmpty(),
-                                    foldersExpanded = folderKeys.any { it in uiState.viewPackOrderKeys }
+                                    canExpandFolders = hasExpandableFolders,
+                                    foldersExpanded = rail.collection.id in expandedCollectionIds
                                 )
                                 true
                             }
                         },
-                        landscapeScale = if (packActiveForTab) {
-                            tabCollectionLandscapeScale
-                        } else {
-                            1f
-                        },
+                        landscapeScale = (tabRowScales[rail.orderKey] ?: 1f) *
+                            if (packActiveForTab) tabCollectionLandscapeScale else 1f,
                         titleScale = if (packActiveForTab) {
                             tabRailTitleScale
                         } else {
@@ -1210,7 +1253,7 @@ private fun NetflixRailCustomizationPanel(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black.copy(alpha = 0.28f))
-            .padding(horizontal = NetflixHomeTokens.PageHorizontalPadding, vertical = 84.dp),
+            .padding(horizontal = NetflixHomeTokens.PageHorizontalPadding, vertical = 48.dp),
         contentAlignment = Alignment.CenterStart
     ) {
         Card(
@@ -1236,7 +1279,9 @@ private fun NetflixRailCustomizationPanel(
             scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
         ) {
             Column(
-                modifier = Modifier.padding(18.dp),
+                modifier = Modifier
+                    .padding(18.dp)
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
@@ -1520,7 +1565,8 @@ private fun expandNetflixRails(
     orderedContentRails: List<NetflixHomeRail>,
     selectedTab: NetflixContentTab,
     folderRails: Map<String, com.nuvio.tv.domain.model.CatalogRow>,
-    fanOutCollections: Boolean = true
+    fanOutCollections: Boolean = true,
+    expandCollectionIds: Set<String> = emptySet()
 ): List<NetflixHomeRail> {
     val wantedType = when (selectedTab) {
         NetflixContentTab.HOME -> null
@@ -1540,7 +1586,9 @@ private fun expandNetflixRails(
                 }
 
                 is NetflixHomeRail.Collection -> {
-                    if (fanOutCollections && NetflixCollectionLayout.shouldFanOut(rail.collection)) {
+                    val shouldExpand = rail.collection.id in expandCollectionIds ||
+                        (fanOutCollections && NetflixCollectionLayout.shouldFanOut(rail.collection))
+                    if (shouldExpand) {
                         rail.collection.folders.asSequence().take(12).forEach { folder ->
                             val source = NetflixCollectionLayout.pickSource(folder, selectedTab)
                                 ?: return@forEach
