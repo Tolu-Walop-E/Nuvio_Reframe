@@ -237,6 +237,9 @@ fun NetflixHomeContent(
     val tabCatalogPosterScale = tabScreenPack?.catalogPosterScale ?: uiState.viewPackCatalogPosterScale
     val tabCollectionLandscapeScale =
         tabScreenPack?.collectionLandscapeScale ?: uiState.viewPackCollectionLandscapeScale
+    val globalRailScale = remember(uiState.posterCardWidthDp) {
+        (uiState.posterCardWidthDp / 126f).coerceIn(0.75f, 1.25f)
+    }
     val tabRailTitleScale =
         tabScreenPack?.collectionTitleScale ?: uiState.viewPackCollectionTitleScale
     val tabHeroTrailerEnabled =
@@ -393,7 +396,7 @@ fun NetflixHomeContent(
         orderedContentRails.flatMap { rail ->
             val collection = (rail as? NetflixHomeRail.Collection)?.collection ?: return@flatMap emptyList()
             if (collection.id !in expandedCollectionIds) return@flatMap emptyList()
-            collection.folders.mapNotNull { folder ->
+            collection.folders.asSequence().take(12).mapNotNull { folder ->
                 val source = NetflixCollectionLayout.pickSource(folder, selectedTab) ?: return@mapNotNull null
                 NetflixFolderRailRequest(
                     railKey = NetflixCollectionLayout.railKey(
@@ -404,7 +407,7 @@ fun NetflixHomeContent(
                     title = folder.title,
                     source = source
                 )
-            }
+            }.toList()
         }
     }
     LaunchedEffect(fanOutRequests) {
@@ -1035,7 +1038,8 @@ fun NetflixHomeContent(
                             } else {
                                 uiState.posterLabelsEnabled
                             },
-                            railScale = rowScale * if (packActiveForTab) tabCatalogPosterScale else 1f,
+                            railScale = rowScale * globalRailScale *
+                                if (packActiveForTab) tabCatalogPosterScale else 1f,
                             // Stock Netflix always shows the catalogue footer; packs opt in/out.
                             showFocusedMetadata = if (rowShowMeta != null || packActiveForTab) {
                                 rowShowMeta == true
@@ -1096,7 +1100,7 @@ fun NetflixHomeContent(
                                 true
                             }
                         },
-                        landscapeScale = (tabRowScales[rail.orderKey] ?: 1f) *
+                        landscapeScale = (tabRowScales[rail.orderKey] ?: 1f) * globalRailScale *
                             if (packActiveForTab) tabCollectionLandscapeScale else 1f,
                         titleScale = if (packActiveForTab) {
                             tabRailTitleScale

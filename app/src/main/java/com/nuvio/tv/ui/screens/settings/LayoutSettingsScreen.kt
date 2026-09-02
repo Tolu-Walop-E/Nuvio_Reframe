@@ -228,6 +228,7 @@ fun LayoutSettingsContent(
                     catalogScalePercent = uiState.activeViewPackCatalogScalePercent,
                     landscapeScalePercent = uiState.activeViewPackLandscapeScalePercent,
                     titleScalePercent = uiState.activeViewPackTitleScalePercent,
+                    globalRailWidthDp = uiState.posterCardWidthDp,
                     customizationModeEnabled = uiState.viewPackCustomizationModeEnabled,
                     importFocusRequester = viewPackImportFocus,
                     onImport = {
@@ -253,6 +254,9 @@ fun LayoutSettingsContent(
                                 !uiState.viewPackCustomizationModeEnabled
                             )
                         )
+                    },
+                    onGlobalRailWidthChange = { width ->
+                        viewModel.onEvent(LayoutSettingsEvent.SetPosterCardWidth(width))
                     },
                     onCatalogScaleChange = { percent ->
                         viewModel.onEvent(LayoutSettingsEvent.SetViewPackCatalogScalePercent(percent))
@@ -1185,6 +1189,7 @@ private fun ViewPackImportCard(
     catalogScalePercent: Int,
     landscapeScalePercent: Int,
     titleScalePercent: Int,
+    globalRailWidthDp: Int,
     customizationModeEnabled: Boolean,
     importFocusRequester: FocusRequester,
     onImport: () -> Unit,
@@ -1192,6 +1197,7 @@ private fun ViewPackImportCard(
     onReshuffle: () -> Unit,
     onRemove: () -> Unit,
     onCustomizationModeToggle: () -> Unit,
+    onGlobalRailWidthChange: (Int) -> Unit,
     onFocusedInfoToggle: () -> Unit,
     onCatalogScaleChange: (Int) -> Unit,
     onLandscapeScaleChange: (Int) -> Unit,
@@ -1257,6 +1263,21 @@ private fun ViewPackImportCard(
             subtitle = stringResource(R.string.layout_view_pack_customization_mode_sub),
             checked = customizationModeEnabled,
             onToggle = onCustomizationModeToggle,
+            onFocused = onFocused
+        )
+
+        OptionRow(
+            title = stringResource(R.string.layout_global_rail_size),
+            selectedValue = globalRailWidthDp,
+            options = listOf(
+                PresetOption(stringResource(R.string.layout_preset_compact), 104),
+                PresetOption(stringResource(R.string.layout_preset_dense), 112),
+                PresetOption(stringResource(R.string.layout_preset_standard), 120),
+                PresetOption(stringResource(R.string.layout_preset_balanced), 126),
+                PresetOption(stringResource(R.string.layout_preset_comfort), 134),
+                PresetOption(stringResource(R.string.layout_preset_large), 140)
+            ),
+            onSelected = onGlobalRailWidthChange,
             onFocused = onFocused
         )
 

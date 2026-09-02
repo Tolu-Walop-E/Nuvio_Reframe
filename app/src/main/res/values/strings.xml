@@ -1080,6 +1080,7 @@
     <string name="layout_preset_rounded">Rounded</string>
     <string name="layout_preset_pill">Pill</string>
     <string name="layout_card_width">Width</string>
+    <string name="layout_global_rail_size">Global rail size</string>
     <string name="layout_card_radius">Corner Radius</string>
     <string name="layout_reset_default">Reset to Default</string>
     <string name="layout_custom">Custom</string>
