@@ -219,6 +219,14 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    fun hideHomeRail(railKey: String) {
+        viewModelScope.launch {
+            layoutPreferenceDataStore.setDisabledHomeCatalogKeys(
+                (_uiState.value.disabledHomeCatalogKeys + railKey).toList()
+            )
+        }
+    }
+
     fun moveHomeRail(orderKey: String, visibleOrderKeys: List<String>, direction: Int) {
         viewModelScope.launch {
             val ordered = visibleOrderKeys.distinct().toMutableList()

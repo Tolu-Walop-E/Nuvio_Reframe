@@ -1243,9 +1243,9 @@ private fun ViewPackImportCard(
         )
 
         ViewPackSectionLabel(text = stringResource(R.string.layout_view_pack_source_title))
-        Row(
+        Column(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.sm)
+            verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.sm)
         ) {
             ViewPackSourceAction(
                 title = stringResource(R.string.layout_view_pack_create_from_home),
@@ -1254,7 +1254,7 @@ private fun ViewPackImportCard(
                 primary = true,
                 onClick = onCreateFromHome,
                 modifier = Modifier
-                    .weight(1f)
+                    .fillMaxWidth()
                     .focusRequester(importFocusRequester),
                 onFocused = onFocused
             )
@@ -1264,7 +1264,7 @@ private fun ViewPackImportCard(
                 icon = Icons.Default.Image,
                 primary = false,
                 onClick = onImport,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.fillMaxWidth(),
                 onFocused = onFocused
             )
         }
@@ -1318,12 +1318,12 @@ private fun ViewPackImportCard(
                 onValueChange = onShuffleIntervalChange,
                 onFocused = onFocused
             )
-            Button(
+            SettingsActionRow(
+                title = stringResource(R.string.layout_home_shuffle_now),
+                subtitle = stringResource(R.string.layout_home_shuffle_now_sub),
                 onClick = onShuffleNow,
-                modifier = Modifier.onFocusChanged { if (it.isFocused) onFocused() }
-            ) {
-                Text(text = stringResource(R.string.layout_home_shuffle_now))
-            }
+                onFocused = onFocused
+            )
         }
 
         if (active) {

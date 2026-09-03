@@ -1086,6 +1086,7 @@
     <string name="layout_home_shuffle_interval">Shuffle interval</string>
     <string name="layout_home_shuffle_hours">%1$d hours</string>
     <string name="layout_home_shuffle_now">Shuffle now</string>
+    <string name="layout_home_shuffle_now_sub">Reorder every unlocked Home rail immediately</string>
     <string name="layout_card_radius">Corner Radius</string>
     <string name="layout_reset_default">Reset to Default</string>
     <string name="layout_custom">Custom</string>
@@ -2183,11 +2184,12 @@
     <string name="update_close">Close</string>
     <string name="update_open_settings">Open Settings</string>
 
-    <string name="home_customize_rail_hint">Editing this rail. Press Back or Done to return home.</string>
+    <string name="home_customize_rail_hint">Changes apply immediately. Press Back to return home.</string>
     <string name="home_customize_rail_size">Rail size: %1$d%%</string>
     <string name="home_customize_lock_rail">Lock rail position</string>
     <string name="home_customize_move_up">Move up</string>
     <string name="home_customize_move_down">Move down</string>
+    <string name="home_customize_hide_rail">Hide rail</string>
     <string name="home_customize_genres_title">Genres</string>
     <string name="home_customize_continue_watching_title">Continue Watching</string>
     <string name="home_customize_tile_detail">Tile detail</string>
