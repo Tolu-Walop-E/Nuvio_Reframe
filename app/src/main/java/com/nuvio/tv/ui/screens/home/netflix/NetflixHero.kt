@@ -195,12 +195,13 @@ internal fun NetflixHero(
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .fillMaxWidth(0.42f)
-                    .height(120.dp)
+                    .fillMaxWidth(0.58f)
+                    .height(200.dp)
                     .background(
                         Brush.verticalGradient(
                             0f to Color.Transparent,
-                            1f to Color.Black.copy(alpha = 0.55f)
+                            0.45f to Color.Black.copy(alpha = 0.28f),
+                            1f to Color.Black.copy(alpha = 0.66f)
                         )
                     )
             )
@@ -244,38 +245,40 @@ internal fun NetflixHero(
                         .padding(start = 34.dp, top = 20.dp, bottom = 22.dp),
                     verticalArrangement = Arrangement.Bottom
                 ) {
-                    if (!hideHeroCopy) {
-                        Crossfade(
-                            targetState = item.logo,
-                            animationSpec = tween(360),
-                            label = "netflixHeroLogo"
-                        ) { logo ->
-                            if (!logo.isNullOrBlank()) {
-                                AsyncImage(
-                                    model = logo,
-                                    contentDescription = item.title,
-                                    modifier = Modifier
-                                        .fillMaxWidth(0.82f)
-                                        .height(76.dp),
-                                    contentScale = ContentScale.Fit,
-                                    alignment = Alignment.BottomStart,
-                                    filterQuality = FilterQuality.High
-                                )
-                            } else {
-                                Text(
-                                    text = item.title,
-                                    color = NetflixHomeTokens.TextPrimary,
-                                    style = MaterialTheme.typography.displaySmall,
-                                    fontWeight = FontWeight.Black,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
+                    // The logo stays over a playing trailer — dropping it left a bare
+                    // "View Details" button in an empty billboard.
+                    Crossfade(
+                        targetState = item.logo,
+                        animationSpec = tween(360),
+                        label = "netflixHeroLogo"
+                    ) { logo ->
+                        if (!logo.isNullOrBlank()) {
+                            AsyncImage(
+                                model = logo,
+                                contentDescription = item.title,
+                                modifier = Modifier
+                                    .fillMaxWidth(0.82f)
+                                    .height(76.dp),
+                                contentScale = ContentScale.Fit,
+                                alignment = Alignment.BottomStart,
+                                filterQuality = FilterQuality.High
+                            )
+                        } else {
+                            Text(
+                                text = item.title,
+                                color = NetflixHomeTokens.TextPrimary,
+                                style = MaterialTheme.typography.displaySmall,
+                                fontWeight = FontWeight.Black,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
-                        Spacer(modifier = Modifier.height(16.dp))
+                    }
+                    if (!hideHeroCopy) {
+                        Spacer(modifier = Modifier.height(14.dp))
                         NetflixHeroFacts(item)
                         if (!item.description.isNullOrBlank()) {
-                            Spacer(modifier = Modifier.height(12.dp))
+                            Spacer(modifier = Modifier.height(10.dp))
                             Text(
                                 text = item.description,
                                 color = NetflixHomeTokens.TextSecondary,
@@ -284,8 +287,8 @@ internal fun NetflixHero(
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
-                        Spacer(modifier = Modifier.height(22.dp))
                     }
+                    Spacer(modifier = Modifier.height(18.dp))
                     NetflixHeroButton(
                         label = "View Details",
                         primary = true,
