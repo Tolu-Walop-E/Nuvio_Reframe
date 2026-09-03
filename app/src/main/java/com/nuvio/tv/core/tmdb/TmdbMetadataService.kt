@@ -1089,6 +1089,9 @@ class TmdbMetadataService(
                     .thenByDescending { it.iso6391 == languageCode }
                     .thenByDescending { it.iso6391 == "en" }
                     .thenByDescending { it.iso6391 == null }
+                    // Coil can rasterize SVG, but only at the requested pixel size. Prefer
+                    // PNG/WebP so clearart stays sharp even if a size hint is wrong.
+                    .thenBy { it.filePath?.endsWith(".svg", ignoreCase = true) == true }
             )
             .firstOrNull()
             ?.filePath

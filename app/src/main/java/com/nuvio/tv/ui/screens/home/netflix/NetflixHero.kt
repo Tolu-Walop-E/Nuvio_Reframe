@@ -37,6 +37,7 @@ import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -71,6 +72,7 @@ internal fun NetflixHero(
 ) {
     val shape = RoundedCornerShape(NetflixHomeTokens.HeroCornerRadius)
     var focused by remember { mutableStateOf(false) }
+    val context = LocalContext.current
     var hasTrailerFrame by remember(item?.key) { mutableStateOf(false) }
     var trailerArmed by remember(item?.key) { mutableStateOf(false) }
 
@@ -252,17 +254,19 @@ internal fun NetflixHero(
                         animationSpec = tween(360),
                         label = "netflixHeroLogo"
                     ) { logo ->
-                        if (!logo.isNullOrBlank()) {
-                            AsyncImage(
-                                model = logo,
-                                contentDescription = item.title,
-                                modifier = Modifier
-                                    .fillMaxWidth(0.82f)
-                                    .height(76.dp),
-                                contentScale = ContentScale.Fit,
-                                alignment = Alignment.BottomStart,
-                                filterQuality = FilterQuality.High
-                            )
+                            if (!logo.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = remember(logo) {
+                                        NetflixLogoArtwork.request(context, logo)
+                                    },
+                                    contentDescription = item.title,
+                                    modifier = Modifier
+                                        .fillMaxWidth(0.82f)
+                                        .height(76.dp),
+                                    contentScale = ContentScale.Fit,
+                                    alignment = Alignment.BottomStart,
+                                    filterQuality = FilterQuality.High
+                                )
                         } else {
                             Text(
                                 text = item.title,

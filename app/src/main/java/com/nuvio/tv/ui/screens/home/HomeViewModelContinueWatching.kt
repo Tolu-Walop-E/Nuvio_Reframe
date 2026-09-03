@@ -3121,6 +3121,17 @@ private fun recalculateCachedReleaseBadge(cached: com.nuvio.tv.data.local.Cached
 private fun String?.normalizeImageUrl(): String? = this
     ?.trim()
     ?.takeIf { it.isNotEmpty() }
+    ?.let { raw ->
+        // Title logos previously stuck on TMDB w500; bump any sized path to original.
+        if (raw.contains("image.tmdb.org/t/p/w", ignoreCase = true) &&
+            (raw.contains("/logo", ignoreCase = true) || raw.endsWith(".png", true) ||
+                raw.endsWith(".svg", true) || raw.endsWith(".webp", true))
+        ) {
+            com.nuvio.tv.ui.screens.home.netflix.NetflixLogoArtwork.upgradeUrl(raw)
+        } else {
+            raw
+        }
+    }
 
 internal fun nextUpDismissKey(
     contentId: String,

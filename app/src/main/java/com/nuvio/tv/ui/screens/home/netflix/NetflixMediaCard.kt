@@ -358,7 +358,9 @@ internal fun NetflixMediaCard(
                         )
                 )
                 AsyncImage(
-                    model = logoUrl,
+                    model = remember(logoUrl) {
+                        NetflixLogoArtwork.request(context, logoUrl!!)
+                    },
                     contentDescription = title,
                     onError = { logoLoadFailed = true },
                     modifier = Modifier
