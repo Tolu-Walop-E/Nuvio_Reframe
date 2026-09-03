@@ -2188,6 +2188,8 @@
     <string name="home_customize_lock_rail">Lock rail position</string>
     <string name="home_customize_move_up">Move up</string>
     <string name="home_customize_move_down">Move down</string>
+    <string name="home_customize_genres_title">Genres</string>
+    <string name="home_customize_continue_watching_title">Continue Watching</string>
     <string name="home_customize_tile_detail">Tile detail</string>
     <string name="home_customize_focus_grow">Focus grow</string>
     <string name="home_customize_trailers">Trailers</string>

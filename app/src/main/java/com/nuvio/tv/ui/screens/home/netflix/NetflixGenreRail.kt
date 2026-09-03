@@ -66,6 +66,7 @@ internal fun NetflixGenreRail(
     onFirstCardRequesterReady: (FocusRequester) -> Unit,
     onMoveUp: () -> Boolean,
     onMoveDown: () -> Boolean,
+    onFirstItemMoveLeft: () -> Boolean = { false },
     onGenreSelected: (NetflixGenreChip) -> Unit,
     onGenreLongPressed: (NetflixGenreChip) -> Unit,
     modifier: Modifier = Modifier
@@ -107,6 +108,7 @@ internal fun NetflixGenreRail(
                 },
                 onMoveUp = onMoveUp,
                 onMoveDown = onMoveDown,
+                onMoveLeft = if (index == 0) onFirstItemMoveLeft else null,
                 trapLeft = index == 0,
                 trapRight = index == genres.lastIndex,
                 onClick = { onGenreSelected(genre) },
@@ -123,6 +125,7 @@ private fun NetflixGenreCard(
     onFocus: () -> Unit,
     onMoveUp: () -> Boolean,
     onMoveDown: () -> Boolean,
+    onMoveLeft: (() -> Boolean)? = null,
     trapLeft: Boolean = false,
     trapRight: Boolean = false,
     onClick: () -> Unit,
@@ -174,7 +177,11 @@ private fun NetflixGenreCard(
                             false
                         }
                     }
-                    Key.DirectionLeft -> keyEvent.type == KeyEventType.KeyDown && trapLeft
+                    Key.DirectionLeft -> if (keyEvent.type == KeyEventType.KeyDown && trapLeft) {
+                        onMoveLeft?.invoke() ?: true
+                    } else {
+                        false
+                    }
                     Key.DirectionRight -> keyEvent.type == KeyEventType.KeyDown && trapRight
                     else -> false
                 }

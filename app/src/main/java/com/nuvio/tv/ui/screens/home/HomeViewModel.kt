@@ -230,9 +230,6 @@ class HomeViewModel @Inject constructor(
             ordered.add(to, moved)
             val remaining = homeCatalogOrderKeys.filterNot { it in ordered }
             layoutPreferenceDataStore.setHomeCatalogOrderKeys(ordered + remaining)
-            layoutPreferenceDataStore.updateHomeRailCustomization(orderKey) {
-                it.copy(locked = true)
-            }
         }
     }
 

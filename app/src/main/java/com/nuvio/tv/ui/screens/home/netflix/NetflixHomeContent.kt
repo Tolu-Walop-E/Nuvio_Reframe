@@ -476,7 +476,8 @@ fun NetflixHomeContent(
         fanOutRequests,
         packActiveForTab,
         tabScreenPack,
-        expandedCollectionIds
+        expandedCollectionIds,
+        uiState.homeCatalogOrderKeys
     ) {
         val expanded = expandNetflixRails(
             orderedContentRails = templateContentRails,
@@ -495,7 +496,7 @@ fun NetflixHomeContent(
                     rail.entry.row.items.firstOrNull()?.id?.startsWith("__placeholder_") == true
             }
         }
-        buildList {
+        val built = buildList {
             val genresFirst = expanded.firstOrNull() is NetflixHomeRail.Genres
             if (genresFirst) {
                 add(NetflixHomeRail.Genres)
@@ -514,6 +515,11 @@ fun NetflixHomeContent(
             }
             addAll(if (genresFirst) withoutDuplicatePlaceholders.drop(1) else withoutDuplicatePlaceholders)
             addAll(discoveryRails)
+        }
+        if (selectedTab == NetflixContentTab.HOME) {
+            railsInRenderedOrder(built, uiState.homeCatalogOrderKeys)
+        } else {
+            built
         }
     }
     val railKeys = remember(visibleRails) { visibleRails.map { it.railKey } }
@@ -967,6 +973,17 @@ fun NetflixHomeContent(
                         onFirstCardRequesterReady = registerRequester,
                         onMoveUp = moveUp,
                         onMoveDown = moveDown,
+                        onFirstItemMoveLeft = {
+                            if (!uiState.viewPackCustomizationModeEnabled) false else {
+                                railCustomizationTarget = moveOnlyCustomizationTarget(
+                                    rail = rail,
+                                    title = context.getString(R.string.home_customize_genres_title),
+                                    customizations = uiState.homeRailCustomizations,
+                                    selectedTab = selectedTab
+                                )
+                                true
+                            }
+                        },
                         onGenreSelected = { genre ->
                             openGenreChip(
                                 genre = genre,
@@ -998,6 +1015,17 @@ fun NetflixHomeContent(
                         onFirstCardRequesterReady = registerRequester,
                         onMoveUp = moveUp,
                         onMoveDown = moveDown,
+                        onFirstItemMoveLeft = {
+                            if (!uiState.viewPackCustomizationModeEnabled) false else {
+                                railCustomizationTarget = moveOnlyCustomizationTarget(
+                                    rail = rail,
+                                    title = context.getString(R.string.home_customize_continue_watching_title),
+                                    customizations = uiState.homeRailCustomizations,
+                                    selectedTab = selectedTab
+                                )
+                                true
+                            }
+                        },
                         titleScale = if (packActiveForTab) tabRailTitleScale else 1f
                     )
 
@@ -1070,8 +1098,8 @@ fun NetflixHomeContent(
                                         canExpandFolders = false,
                                         foldersExpanded = false,
                                         locked = uiState.homeRailCustomizations[rail.orderKey]?.locked == true,
-                                        canMove = selectedTab == NetflixContentTab.HOME &&
-                                            templateContentRails.any { it.orderKey == rail.orderKey }
+                                        canMove = selectedTab == NetflixContentTab.HOME,
+                                        canEditStyle = true
                                     )
                                     true
                                 }
@@ -1141,8 +1169,8 @@ fun NetflixHomeContent(
                                     canExpandFolders = hasExpandableFolders,
                                     foldersExpanded = rail.collection.id in expandedCollectionIds,
                                     locked = uiState.homeRailCustomizations[rail.orderKey]?.locked == true,
-                                    canMove = selectedTab == NetflixContentTab.HOME &&
-                                        templateContentRails.any { it.orderKey == rail.orderKey }
+                                    canMove = selectedTab == NetflixContentTab.HOME,
+                                    canEditStyle = true
                                 )
                                 true
                             }
@@ -1211,11 +1239,10 @@ fun NetflixHomeContent(
                 },
                 onMove = { direction ->
                     onRailMove(
-                        target.orderKey,
-                        templateContentRails.map { it.orderKey },
+                        target.focusRailKey,
+                        visibleRails.map { it.railKey },
                         direction
                     )
-                    railCustomizationTarget = target.copy(locked = true)
                 }
             )
         }
@@ -1300,7 +1327,32 @@ private data class NetflixRailCustomizationTarget(
     val canExpandFolders: Boolean,
     val foldersExpanded: Boolean,
     val locked: Boolean,
-    val canMove: Boolean
+    val canMove: Boolean,
+    val canEditStyle: Boolean
+)
+
+private fun moveOnlyCustomizationTarget(
+    rail: NetflixHomeRail,
+    title: String,
+    customizations: Map<String, com.nuvio.tv.domain.model.HomeRailCustomization>,
+    selectedTab: NetflixContentTab
+) = NetflixRailCustomizationTarget(
+    orderKey = rail.orderKey,
+    focusRailKey = rail.railKey,
+    title = title,
+    isCollection = false,
+    collectionId = null,
+    canBecomeTextPills = false,
+    isTextPills = false,
+    showFocusedInfo = false,
+    posterGrow = false,
+    trailerEnabled = false,
+    scalePercent = 100,
+    canExpandFolders = false,
+    foldersExpanded = false,
+    locked = customizations[rail.orderKey]?.locked == true,
+    canMove = selectedTab == NetflixContentTab.HOME,
+    canEditStyle = false
 )
 
 @Composable
@@ -1371,7 +1423,8 @@ private fun NetflixRailCustomizationPanel(
                 NetflixRailEditorButton(
                     label = stringResource(R.string.home_customize_lock_rail),
                     selected = target.locked,
-                    onClick = onLockedToggle
+                    onClick = onLockedToggle,
+                    modifier = Modifier.focusRequester(firstControlRequester)
                 )
                 if (target.canMove) {
                     Row(
@@ -1390,56 +1443,52 @@ private fun NetflixRailCustomizationPanel(
                         }
                     }
                 }
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Button(
-                        onClick = { onScaleChange((target.scalePercent - 5).coerceAtLeast(55)) },
-                        modifier = Modifier.focusRequester(firstControlRequester)
+                if (target.canEditStyle) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Default.Remove, contentDescription = null)
+                        Button(onClick = { onScaleChange((target.scalePercent - 5).coerceAtLeast(55)) }) {
+                            Icon(Icons.Default.Remove, contentDescription = null)
+                        }
+                        Text(
+                            text = stringResource(R.string.home_customize_rail_size, target.scalePercent),
+                            color = NetflixThemeChrome.textPrimary,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Button(onClick = { onScaleChange((target.scalePercent + 5).coerceAtMost(250)) }) {
+                            Icon(Icons.Default.Add, contentDescription = null)
+                        }
                     }
-                    Text(
-                        text = stringResource(R.string.home_customize_rail_size, target.scalePercent),
-                        color = NetflixThemeChrome.textPrimary,
-                        style = MaterialTheme.typography.bodyMedium
+                    NetflixRailEditorButton(
+                        label = stringResource(R.string.home_customize_tile_detail),
+                        selected = target.showFocusedInfo,
+                        onClick = onFocusedInfoToggle
                     )
-                    Button(onClick = { onScaleChange((target.scalePercent + 5).coerceAtMost(250)) }) {
-                        Icon(Icons.Default.Add, contentDescription = null)
+                    NetflixRailEditorButton(
+                        label = stringResource(R.string.home_customize_focus_grow),
+                        selected = target.posterGrow,
+                        onClick = onPosterGrowToggle
+                    )
+                    NetflixRailEditorButton(
+                        label = stringResource(R.string.home_customize_trailers),
+                        selected = target.trailerEnabled,
+                        onClick = onTrailerToggle
+                    )
+                    if (target.canBecomeTextPills) {
+                        NetflixRailEditorButton(
+                            label = stringResource(R.string.home_customize_text_pills),
+                            selected = target.isTextPills,
+                            onClick = onTextPillsToggle
+                        )
                     }
-                }
-                NetflixRailEditorButton(
-                    label = stringResource(R.string.home_customize_tile_detail),
-                    selected = target.showFocusedInfo,
-                    onClick = onFocusedInfoToggle
-                )
-                NetflixRailEditorButton(
-                    label = stringResource(R.string.home_customize_focus_grow),
-                    selected = target.posterGrow,
-                    onClick = onPosterGrowToggle
-                )
-                NetflixRailEditorButton(
-                    label = stringResource(R.string.home_customize_trailers),
-                    selected = target.trailerEnabled,
-                    onClick = onTrailerToggle
-                )
-                if (target.canBecomeTextPills) {
-                    NetflixRailEditorButton(
-                        label = stringResource(R.string.home_customize_text_pills),
-                        selected = target.isTextPills,
-                        onClick = onTextPillsToggle
-                    )
-                }
-                if (target.canExpandFolders) {
-                    NetflixRailEditorButton(
-                        label = stringResource(R.string.home_customize_expand_folders),
-                        selected = target.foldersExpanded,
-                        onClick = onExpandFoldersToggle
-                    )
-                }
-                Button(onClick = onDismiss) {
-                    Text(text = stringResource(R.string.action_done))
+                    if (target.canExpandFolders) {
+                        NetflixRailEditorButton(
+                            label = stringResource(R.string.home_customize_expand_folders),
+                            selected = target.foldersExpanded,
+                            onClick = onExpandFoldersToggle
+                        )
+                    }
                 }
             }
         }
@@ -1450,9 +1499,10 @@ private fun NetflixRailCustomizationPanel(
 private fun NetflixRailEditorButton(
     label: String,
     selected: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    Button(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+    Button(onClick = onClick, modifier = modifier.fillMaxWidth()) {
         Text(
             text = if (selected) {
                 stringResource(R.string.home_customize_enabled, label)
@@ -1574,6 +1624,17 @@ private fun railsInPackOrder(
             add(unused.removeAt(matchIndex))
         }
     }
+}
+
+private fun railsInRenderedOrder(
+    rails: List<NetflixHomeRail>,
+    keys: List<String>
+): List<NetflixHomeRail> {
+    if (keys.isEmpty()) return rails
+    val positions = keys.withIndex().associate { it.value to it.index }
+    return rails.withIndex()
+        .sortedWith(compareBy({ positions[it.value.railKey] ?: Int.MAX_VALUE }, { it.index }))
+        .map { it.value }
 }
 
 private fun continueWatchingMatchesTab(
