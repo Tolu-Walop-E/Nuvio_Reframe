@@ -46,6 +46,11 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -125,6 +130,7 @@ fun NetflixHomeContent(
     onRailLockedToggle: (String, Boolean) -> Unit = { _, _ -> },
     onRailMove: (String, List<String>, Int) -> Unit = { _, _, _ -> },
     onRailHide: (String) -> Unit = {},
+    onShowHiddenRails: () -> Unit = {},
     onCollectionExpandedToggle: (String, Boolean) -> Unit = { _, _ -> },
     selectedContentTab: NetflixContentTab = NetflixContentTab.HOME,
     onContentTabChanged: (NetflixContentTab) -> Unit = {}
@@ -145,6 +151,7 @@ fun NetflixHomeContent(
     var focusedTopNavigationIndex by remember { mutableStateOf(selectedContentTab.navIndex) }
     val topNavigationRequesters = remember { List(NETFLIX_TOP_NAV_ITEM_COUNT) { FocusRequester() } }
     val heroPrimaryRequester = remember { FocusRequester() }
+    val showHiddenRailsRequester = remember { FocusRequester() }
     val firstCardRequestersByRail = remember { mutableStateMapOf<String, FocusRequester>() }
     // Seed focus maps from ViewModel on the first frame so Back from detail
     // already lands on the saved card instead of briefly flashing index 0.
@@ -540,6 +547,9 @@ fun NetflixHomeContent(
     }
     val railKeys = remember(visibleRails) { visibleRails.map { it.railKey } }
     val heroRowCount = if (heroItem != null) 1 else 0
+    val showHiddenRailsAction = uiState.viewPackCustomizationModeEnabled &&
+        selectedTab == NetflixContentTab.HOME &&
+        uiState.disabledHomeCatalogKeys.isNotEmpty()
     LaunchedEffect(railKeys, pendingRailMove, heroRowCount) {
         val move = pendingRailMove ?: return@LaunchedEffect
         val movedIndex = railKeys.indexOf(move.railKey)
@@ -916,7 +926,19 @@ fun NetflixHomeContent(
                             },
                             primaryActionRequester = heroPrimaryRequester,
                             onMoveDownFromHero = {
-                                requestRailFocus(railKeys.firstOrNull())
+                                val firstRail = railKeys.firstOrNull()
+                                if (firstRail != null) {
+                                    requestRailFocus(firstRail)
+                                } else if (showHiddenRailsAction) {
+                                    coroutineScope.launch {
+                                        runCatching { listState.scrollToItem(heroRowCount) }
+                                        withFrameNanos { }
+                                        runCatching { showHiddenRailsRequester.requestFocus() }
+                                    }
+                                    true
+                                } else {
+                                    false
+                                }
                             },
                             onMoveUpFromHero = {
                                 requestTopNavFocus()
@@ -973,6 +995,14 @@ fun NetflixHomeContent(
                     when {
                         from == VERTICAL_TARGET_HERO -> queueVerticalTarget(0)
                         from < railKeys.lastIndex -> queueVerticalTarget(from + 1)
+                        showHiddenRailsAction -> {
+                            coroutineScope.launch {
+                                runCatching { listState.scrollToItem(heroRowCount + visibleRails.size) }
+                                withFrameNanos { }
+                                runCatching { showHiddenRailsRequester.requestFocus() }
+                            }
+                            true
+                        }
                         else -> {
                             pumpVerticalNavigation()
                             true
@@ -1212,6 +1242,29 @@ fun NetflixHomeContent(
                         },
                         allowEmpty = packActiveForTab
                     )
+                }
+            }
+            if (showHiddenRailsAction) {
+                item(key = "show_hidden_rails") {
+                    Button(
+                        onClick = {
+                            onShowHiddenRails()
+                            requestRailFocus(railKeys.lastOrNull())
+                        },
+                        modifier = Modifier
+                            .padding(horizontal = NetflixHomeTokens.PageHorizontalPadding)
+                            .fillMaxWidth()
+                            .focusRequester(showHiddenRailsRequester)
+                            .onPreviewKeyEvent { event ->
+                                if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionUp) {
+                                    requestRailFocus(railKeys.lastOrNull())
+                                } else {
+                                    false
+                                }
+                            }
+                    ) {
+                        Text(text = stringResource(R.string.home_customize_show_hidden_rails))
+                    }
                 }
             }
             item(key = "bottom_padding") {

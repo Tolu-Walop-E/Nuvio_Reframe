@@ -722,6 +722,9 @@ private fun ModernHomeRoute(
             onRailHide = remember(viewModel) {
                 { railKey -> viewModel.hideHomeRail(railKey) }
             },
+            onShowHiddenRails = remember(viewModel) {
+                { viewModel.showHiddenHomeRails() }
+            },
             onCollectionExpandedToggle = remember(viewModel) {
                 { collectionId, expanded -> viewModel.setActiveViewPackCollectionExpanded(collectionId, expanded) }
             },

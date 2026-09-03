@@ -2190,6 +2190,7 @@
     <string name="home_customize_move_up">Move up</string>
     <string name="home_customize_move_down">Move down</string>
     <string name="home_customize_hide_rail">Hide rail</string>
+    <string name="home_customize_show_hidden_rails">Show hidden rails</string>
     <string name="home_customize_genres_title">Genres</string>
     <string name="home_customize_continue_watching_title">Continue Watching</string>
     <string name="home_customize_tile_detail">Tile detail</string>
