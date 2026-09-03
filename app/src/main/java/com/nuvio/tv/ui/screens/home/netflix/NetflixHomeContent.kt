@@ -172,6 +172,7 @@ fun NetflixHomeContent(
     var topNavFocused by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableStateOf(selectedContentTab) }
     var railCustomizationTarget by remember { mutableStateOf<NetflixRailCustomizationTarget?>(null) }
+    var pendingRailMove by remember { mutableStateOf<PendingRailMove?>(null) }
     var lastContentRailKey by remember {
         mutableStateOf(seededFocusRailKey)
     }
@@ -524,6 +525,14 @@ fun NetflixHomeContent(
     }
     val railKeys = remember(visibleRails) { visibleRails.map { it.railKey } }
     val heroRowCount = if (heroItem != null) 1 else 0
+    LaunchedEffect(railKeys, pendingRailMove, heroRowCount) {
+        val move = pendingRailMove ?: return@LaunchedEffect
+        val movedIndex = railKeys.indexOf(move.railKey)
+        if (movedIndex == move.expectedRailIndex) {
+            runCatching { listState.scrollToItem(movedIndex + heroRowCount) }
+            pendingRailMove = null
+        }
+    }
     val netflixPackRequestsTrailers = packActiveForTab &&
         (tabHasTrailerOptIns || tabHeroTrailerEnabled)
     val netflixTrailersEnabled = remember(
@@ -1021,7 +1030,8 @@ fun NetflixHomeContent(
                                     rail = rail,
                                     title = context.getString(R.string.home_customize_continue_watching_title),
                                     customizations = uiState.homeRailCustomizations,
-                                    selectedTab = selectedTab
+                                    selectedTab = selectedTab,
+                                    movable = false
                                 )
                                 true
                             }
@@ -1238,11 +1248,21 @@ fun NetflixHomeContent(
                     railCustomizationTarget = target.copy(locked = next)
                 },
                 onMove = { direction ->
-                    onRailMove(
-                        target.focusRailKey,
-                        visibleRails.map { it.railKey },
-                        direction
-                    )
+                    val movableRailKeys = visibleRails
+                        .filterNot { it is NetflixHomeRail.ContinueWatching }
+                        .map { it.railKey }
+                    val from = movableRailKeys.indexOf(target.focusRailKey)
+                    val to = from + direction.coerceIn(-1, 1)
+                    if (from >= 0 && to in movableRailKeys.indices) {
+                        val expectedVisibleIndex = visibleRails.indexOfFirst {
+                            it.railKey == movableRailKeys[to]
+                        }
+                        pendingRailMove = PendingRailMove(
+                            railKey = target.focusRailKey,
+                            expectedRailIndex = expectedVisibleIndex
+                        )
+                        onRailMove(target.focusRailKey, movableRailKeys, direction)
+                    }
                 }
             )
         }
@@ -1331,11 +1351,17 @@ private data class NetflixRailCustomizationTarget(
     val canEditStyle: Boolean
 )
 
+private data class PendingRailMove(
+    val railKey: String,
+    val expectedRailIndex: Int
+)
+
 private fun moveOnlyCustomizationTarget(
     rail: NetflixHomeRail,
     title: String,
     customizations: Map<String, com.nuvio.tv.domain.model.HomeRailCustomization>,
-    selectedTab: NetflixContentTab
+    selectedTab: NetflixContentTab,
+    movable: Boolean = true
 ) = NetflixRailCustomizationTarget(
     orderKey = rail.orderKey,
     focusRailKey = rail.railKey,
@@ -1351,7 +1377,7 @@ private fun moveOnlyCustomizationTarget(
     canExpandFolders = false,
     foldersExpanded = false,
     locked = customizations[rail.orderKey]?.locked == true,
-    canMove = selectedTab == NetflixContentTab.HOME,
+    canMove = movable && selectedTab == NetflixContentTab.HOME,
     canEditStyle = false
 )
 
@@ -1630,11 +1656,14 @@ private fun railsInRenderedOrder(
     rails: List<NetflixHomeRail>,
     keys: List<String>
 ): List<NetflixHomeRail> {
-    if (keys.isEmpty()) return rails
+    val continueWatching = rails.firstOrNull { it is NetflixHomeRail.ContinueWatching }
+    val movableRails = rails.filterNot { it is NetflixHomeRail.ContinueWatching }
+    if (keys.isEmpty()) return listOfNotNull(continueWatching) + movableRails
     val positions = keys.withIndex().associate { it.value to it.index }
-    return rails.withIndex()
+    val orderedMovableRails = movableRails.withIndex()
         .sortedWith(compareBy({ positions[it.value.railKey] ?: Int.MAX_VALUE }, { it.index }))
         .map { it.value }
+    return listOfNotNull(continueWatching) + orderedMovableRails
 }
 
 private fun continueWatchingMatchesTab(
