@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -310,20 +309,20 @@ private fun NetflixHeroFacts(item: NetflixHeroItem) {
         item.rating?.let { add("IMDb $it") }
         item.year?.let { add(it) }
         item.certification?.let { add(it) }
-        if (item.genres.isNotEmpty()) add(item.genres.joinToString(" / "))
+        if (item.genres.isNotEmpty()) add(item.genres.joinToString(" • "))
         item.runtime?.let { add(it) }
     }
     Row(
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         facts.forEachIndexed { index, fact ->
             if (index > 0) {
-                Box(
-                    modifier = Modifier
-                        .width(3.dp)
-                        .height(3.dp)
-                        .background(NetflixHomeTokens.TextMuted, RoundedCornerShape(50))
+                Text(
+                    text = "•",
+                    color = NetflixHomeTokens.TextMuted,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.SemiBold
                 )
             }
             Text(

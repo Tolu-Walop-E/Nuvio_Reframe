@@ -381,21 +381,21 @@ fun NetflixHomeContent(
         packActiveForTab,
         tabOrderKeys
     ) {
-        val withGenres = insertGenresRail(
-            contentRails = contentRails,
-            hasGenres = genreChips.isNotEmpty(),
-            orderKeys = if (packActiveForTab && tabOrderKeys.isNotEmpty()) {
-                tabOrderKeys
-            } else {
-                uiState.homeCatalogOrderKeys
-            },
-            disabledKeys = if (packActiveForTab) emptySet() else uiState.disabledHomeCatalogKeys
-        )
+        // Genres live under the top nav (Build B), not as a mid-stack rail.
+        val withoutGenres = contentRails.filterNot { it is NetflixHomeRail.Genres }
         if (packActiveForTab && tabOrderKeys.isNotEmpty()) {
-            railsInPackOrder(withGenres, tabOrderKeys)
+            railsInPackOrder(withoutGenres, tabOrderKeys)
         } else {
-            withGenres
+            withoutGenres
         }
+    }
+    val genresStripVisible = remember(
+        genreChips,
+        packActiveForTab,
+        uiState.disabledHomeCatalogKeys
+    ) {
+        genreChips.isNotEmpty() &&
+            (packActiveForTab || HOME_GENRES_ROW_KEY !in uiState.disabledHomeCatalogKeys)
     }
     var homeShuffleClock by remember { mutableStateOf(System.currentTimeMillis()) }
     LaunchedEffect(uiState.homeRailShuffleEnabled, uiState.homeRailShuffleIntervalHours) {
@@ -505,10 +505,6 @@ fun NetflixHomeContent(
             }
         }
         val built = buildList {
-            val genresFirst = expanded.firstOrNull() is NetflixHomeRail.Genres
-            if (genresFirst) {
-                add(NetflixHomeRail.Genres)
-            }
             val cwItems = uiState.continueWatchingItems.filter { item ->
                 continueWatchingMatchesTab(item, selectedTab)
             }
@@ -521,7 +517,8 @@ fun NetflixHomeContent(
             if (showCw) {
                 add(NetflixHomeRail.ContinueWatching)
             }
-            addAll(if (genresFirst) withoutDuplicatePlaceholders.drop(1) else withoutDuplicatePlaceholders)
+            // Drop any leftover Genres rail — the strip is pinned under the nav.
+            addAll(withoutDuplicatePlaceholders.filterNot { it is NetflixHomeRail.Genres })
             addAll(discoveryRails)
         }
         val enabled = built.filterNot { rail -> rail.railKey in uiState.disabledHomeCatalogKeys }
@@ -530,11 +527,8 @@ fun NetflixHomeContent(
             if (uiState.homeRailShuffleEnabled) {
                 val intervalMs = uiState.homeRailShuffleIntervalHours.coerceIn(1, 168) * 60L * 60L * 1000L
                 val continueWatching = ordered.firstOrNull { it is NetflixHomeRail.ContinueWatching }
-                val genres = ordered.firstOrNull { it is NetflixHomeRail.Genres }
-                val movable = ordered.filterNot {
-                    it is NetflixHomeRail.ContinueWatching || it is NetflixHomeRail.Genres
-                }
-                listOfNotNull(continueWatching, genres) + shuffleUnlockedHomeRails(
+                val movable = ordered.filterNot { it is NetflixHomeRail.ContinueWatching }
+                listOfNotNull(continueWatching) + shuffleUnlockedHomeRails(
                     rails = movable,
                     lockedKeys = uiState.homeRailCustomizations
                         .filterValues { it.locked == true }
@@ -831,11 +825,48 @@ fun NetflixHomeContent(
         }
     }
 
+    fun requestGenreStripFocus(): Boolean {
+        if (!genresStripVisible) return false
+        val requester = firstCardRequestersByRail[NETFLIX_GENRE_RAIL_KEY]
+        pendingFocusRailKey = NETFLIX_GENRE_RAIL_KEY
+        return if (requester != null) {
+            runCatching { requester.requestFocus() }.isSuccess
+        } else {
+            true
+        }
+    }
+
+    fun requestContentBelowGenres(): Boolean {
+        return if (heroItem == null) {
+            requestRailFocus(railKeys.firstOrNull())
+        } else {
+            requestHeroFocus()
+        }
+    }
+
+    fun requestContentFocusFromNav(): Boolean {
+        if (genresStripVisible) {
+            return requestGenreStripFocus()
+        }
+        val preferred = lastContentRailKey?.takeIf { it in railKeys }
+        return if (preferred != null) {
+            requestRailFocus(preferred)
+        } else if (heroItem == null) {
+            requestRailFocus(railKeys.firstOrNull())
+        } else {
+            requestHeroFocus()
+        }
+    }
+
     LaunchedEffect(pendingFocusRailKeyFromHost) {
         val target = pendingFocusRailKeyFromHost ?: return@LaunchedEffect
         onPendingFocusRailKeyConsumed()
         restoredSavedFocus = true
-        requestRailFocus(target)
+        if (target == NETFLIX_GENRE_RAIL_KEY) {
+            requestGenreStripFocus()
+        } else {
+            requestRailFocus(target)
+        }
     }
 
     fun saveRailFocus(railKey: String, itemKey: String, railIndex: Int, itemIndex: Int) {
@@ -850,17 +881,6 @@ fun NetflixHomeContent(
             railIndex,
             itemIndex
         )
-    }
-
-    fun requestContentFocusFromNav(): Boolean {
-        val preferred = lastContentRailKey?.takeIf { it in railKeys }
-        return if (preferred != null) {
-            requestRailFocus(preferred)
-        } else if (heroItem == null) {
-            requestRailFocus(railKeys.firstOrNull())
-        } else {
-            requestHeroFocus()
-        }
     }
 
     BackHandler(enabled = true) {
@@ -909,6 +929,51 @@ fun NetflixHomeContent(
                 },
                 modifier = Modifier.fillMaxWidth()
             )
+            if (genresStripVisible) {
+                NetflixGenreRail(
+                    railKey = NETFLIX_GENRE_RAIL_KEY,
+                    genres = genreChips,
+                    pendingFocusRailKey = pendingFocusRailKey,
+                    lastFocusedIndex = lastFocusedIndexByRail[NETFLIX_GENRE_RAIL_KEY] ?: 0,
+                    onFocusedItemChanged = { itemIndex, _ ->
+                        lastFocusedIndexByRail[NETFLIX_GENRE_RAIL_KEY] = itemIndex
+                        lastContentRailKey = NETFLIX_GENRE_RAIL_KEY
+                    },
+                    onPendingFocusConsumed = { pendingFocusRailKey = null },
+                    onFirstCardRequesterReady = { requester ->
+                        firstCardRequestersByRail[NETFLIX_GENRE_RAIL_KEY] = requester
+                    },
+                    onMoveUp = { requestTopNavFocus() },
+                    onMoveDown = { requestContentBelowGenres() },
+                    onFirstItemMoveLeft = {
+                        if (!uiState.viewPackCustomizationModeEnabled) {
+                            false
+                        } else {
+                            railCustomizationTarget = moveOnlyCustomizationTarget(
+                                rail = NetflixHomeRail.Genres,
+                                title = context.getString(R.string.home_customize_genres_title),
+                                customizations = uiState.homeRailCustomizations,
+                                selectedTab = selectedTab,
+                                movable = false
+                            )
+                            true
+                        }
+                    },
+                    onGenreSelected = { genre ->
+                        openGenreChip(
+                            genre = genre,
+                            selectedTab = selectedTab,
+                            mappedTarget = uiState.genreRowTargets[genre.key],
+                            availableCatalogs = uiState.genreCatalogCandidates,
+                            onNavigateToGenre = onNavigateToGenre,
+                            onNavigateToFolderDetail = onNavigateToFolderDetail
+                        )
+                    },
+                    onGenreLongPressed = { genre -> genreTargetPickerChip = genre },
+                    pinnedUnderNav = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
             if (visibleRails.isEmpty() && (uiState.isLoading || uiState.homeRows.any { it is HomeRow.PlaceholderCatalog })) {
                 NetflixLoadingSkeletonRails(modifier = Modifier.weight(1f))
             } else {
@@ -951,7 +1016,11 @@ fun NetflixHomeContent(
                                 }
                             },
                             onMoveUpFromHero = {
-                                requestTopNavFocus()
+                                if (genresStripVisible) {
+                                    requestGenreStripFocus()
+                                } else {
+                                    requestTopNavFocus()
+                                }
                             },
                             trailerPreviewUrl = heroItem?.catalogItemId()?.let { trailerPreviewUrls[it] },
                             trailerPreviewAudioUrl = heroItem?.catalogItemId()?.let { trailerPreviewAudioUrls[it] },
@@ -994,6 +1063,8 @@ fun NetflixHomeContent(
                         }
                         from <= 0 -> if (heroItem != null) {
                             queueVerticalTarget(VERTICAL_TARGET_HERO)
+                        } else if (genresStripVisible) {
+                            requestGenreStripFocus()
                         } else {
                             queueVerticalTarget(VERTICAL_TARGET_TOP_NAV)
                         }
@@ -1027,40 +1098,7 @@ fun NetflixHomeContent(
                 }
 
                 when (rail) {
-                    NetflixHomeRail.Genres -> NetflixGenreRail(
-                        railKey = railKey,
-                        genres = genreChips,
-                        pendingFocusRailKey = pendingFocusRailKey,
-                        lastFocusedIndex = lastFocusedIndexByRail[railKey] ?: 0,
-                        onFocusedItemChanged = saveFocus,
-                        onPendingFocusConsumed = { pendingFocusRailKey = null },
-                        onFirstCardRequesterReady = registerRequester,
-                        onMoveUp = moveUp,
-                        onMoveDown = moveDown,
-                        onFirstItemMoveLeft = {
-                            if (!uiState.viewPackCustomizationModeEnabled) false else {
-                                railCustomizationTarget = moveOnlyCustomizationTarget(
-                                    rail = rail,
-                                    title = context.getString(R.string.home_customize_genres_title),
-                                    customizations = uiState.homeRailCustomizations,
-                                    selectedTab = selectedTab,
-                                    movable = false
-                                )
-                                true
-                            }
-                        },
-                        onGenreSelected = { genre ->
-                            openGenreChip(
-                                genre = genre,
-                                selectedTab = selectedTab,
-                                mappedTarget = uiState.genreRowTargets[genre.key],
-                                availableCatalogs = uiState.genreCatalogCandidates,
-                                onNavigateToGenre = onNavigateToGenre,
-                                onNavigateToFolderDetail = onNavigateToFolderDetail
-                            )
-                        },
-                        onGenreLongPressed = { genre -> genreTargetPickerChip = genre }
-                    )
+                    NetflixHomeRail.Genres -> Unit
 
                     NetflixHomeRail.ContinueWatching -> NetflixContinueWatchingRail(
                         railKey = railKey,
@@ -1413,11 +1451,11 @@ fun NetflixHomeContent(
                 onSelect = { target ->
                     onGenreTargetChanged(pickerChip.key, target)
                     genreTargetPickerChip = null
-                    requestRailFocus(NETFLIX_GENRE_RAIL_KEY)
+                    requestGenreStripFocus()
                 },
                 onDismiss = {
                     genreTargetPickerChip = null
-                    requestRailFocus(NETFLIX_GENRE_RAIL_KEY)
+                    requestGenreStripFocus()
                 }
             )
         }
@@ -1757,25 +1795,19 @@ private fun railsInRenderedOrder(
     keys: List<String>
 ): List<NetflixHomeRail> {
     val continueWatching = rails.firstOrNull { it is NetflixHomeRail.ContinueWatching }
-    val genres = rails.firstOrNull { it is NetflixHomeRail.Genres }
-    val movableRails = rails.filterNot {
-        it is NetflixHomeRail.ContinueWatching || it is NetflixHomeRail.Genres
-    }
-    if (keys.isEmpty()) return listOfNotNull(continueWatching, genres) + movableRails
+    val movableRails = rails.filterNot { it is NetflixHomeRail.ContinueWatching }
+    if (keys.isEmpty()) return listOfNotNull(continueWatching) + movableRails
     val positions = keys.withIndex().associate { it.value to it.index }
     val orderedMovableRails = movableRails.withIndex()
         .sortedWith(compareBy({ positions[it.value.railKey] ?: Int.MAX_VALUE }, { it.index }))
         .map { it.value }
-    return listOfNotNull(continueWatching, genres) + orderedMovableRails
+    return listOfNotNull(continueWatching) + orderedMovableRails
 }
 
 private fun railsWithPinnedHubRows(rails: List<NetflixHomeRail>): List<NetflixHomeRail> {
     val continueWatching = rails.firstOrNull { it is NetflixHomeRail.ContinueWatching }
-    val genres = rails.firstOrNull { it is NetflixHomeRail.Genres }
-    val remaining = rails.filterNot {
-        it is NetflixHomeRail.ContinueWatching || it is NetflixHomeRail.Genres
-    }
-    return listOfNotNull(continueWatching, genres) + remaining
+    val remaining = rails.filterNot { it is NetflixHomeRail.ContinueWatching }
+    return listOfNotNull(continueWatching) + remaining
 }
 
 private fun continueWatchingMatchesTab(
@@ -1935,27 +1967,6 @@ private fun expandNetflixRails(
                 NetflixHomeRail.ContinueWatching -> Unit
             }
         }
-    }
-}
-
-private fun insertGenresRail(
-    contentRails: List<NetflixHomeRail>,
-    hasGenres: Boolean,
-    orderKeys: List<String>,
-    disabledKeys: Set<String>
-): List<NetflixHomeRail> {
-    if (!hasGenres || HOME_GENRES_ROW_KEY in disabledKeys) return contentRails
-
-    val explicitIndex = orderKeys.indexOf(HOME_GENRES_ROW_KEY)
-    val insertionIndex = if (explicitIndex < 0) {
-        0
-    } else {
-        val precedingKeys = orderKeys.take(explicitIndex).toSet()
-        contentRails.count { rail -> rail.orderKey in precedingKeys }
-    }.coerceIn(0, contentRails.size)
-
-    return contentRails.toMutableList().apply {
-        add(insertionIndex, NetflixHomeRail.Genres)
     }
 }
 

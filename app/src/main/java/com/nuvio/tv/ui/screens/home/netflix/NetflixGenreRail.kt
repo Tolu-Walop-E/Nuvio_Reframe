@@ -27,7 +27,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -55,6 +54,10 @@ internal data class NetflixGenreChip(
     val folderId: String? = null
 )
 
+/**
+ * Netflix genre strip: dark-glass tiles pinned under the top nav (Build B).
+ * Not a mid-stack catalog rail — keeps the browse plane clean.
+ */
 @Composable
 internal fun NetflixGenreRail(
     railKey: String,
@@ -69,6 +72,7 @@ internal fun NetflixGenreRail(
     onFirstItemMoveLeft: () -> Boolean = { false },
     onGenreSelected: (NetflixGenreChip) -> Unit,
     onGenreLongPressed: (NetflixGenreChip) -> Unit,
+    pinnedUnderNav: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     if (genres.isEmpty()) return
@@ -92,11 +96,12 @@ internal fun NetflixGenreRail(
     }
 
     LazyRow(
-        modifier = modifier.padding(top = NetflixHomeSpacing.RailTopPadding),
+        modifier = modifier.padding(
+            top = if (pinnedUnderNav) NetflixHomeTokens.GenreStripTopGap else NetflixHomeSpacing.RailTopPadding,
+            bottom = if (pinnedUnderNav) NetflixHomeTokens.GenreStripBottomGap else 0.dp
+        ),
         state = rowState,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        // No vertical padding: chips wrap to text width with an in-box focus ring (no scale),
-        // so padding here only added empty space that neighbors scrolled against.
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
         contentPadding = PaddingValues(horizontal = NetflixHomeTokens.PageHorizontalPadding)
     ) {
         itemsIndexed(genres, key = { _, item -> item.key }) { index, genre ->
@@ -132,17 +137,16 @@ private fun NetflixGenreCard(
     onLongClick: () -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(percent = 50)
+    // Dark-glass tile (not a pill) — matches Netflix category chips under the nav.
+    val shape = RoundedCornerShape(NetflixHomeTokens.GenreTileCorner)
     val longPressKeyTracker = rememberLongPressKeyTracker()
-    // Keep border width constant so focus never changes measured size / nudges
-    // rails above or below while scrolling Left/Right.
     val ringWidth = NetflixHomeTokens.FocusBorder
 
     Box(
         modifier = Modifier
             .height(NetflixHomeTokens.GenrePillHeight)
             .wrapContentWidth()
-            .defaultMinSize(minWidth = 72.dp)
+            .defaultMinSize(minWidth = NetflixHomeTokens.GenreTileMinWidth)
             .focusRequester(focusRequester)
             .onPreviewKeyEvent { keyEvent ->
                 val native = keyEvent.nativeKeyEvent
@@ -191,28 +195,30 @@ private fun NetflixGenreCard(
                 if (it.isFocused) onFocus()
             }
             .background(
-                brush = Brush.linearGradient(
-                    listOf(
-                        Color.White.copy(alpha = if (focused) 0.35f else 0.20f),
-                        Color.White.copy(alpha = if (focused) 0.12f else 0.06f)
-                    )
-                ),
+                color = when {
+                    focused -> Color.White.copy(alpha = 0.20f)
+                    else -> Color.Black.copy(alpha = 0.55f)
+                },
                 shape = shape
             )
             .border(
                 width = ringWidth,
-                color = if (focused) NetflixThemeChrome.focus else Color.White.copy(alpha = 0.10f),
+                color = if (focused) {
+                    NetflixThemeChrome.focus
+                } else {
+                    Color.White.copy(alpha = 0.14f)
+                },
                 shape = shape
             )
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = NetflixHomeTokens.GenreTileHorizontalPadding),
         contentAlignment = Alignment.Center
     ) {
         Text(
             text = label,
             color = NetflixThemeChrome.textPrimary,
             style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Bold,
+            fontWeight = if (focused) FontWeight.Bold else FontWeight.SemiBold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
