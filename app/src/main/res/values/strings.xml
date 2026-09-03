@@ -2186,6 +2186,8 @@
     <string name="home_customize_rail_hint">Editing this rail. Press Back or Done to return home.</string>
     <string name="home_customize_rail_size">Rail size: %1$d%%</string>
     <string name="home_customize_lock_rail">Lock rail position</string>
+    <string name="home_customize_move_up">Move up</string>
+    <string name="home_customize_move_down">Move down</string>
     <string name="home_customize_tile_detail">Tile detail</string>
     <string name="home_customize_focus_grow">Focus grow</string>
     <string name="home_customize_trailers">Trailers</string>

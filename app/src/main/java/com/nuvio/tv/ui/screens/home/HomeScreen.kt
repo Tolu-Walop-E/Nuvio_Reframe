@@ -714,6 +714,11 @@ private fun ModernHomeRoute(
             onRailLockedToggle = remember(viewModel) {
                 { orderKey, locked -> viewModel.updateHomeRailLocked(orderKey, locked) }
             },
+            onRailMove = remember(viewModel) {
+                { orderKey, orderKeys, direction ->
+                    viewModel.moveHomeRail(orderKey, orderKeys, direction)
+                }
+            },
             onCollectionExpandedToggle = remember(viewModel) {
                 { collectionId, expanded -> viewModel.setActiveViewPackCollectionExpanded(collectionId, expanded) }
             },

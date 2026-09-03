@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -25,6 +26,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -120,6 +123,7 @@ fun NetflixHomeContent(
     onRailPosterGrowToggle: (String, Boolean) -> Unit = { _, _ -> },
     onRailTrailerToggle: (String, Boolean) -> Unit = { _, _ -> },
     onRailLockedToggle: (String, Boolean) -> Unit = { _, _ -> },
+    onRailMove: (String, List<String>, Int) -> Unit = { _, _, _ -> },
     onCollectionExpandedToggle: (String, Boolean) -> Unit = { _, _ -> },
     selectedContentTab: NetflixContentTab = NetflixContentTab.HOME,
     onContentTabChanged: (NetflixContentTab) -> Unit = {}
@@ -202,12 +206,12 @@ fun NetflixHomeContent(
         NetflixContentTab.SHOWS -> uiState.showsScreenPack.takeUnless { dynamicHomeTemplate }
     }
     val packActiveForTab = when (selectedTab) {
-        NetflixContentTab.HOME -> homePackActive
+        NetflixContentTab.HOME -> homePackActive && !dynamicHomeTemplate
         NetflixContentTab.MOVIES -> uiState.moviesScreenPack != null
         NetflixContentTab.SHOWS -> uiState.showsScreenPack != null
     }
     val tabOrderKeys = when {
-        selectedTab == NetflixContentTab.HOME && homePackActive -> uiState.viewPackOrderKeys
+        selectedTab == NetflixContentTab.HOME && packActiveForTab -> uiState.viewPackOrderKeys
         tabScreenPack != null -> tabScreenPack.orderKeys
         else -> emptyList()
     }
@@ -249,7 +253,7 @@ fun NetflixHomeContent(
     val tabHeroTrailerEnabled =
         tabScreenPack?.heroTrailerEnabled ?: uiState.viewPackHeroTrailerEnabled
     val tabGenreCollectionId = when {
-        selectedTab == NetflixContentTab.HOME && homePackActive -> uiState.viewPackGenreCollectionId
+        selectedTab == NetflixContentTab.HOME && packActiveForTab -> uiState.viewPackGenreCollectionId
         tabScreenPack != null -> tabScreenPack.genreCollectionId
         else -> null
     }
@@ -1053,6 +1057,7 @@ fun NetflixHomeContent(
                                 } else {
                                     railCustomizationTarget = NetflixRailCustomizationTarget(
                                         orderKey = rail.orderKey,
+                                        focusRailKey = railKey,
                                         title = row.catalogName.replaceFirstChar { it.uppercase() },
                                         isCollection = false,
                                         collectionId = null,
@@ -1064,7 +1069,9 @@ fun NetflixHomeContent(
                                         scalePercent = (rowScale * 100f).roundToInt(),
                                         canExpandFolders = false,
                                         foldersExpanded = false,
-                                        locked = uiState.homeRailCustomizations[rail.orderKey]?.locked == true
+                                        locked = uiState.homeRailCustomizations[rail.orderKey]?.locked == true,
+                                        canMove = selectedTab == NetflixContentTab.HOME &&
+                                            templateContentRails.any { it.orderKey == rail.orderKey }
                                     )
                                     true
                                 }
@@ -1121,6 +1128,7 @@ fun NetflixHomeContent(
                                 }
                                 railCustomizationTarget = NetflixRailCustomizationTarget(
                                     orderKey = rail.orderKey,
+                                    focusRailKey = railKey,
                                     title = rail.collection.title,
                                     isCollection = true,
                                     collectionId = rail.collection.id,
@@ -1132,7 +1140,9 @@ fun NetflixHomeContent(
                                     scalePercent = ((tabRowScales[rail.orderKey] ?: 1f) * 100f).roundToInt(),
                                     canExpandFolders = hasExpandableFolders,
                                     foldersExpanded = rail.collection.id in expandedCollectionIds,
-                                    locked = uiState.homeRailCustomizations[rail.orderKey]?.locked == true
+                                    locked = uiState.homeRailCustomizations[rail.orderKey]?.locked == true,
+                                    canMove = selectedTab == NetflixContentTab.HOME &&
+                                        templateContentRails.any { it.orderKey == rail.orderKey }
                                 )
                                 true
                             }
@@ -1158,7 +1168,10 @@ fun NetflixHomeContent(
         railCustomizationTarget?.let { target ->
             NetflixRailCustomizationPanel(
                 target = target,
-                onDismiss = { railCustomizationTarget = null },
+                onDismiss = {
+                    railCustomizationTarget = null
+                    requestRailFocus(target.focusRailKey)
+                },
                 onScaleChange = { percent ->
                     onRailScaleChange(target.orderKey, percent)
                     railCustomizationTarget = target.copy(scalePercent = percent)
@@ -1195,6 +1208,14 @@ fun NetflixHomeContent(
                     val next = !target.locked
                     onRailLockedToggle(target.orderKey, next)
                     railCustomizationTarget = target.copy(locked = next)
+                },
+                onMove = { direction ->
+                    onRailMove(
+                        target.orderKey,
+                        templateContentRails.map { it.orderKey },
+                        direction
+                    )
+                    railCustomizationTarget = target.copy(locked = true)
                 }
             )
         }
@@ -1266,6 +1287,7 @@ fun NetflixHomeContent(
 
 private data class NetflixRailCustomizationTarget(
     val orderKey: String,
+    val focusRailKey: String,
     val title: String,
     val isCollection: Boolean,
     val collectionId: String?,
@@ -1277,7 +1299,8 @@ private data class NetflixRailCustomizationTarget(
     val scalePercent: Int,
     val canExpandFolders: Boolean,
     val foldersExpanded: Boolean,
-    val locked: Boolean
+    val locked: Boolean,
+    val canMove: Boolean
 )
 
 @Composable
@@ -1290,7 +1313,8 @@ private fun NetflixRailCustomizationPanel(
     onTrailerToggle: () -> Unit,
     onTextPillsToggle: () -> Unit,
     onExpandFoldersToggle: () -> Unit,
-    onLockedToggle: () -> Unit
+    onLockedToggle: () -> Unit,
+    onMove: (Int) -> Unit
 ) {
     val firstControlRequester = remember { FocusRequester() }
     LaunchedEffect(target.orderKey) {
@@ -1349,6 +1373,23 @@ private fun NetflixRailCustomizationPanel(
                     selected = target.locked,
                     onClick = onLockedToggle
                 )
+                if (target.canMove) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Button(onClick = { onMove(-1) }, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Default.KeyboardArrowUp, contentDescription = null)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(text = stringResource(R.string.home_customize_move_up))
+                        }
+                        Button(onClick = { onMove(1) }, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Default.KeyboardArrowDown, contentDescription = null)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(text = stringResource(R.string.home_customize_move_down))
+                        }
+                    }
+                }
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically

@@ -219,6 +219,23 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    fun moveHomeRail(orderKey: String, visibleOrderKeys: List<String>, direction: Int) {
+        viewModelScope.launch {
+            val ordered = visibleOrderKeys.distinct().toMutableList()
+            val from = ordered.indexOf(orderKey)
+            if (from < 0) return@launch
+            val to = (from + direction.coerceIn(-1, 1)).coerceIn(0, ordered.lastIndex)
+            if (from == to) return@launch
+            val moved = ordered.removeAt(from)
+            ordered.add(to, moved)
+            val remaining = homeCatalogOrderKeys.filterNot { it in ordered }
+            layoutPreferenceDataStore.setHomeCatalogOrderKeys(ordered + remaining)
+            layoutPreferenceDataStore.updateHomeRailCustomization(orderKey) {
+                it.copy(locked = true)
+            }
+        }
+    }
+
     fun updateActiveViewPackRailTextPills(orderKey: String, enabled: Boolean) {
         // Text-pill conversion remains a Studio/template concern until the
         // dynamic home renderer has a first-class pill rail for arbitrary hubs.
