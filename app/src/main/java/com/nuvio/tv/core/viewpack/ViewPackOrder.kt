@@ -259,8 +259,8 @@ fun homeRowTrailersFromPack(pack: ViewPack): Map<String, Boolean> {
 
 /**
  * Per-rail focus grow from the pack (Studio `posterGrow`).
- * Explicit `true` enables landscape editorial grow. `null` / omitted / `false`
- * keeps portrait tiles with modest scale-on-focus (Netflix browse default).
+ * `null` / omitted means Netflix-style portrait→landscape expand on focus.
+ * Explicit `false` keeps portrait tiles with modest scale-on-focus.
  */
 fun homeRowPosterGrowFromPack(pack: ViewPack): Map<String, Boolean> {
     val out = LinkedHashMap<String, Boolean>()
@@ -269,7 +269,7 @@ fun homeRowPosterGrowFromPack(pack: ViewPack): Map<String, Boolean> {
         val ds = block.dataSource.trim()
         if (ds == "continueWatching" || ds == "genres") continue
         val key = homeOrderKeyForDataSource(ds) ?: continue
-        if (key !in out) out[key] = block.posterGrow == true
+        if (key !in out) out[key] = block.posterGrow != false
     }
     return out
 }

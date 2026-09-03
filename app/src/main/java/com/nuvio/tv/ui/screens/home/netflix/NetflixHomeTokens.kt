@@ -27,6 +27,12 @@ internal object NetflixHomeTokens {
     val PageHorizontalPadding = 40.dp
     /** Absolute / measured top nav row height. */
     val TopNavHeight = 72.dp
+    /**
+     * Shield / leanback overscan — keep nav and first content clear of the clipped
+     * bezel. Without this, profile + pill chrome sit under the physical top edge.
+     */
+    val TvOverscanTop = 28.dp
+    val TvOverscanBottom = 16.dp
     /** Extra gap between the in-flow nav and the hero so the focus ring is fully clear. */
     val HeroTopGap = 36.dp
     val HeroHeight = 360.dp
@@ -160,8 +166,8 @@ internal object NetflixHomeDimensions {
 
 internal object NetflixHomeSpacing {
     private const val RAIL_HORIZONTAL_GAP_PX = 16f
-    /** Room for portrait focus scale (~1.08) without clipping the pivot ring. */
-    val RailFocusPadding = 16.dp
+    /** Room for focus ring / modest scale without clipping the pivot selector. */
+    val RailFocusPadding = 12.dp
     val RailTopPadding = 24.dp
     /**
      * Reserved footer under catalogue rails: facts + at least 2 synopsis lines.
@@ -180,8 +186,8 @@ internal object NetflixHomeSpacing {
 internal object NetflixHomeMotion {
     const val FocusWidthDurationMs = 120
     /**
-     * Modest Netflix-style grow for portrait catalogue tiles. Keeps aspect ratio;
-     * applied via [graphicsLayer] scale so neighbours do not reflow.
+     * Modest grow when a rail opts out of landscape focus expand (`posterGrow: false`).
+     * Default Netflix browse expands portrait → landscape billboard instead.
      */
     const val FocusScale = 1.08f
     /** Short / zero when landscape is already memory-cached to avoid poster flicker under trailers. */

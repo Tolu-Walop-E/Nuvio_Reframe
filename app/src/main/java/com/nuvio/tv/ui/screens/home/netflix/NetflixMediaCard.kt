@@ -336,6 +336,7 @@ internal fun NetflixMediaCard(
                     onFirstFrameRendered = { hasTrailerFrame = true },
                     muted = trailerMuted,
                     cropToFill = true,
+                    overscanZoom = 1.08f,
                     modifier = Modifier.fillMaxSize(),
                     enter = fadeIn(animationSpec = tween(80)),
                     exit = fadeOut(animationSpec = tween(80))

@@ -889,7 +889,14 @@ fun NetflixHomeContent(
 
         // Nav is in normal layout flow (not an overlay). Overlay + LazyColumn
         // bring-into-view was scrolling the focused hero under the absolute nav.
-        Column(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(
+                    top = NetflixHomeTokens.TvOverscanTop,
+                    bottom = NetflixHomeTokens.TvOverscanBottom
+                )
+        ) {
             NetflixTopNavigation(
                 itemFocusRequesters = topNavigationRequesters,
                 selectedIndex = focusedTopNavigationIndex,
@@ -1099,7 +1106,7 @@ fun NetflixHomeContent(
                                 packActiveForTab -> !tabHasTrailerOptIns
                                 else -> true
                             }
-                        val rowPosterGrow = tabRowPosterGrow[rail.orderKey] == true
+                        val rowPosterGrow = tabRowPosterGrow[rail.orderKey] != false
                         val rowScale = tabRowScales[rail.orderKey] ?: 1f
                         LaunchedEffect(
                             railKey,
@@ -1224,7 +1231,7 @@ fun NetflixHomeContent(
                                     canBecomeTextPills = false,
                                     isTextPills = false,
                                     showFocusedInfo = tabRowShowLabels[rail.orderKey] == true,
-                                    posterGrow = tabRowPosterGrow[rail.orderKey] == true,
+                                    posterGrow = tabRowPosterGrow[rail.orderKey] != false,
                                     trailerEnabled = tabRowTrailers[rail.orderKey] == true,
                                     scalePercent = ((tabRowScales[rail.orderKey] ?: 1f) * 100f).roundToInt(),
                                     canExpandFolders = hasExpandableFolders,

@@ -45,11 +45,11 @@ class ViewPackTrailerGrowTest {
             homeRowTrailersFromPack(pack)
         )
         assertEquals(
-            mapOf("addon_movie_top" to false, "addon_series_pop" to false),
+            mapOf("addon_movie_top" to false, "addon_series_pop" to true),
             homeRowPosterGrowFromPack(pack)
         )
         assertFalse(homeRowPosterGrowFromPack(pack)["addon_movie_top"]!!)
-        assertFalse(homeRowPosterGrowFromPack(pack)["addon_series_pop"]!!)
+        assertTrue(homeRowPosterGrowFromPack(pack)["addon_series_pop"]!!)
     }
 
     @Test

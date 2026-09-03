@@ -216,8 +216,8 @@ internal fun NetflixCatalogRail(
     railScale: Float = 1f,
     /** When false (pack with focused-info off), hide the always-on catalogue footer. */
     showFocusedMetadata: Boolean = true,
-    /** When true, catalog tiles use landscape focus grow (editorial). Default is portrait + scale. */
-    posterGrow: Boolean = false,
+    /** When true (default), focused catalog tile expands portrait → landscape billboard. */
+    posterGrow: Boolean = true,
     trailerPreviewUrls: Map<String, String> = emptyMap(),
     trailerPreviewAudioUrls: Map<String, String> = emptyMap(),
     trailerEnabled: Boolean = false,
@@ -315,20 +315,27 @@ internal fun NetflixCatalogRail(
                     landscapeFocusGrow = posterGrow
                 )
             }
-            // Portrait mode: every tile keeps the same width so D-pad never reflows
-            // neighbours; focus grows via MediaCard scale into the larger selector.
-            // Landscape / posterGrow mode: all tiles share the editorial landscape width.
-            val cardWidth = if (posterGrow) geometry.focusedWidth else geometry.portraitWidth
-            val selectorWidth = geometry.focusedWidth
+            // Netflix browse: unfocused stay portrait; focused expands to landscape
+            // so trailers fill without letterboxing. Pivot selector matches the
+            // focused billboard size. Opt-out (posterGrow=false) keeps portrait + scale.
+            val unfocusedWidth = geometry.portraitWidth
+            val focusedWidth = geometry.focusedWidth
+            val selectorWidth = focusedWidth
             val selectorHeight = if (posterGrow) {
                 geometry.railHeight
             } else {
                 geometry.railHeight * NetflixHomeMotion.FocusScale
             }
-            val focusScale = if (posterGrow) 1f else NetflixHomeMotion.FocusScale
-            val cardCacheSizePx = remember(density, cardWidth, geometry.railHeight) {
+            val portraitFocusScale = if (posterGrow) 1f else NetflixHomeMotion.FocusScale
+            val focusedCacheSizePx = remember(density, focusedWidth, geometry.railHeight) {
                 IntSize(
-                    width = with(density) { cardWidth.roundToPx().coerceAtLeast(1) },
+                    width = with(density) { focusedWidth.roundToPx().coerceAtLeast(1) },
+                    height = with(density) { geometry.railHeight.roundToPx().coerceAtLeast(1) }
+                )
+            }
+            val portraitCacheSizePx = remember(density, unfocusedWidth, geometry.railHeight) {
+                IntSize(
+                    width = with(density) { unfocusedWidth.roundToPx().coerceAtLeast(1) },
                     height = with(density) { geometry.railHeight.roundToPx().coerceAtLeast(1) }
                 )
             }
@@ -355,7 +362,8 @@ internal fun NetflixCatalogRail(
                 row.items,
                 useLandscapeCards,
                 posterGrow,
-                cardCacheSizePx,
+                focusedCacheSizePx,
+                portraitCacheSizePx,
                 railHasFocus
             ) {
                 withContext(Dispatchers.IO) {
@@ -371,12 +379,12 @@ internal fun NetflixCatalogRail(
                         if (index !in 0..lastIndex) continue
                         val item = row.items[index]
                         val landscape = useLandscapeCards || item.posterShape == PosterShape.LANDSCAPE
-                        val preferLandscape = landscape
+                        val preferLandscape = landscape || posterGrow
                         val url = item.netflixCatalogueArtwork(
                             focused = true,
                             preferLandscapeWhenUnfocused = preferLandscape
                         ) ?: continue
-                        val size = cardCacheSizePx
+                        val size = if (posterGrow) focusedCacheSizePx else portraitCacheSizePx
                         val cacheKey = netflixArtworkCacheKey(url, size) ?: continue
                         if (netflixArtworkIsCachedInMemory(imageLoader, url, size)) {
                             continue
@@ -408,18 +416,22 @@ internal fun NetflixCatalogRail(
                     val landscape = useLandscapeCards || item.posterShape == PosterShape.LANDSCAPE
                     val focused = index == focusedIndex
                     val itemKey = item.netflixCatalogItemKey(row, index)
-                    // Landscape art only when the row (or item) is explicitly landscape —
-                    // do not swap portrait posters to backdrops on normal focus grow.
-                    val preferLandscape = landscape
+                    // Expand to landscape key art / trailer on focus (Netflix billboard).
+                    val preferLandscape = landscape || (posterGrow && focused)
+                    val preferLandscapeUnfocused = landscape
                     val portraitArtwork = item.netflixCatalogueArtwork(
                         focused = false,
-                        preferLandscapeWhenUnfocused = preferLandscape
+                        preferLandscapeWhenUnfocused = preferLandscapeUnfocused
                     )
                     val focusArtwork = item.netflixCatalogueArtwork(
                         focused = true,
-                        preferLandscapeWhenUnfocused = preferLandscape
+                        preferLandscapeWhenUnfocused = preferLandscape || landscape
                     )
                     val artwork = if (focused) focusArtwork else portraitArtwork
+                    val cardWidth = when {
+                        posterGrow && focused -> focusedWidth
+                        else -> unfocusedWidth
+                    }
                     val trailerUrl = trailerPreviewUrls[item.id]
                     // Do not gate on rail focusedIndex — every visible rail keeps a
                     // "focused" index, which would start multiple TrailerPlayers and
@@ -444,13 +456,17 @@ internal fun NetflixCatalogRail(
                         } else {
                             null
                         },
-                        artworkCacheSizePx = cardCacheSizePx,
-                        holdArtworkCacheSizePx = cardCacheSizePx,
+                        artworkCacheSizePx = if (focused && posterGrow) {
+                            focusedCacheSizePx
+                        } else {
+                            portraitCacheSizePx
+                        },
+                        holdArtworkCacheSizePx = portraitCacheSizePx,
                         width = cardWidth,
                         height = geometry.railHeight,
-                        focusScale = focusScale,
+                        focusScale = portraitFocusScale,
                         logoUrl = item.logo,
-                        showLogo = focused && preferLandscape,
+                        showLogo = focused && (preferLandscape || landscape),
                         showLabels = posterLabelsEnabled && NetflixHomeTokens.ShowCataloguePosterLabels,
                         showFallbackTitleWhenArtworkMissing = focused,
                         focusRequester = itemRequesters[index],

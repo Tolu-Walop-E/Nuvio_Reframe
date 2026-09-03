@@ -1218,7 +1218,7 @@ private fun buildNuvioHomeViewPack(
             label = label,
             trailer = trailer,
             locked = locked,
-            posterGrow = false
+            posterGrow = true
         )
         nextY += height + 24
         return out
@@ -1347,7 +1347,7 @@ private fun ViewPack.toRailEditorItems(): List<ViewPackRailEditorItem> {
                 canBecomeTextPills = ds.startsWith("collection:") && !ds.contains(":folder:"),
                 isTextPills = block.type == "genreRail",
                 showFocusedInfo = showFocusedPosterInfo || block.showPosterLabels == true,
-                posterGrow = block.posterGrow == true,
+                posterGrow = block.posterGrow != false,
                 trailerEnabled = block.trailer,
                 scalePercent = ((scales[orderKey] ?: 1f).coerceIn(0.55f, 2.5f) * 100f).roundToInt()
             )
