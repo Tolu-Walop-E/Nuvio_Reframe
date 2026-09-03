@@ -33,8 +33,10 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -87,10 +89,11 @@ internal fun NetflixHero(
     val shouldPlayTrailer = focused && playTrailerPreview && trailerArmed && !trailerPreviewUrl.isNullOrBlank()
     val hideHeroCopy = shouldPlayTrailer && hasTrailerFrame
 
+    val screenHeightDp = LocalConfiguration.current.screenHeightDp.dp
     Box(
         modifier = modifier
-            .height(NetflixHomeTokens.HeroHeight)
-            .fillMaxWidth(0.96f)
+            .height(NetflixHomeTokens.heroHeightFor(screenHeightDp))
+            .fillMaxWidth()
             .clip(shape)
             .background(NetflixHomeTokens.SurfaceRaised)
             .border(
@@ -237,8 +240,8 @@ internal fun NetflixHero(
                 Column(
                     modifier = Modifier
                         .fillMaxHeight()
-                        .fillMaxWidth(0.50f)
-                        .padding(start = 38.dp, top = 28.dp, bottom = 28.dp),
+                        .fillMaxWidth(0.52f)
+                        .padding(start = 34.dp, top = 20.dp, bottom = 22.dp),
                     verticalArrangement = Arrangement.Bottom
                 ) {
                     if (!hideHeroCopy) {
@@ -252,9 +255,11 @@ internal fun NetflixHero(
                                     model = logo,
                                     contentDescription = item.title,
                                     modifier = Modifier
-                                        .fillMaxWidth(0.72f)
-                                        .height(82.dp),
-                                    contentScale = ContentScale.Fit
+                                        .fillMaxWidth(0.82f)
+                                        .height(76.dp),
+                                    contentScale = ContentScale.Fit,
+                                    alignment = Alignment.BottomStart,
+                                    filterQuality = FilterQuality.High
                                 )
                             } else {
                                 Text(

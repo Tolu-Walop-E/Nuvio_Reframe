@@ -35,6 +35,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
@@ -367,7 +368,8 @@ internal fun NetflixMediaCard(
                         .height(height * 0.26f)
                         .zIndex(3f),
                     contentScale = ContentScale.Fit,
-                    alignment = Alignment.BottomStart
+                    alignment = Alignment.BottomStart,
+                    filterQuality = FilterQuality.High
                 )
             }
             // Soft focus wash only before the trailer is armed — lifting it under a

@@ -26,19 +26,31 @@ internal object NetflixHomeTokens {
 
     val PageHorizontalPadding = 40.dp
     /** Absolute / measured top nav row height. */
-    val TopNavHeight = 72.dp
+    val TopNavHeight = 56.dp
     /**
-     * Shield / leanback overscan — keep nav and first content clear of the clipped
-     * bezel. Without this, profile + pill chrome sit under the physical top edge.
+     * Leanback safe-area inset. Kept small: the earlier clipping was vertical
+     * overflow (nav + gap + fixed hero exceeded the screen), not real overscan.
      */
-    val TvOverscanTop = 64.dp
-    val TvOverscanBottom = 28.dp
-    /** Extra gap between the in-flow nav and the hero so the focus ring is fully clear. */
-    val HeroTopGap = 36.dp
-    val HeroHeight = 360.dp
-    val HeroCornerRadius = 26.dp
-    val RailSpacing = 14.dp
-    val CardCornerRadius = 10.dp
+    val TvOverscanTop = 20.dp
+    val TvOverscanBottom = 12.dp
+    /** Gap between the in-flow nav and the hero, just clear of the focus ring. */
+    val HeroTopGap = 8.dp
+    /** Fallback for callers without screen constraints; prefer [heroHeightFor]. */
+    val HeroHeight = 320.dp
+
+    /**
+     * Hero must leave room for the next rail's title plus a poster peek, or focus
+     * moves push rail headings under the nav. Netflix spends ~55% of the viewport
+     * on the billboard and lets the following row peek.
+     */
+    fun heroHeightFor(screenHeight: Dp): Dp =
+        (screenHeight * 0.55f).coerceIn(232.dp, 372.dp)
+
+    /** Vertical space the home chrome takes before the first rail can draw. */
+    fun homeChromeHeight(): Dp = TvOverscanTop + TopNavHeight + HeroTopGap + TvOverscanBottom
+    val HeroCornerRadius = 18.dp
+    val RailSpacing = 10.dp
+    val CardCornerRadius = 8.dp
     val FocusBorder = 3.dp
     /**
      * Resume bar. Insets must stay clear of [FocusBorder]; the focus ring is drawn
@@ -173,9 +185,9 @@ internal object NetflixHomeSpacing {
      * Reserved footer under catalogue rails: facts + at least 2 synopsis lines.
      * Extra lines fit when space allows; posters may grow via pack scale up to this floor.
      */
-    val FocusedMetadataHeight = 118.dp
+    val FocusedMetadataHeight = 100.dp
     /** Title + episode line + short description under CW rail. */
-    val ContinueMetadataHeight = 118.dp
+    val ContinueMetadataHeight = 100.dp
     val BottomFocusClearance = 400.dp
 
     fun railHorizontalGap(density: Density): Dp {

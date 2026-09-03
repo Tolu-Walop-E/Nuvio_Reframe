@@ -243,7 +243,9 @@ class TmdbMetadataService(
                     selectBestLocalizedImagePath(it, normalizedLanguage)
                 }
 
-                val logo = buildImageUrl(logoPath, size = "w500")
+                // Logos overlay hero/landscape art at up to ~600px wide, and TMDB only
+                // offers w500 below original — w500 upscales into a blurry clearart.
+                val logo = buildImageUrl(logoPath, size = "original")
 
                 val castMembers = credits?.cast
                     .orEmpty()

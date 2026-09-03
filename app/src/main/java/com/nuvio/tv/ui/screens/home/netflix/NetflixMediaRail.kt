@@ -303,15 +303,18 @@ internal fun NetflixCatalogRail(
                 .coerceAtLeast(0.dp)
             val screenHeightDp = LocalConfiguration.current.screenHeightDp.dp
             // Keep facts + ≥2 synopsis lines under posters when the pack footer is on.
+            // Must also subtract the home chrome (safe area + nav), or the footer text
+            // lands below the bottom edge once a rail is scrolled into view.
             val maxPosterHeight = if (showFocusedMetadata) {
                 (
                     screenHeightDp -
+                        NetflixHomeTokens.homeChromeHeight() -
                         NetflixHomeSpacing.FocusedMetadataHeight -
                         36.dp - // row title
                         NetflixHomeSpacing.RailTopPadding -
                         NetflixHomeSpacing.RailFocusPadding -
-                        48.dp // breathing room / next-rail peek
-                    ).coerceAtLeast(220.dp)
+                        24.dp // breathing room / next-rail peek
+                    ).coerceAtLeast(200.dp)
             } else {
                 null
             }
