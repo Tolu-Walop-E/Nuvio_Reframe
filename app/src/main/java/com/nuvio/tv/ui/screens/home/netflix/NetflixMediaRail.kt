@@ -126,29 +126,38 @@ internal fun NetflixContinueWatchingRail(
         titleScale = titleScale
     ) { rowState, focusedIndex, onCardFocused, onMoveLeft, onMoveRight, railHasFocus ->
         val density = LocalDensity.current
-        val continueCacheSizePx = remember(density) {
+        val continueFocusedCacheSizePx = remember(density) {
             IntSize(
-                width = with(density) { NetflixHomeTokens.ContinueCardWidth.roundToPx().coerceAtLeast(1) },
-                height = with(density) { NetflixHomeTokens.ContinueCardHeight.roundToPx().coerceAtLeast(1) }
+                width = with(density) { NetflixHomeTokens.FocusedContinueCardWidth.roundToPx().coerceAtLeast(1) },
+                height = with(density) { NetflixHomeTokens.FocusedContinueCardHeight.roundToPx().coerceAtLeast(1) }
             )
         }
         NetflixPivotLazyRow(
             state = rowState,
             selectorVisible = railHasFocus,
-            selectorWidth = NetflixHomeTokens.ContinueCardWidth,
-            selectorHeight = NetflixHomeTokens.ContinueCardHeight
+            selectorWidth = NetflixHomeTokens.FocusedContinueCardWidth,
+            selectorHeight = NetflixHomeTokens.FocusedContinueCardHeight
         ) {
                 itemsIndexed(items, key = { _, item -> item.netflixKey() }) { index, item ->
                     val card = item.toNetflixCard(useEpisodeThumbnails = useEpisodeThumbnails)
                     val itemKey = item.netflixKey()
+                    val focused = index == focusedIndex
                     NetflixMediaCard(
                         mediaKey = itemKey,
                         title = card.title,
                         subtitle = card.subtitle,
                         imageUrl = card.imageUrl,
-                        artworkCacheSizePx = continueCacheSizePx,
-                        width = NetflixHomeTokens.ContinueCardWidth,
-                        height = NetflixHomeTokens.ContinueCardHeight,
+                        artworkCacheSizePx = continueFocusedCacheSizePx,
+                        width = if (focused) {
+                            NetflixHomeTokens.FocusedContinueCardWidth
+                        } else {
+                            NetflixHomeTokens.ContinueCardWidth
+                        },
+                        height = if (focused) {
+                            NetflixHomeTokens.FocusedContinueCardHeight
+                        } else {
+                            NetflixHomeTokens.ContinueCardHeight
+                        },
                         progress = card.progress,
                         showLabels = false,
                         showFallbackTitleWhenArtworkMissing = false,
