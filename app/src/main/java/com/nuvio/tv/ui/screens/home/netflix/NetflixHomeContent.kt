@@ -530,8 +530,11 @@ fun NetflixHomeContent(
             if (uiState.homeRailShuffleEnabled) {
                 val intervalMs = uiState.homeRailShuffleIntervalHours.coerceIn(1, 168) * 60L * 60L * 1000L
                 val continueWatching = ordered.firstOrNull { it is NetflixHomeRail.ContinueWatching }
-                val movable = ordered.filterNot { it is NetflixHomeRail.ContinueWatching }
-                listOfNotNull(continueWatching) + shuffleUnlockedHomeRails(
+                val genres = ordered.firstOrNull { it is NetflixHomeRail.Genres }
+                val movable = ordered.filterNot {
+                    it is NetflixHomeRail.ContinueWatching || it is NetflixHomeRail.Genres
+                }
+                listOfNotNull(continueWatching, genres) + shuffleUnlockedHomeRails(
                     rails = movable,
                     lockedKeys = uiState.homeRailCustomizations
                         .filterValues { it.locked == true }
@@ -542,7 +545,7 @@ fun NetflixHomeContent(
                 ordered
             }
         } else {
-            enabled
+            railsWithPinnedHubRows(enabled)
         }
     }
     val railKeys = remember(visibleRails) { visibleRails.map { it.railKey } }
@@ -1033,7 +1036,8 @@ fun NetflixHomeContent(
                                     rail = rail,
                                     title = context.getString(R.string.home_customize_genres_title),
                                     customizations = uiState.homeRailCustomizations,
-                                    selectedTab = selectedTab
+                                    selectedTab = selectedTab,
+                                    movable = false
                                 )
                                 true
                             }
@@ -1320,7 +1324,9 @@ fun NetflixHomeContent(
                 },
                 onMove = { direction ->
                     val movableRailKeys = visibleRails
-                        .filterNot { it is NetflixHomeRail.ContinueWatching }
+                        .filterNot {
+                            it is NetflixHomeRail.ContinueWatching || it is NetflixHomeRail.Genres
+                        }
                         .map { it.railKey }
                     val from = movableRailKeys.indexOf(target.focusRailKey)
                     val to = from + direction.coerceIn(-1, 1)
@@ -1744,13 +1750,25 @@ private fun railsInRenderedOrder(
     keys: List<String>
 ): List<NetflixHomeRail> {
     val continueWatching = rails.firstOrNull { it is NetflixHomeRail.ContinueWatching }
-    val movableRails = rails.filterNot { it is NetflixHomeRail.ContinueWatching }
-    if (keys.isEmpty()) return listOfNotNull(continueWatching) + movableRails
+    val genres = rails.firstOrNull { it is NetflixHomeRail.Genres }
+    val movableRails = rails.filterNot {
+        it is NetflixHomeRail.ContinueWatching || it is NetflixHomeRail.Genres
+    }
+    if (keys.isEmpty()) return listOfNotNull(continueWatching, genres) + movableRails
     val positions = keys.withIndex().associate { it.value to it.index }
     val orderedMovableRails = movableRails.withIndex()
         .sortedWith(compareBy({ positions[it.value.railKey] ?: Int.MAX_VALUE }, { it.index }))
         .map { it.value }
-    return listOfNotNull(continueWatching) + orderedMovableRails
+    return listOfNotNull(continueWatching, genres) + orderedMovableRails
+}
+
+private fun railsWithPinnedHubRows(rails: List<NetflixHomeRail>): List<NetflixHomeRail> {
+    val continueWatching = rails.firstOrNull { it is NetflixHomeRail.ContinueWatching }
+    val genres = rails.firstOrNull { it is NetflixHomeRail.Genres }
+    val remaining = rails.filterNot {
+        it is NetflixHomeRail.ContinueWatching || it is NetflixHomeRail.Genres
+    }
+    return listOfNotNull(continueWatching, genres) + remaining
 }
 
 private fun continueWatchingMatchesTab(
