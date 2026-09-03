@@ -55,8 +55,8 @@ internal data class NetflixGenreChip(
 )
 
 /**
- * Netflix genre strip: dark-glass tiles pinned under the top nav (Build B).
- * Not a mid-stack catalog rail — keeps the browse plane clean.
+ * Genre rail in the scrollable home stack (after Continue Watching).
+ * Styling matches Netflix category tiles: dark-glass rounded rectangles + thick focus ring.
  */
 @Composable
 internal fun NetflixGenreRail(
@@ -72,7 +72,6 @@ internal fun NetflixGenreRail(
     onFirstItemMoveLeft: () -> Boolean = { false },
     onGenreSelected: (NetflixGenreChip) -> Unit,
     onGenreLongPressed: (NetflixGenreChip) -> Unit,
-    pinnedUnderNav: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     if (genres.isEmpty()) return
@@ -96,12 +95,9 @@ internal fun NetflixGenreRail(
     }
 
     LazyRow(
-        modifier = modifier.padding(
-            top = if (pinnedUnderNav) NetflixHomeTokens.GenreStripTopGap else NetflixHomeSpacing.RailTopPadding,
-            bottom = if (pinnedUnderNav) NetflixHomeTokens.GenreStripBottomGap else 0.dp
-        ),
+        modifier = modifier.padding(top = NetflixHomeSpacing.RailTopPadding),
         state = rowState,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(horizontal = NetflixHomeTokens.PageHorizontalPadding)
     ) {
         itemsIndexed(genres, key = { _, item -> item.key }) { index, genre ->
@@ -137,7 +133,7 @@ private fun NetflixGenreCard(
     onLongClick: () -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
-    // Dark-glass tile (not a pill) — matches Netflix category chips under the nav.
+    // Netflix category tiles: rounded rectangles, not capsules.
     val shape = RoundedCornerShape(NetflixHomeTokens.GenreTileCorner)
     val longPressKeyTracker = rememberLongPressKeyTracker()
     val ringWidth = NetflixHomeTokens.FocusBorder
@@ -195,9 +191,11 @@ private fun NetflixGenreCard(
                 if (it.isFocused) onFocus()
             }
             .background(
-                color = when {
-                    focused -> Color.White.copy(alpha = 0.20f)
-                    else -> Color.Black.copy(alpha = 0.55f)
+                // Dark glass fill — Netflix category chips sit as muted charcoal tiles.
+                color = if (focused) {
+                    Color(0xFF3A3A3A)
+                } else {
+                    Color(0xFF2A2A2A).copy(alpha = 0.92f)
                 },
                 shape = shape
             )
@@ -206,7 +204,7 @@ private fun NetflixGenreCard(
                 color = if (focused) {
                     NetflixThemeChrome.focus
                 } else {
-                    Color.White.copy(alpha = 0.14f)
+                    Color.White.copy(alpha = 0.08f)
                 },
                 shape = shape
             )
@@ -217,8 +215,8 @@ private fun NetflixGenreCard(
         Text(
             text = label,
             color = NetflixThemeChrome.textPrimary,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = if (focused) FontWeight.Bold else FontWeight.SemiBold,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )

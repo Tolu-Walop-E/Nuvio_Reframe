@@ -78,14 +78,11 @@ internal object NetflixHomeTokens {
     val ContinueCardHeight = 146.dp
     val FocusedContinueCardWidth = 340.dp
     val FocusedContinueCardHeight = 192.dp
-    val GenrePillHeight = 36.dp
-    val GenreTileCorner = 8.dp
-    /** Gap under the top nav before the pinned genre strip. */
-    val GenreStripTopGap = 2.dp
-    /** Gap between genre strip and the hero / first rail. */
-    val GenreStripBottomGap = 6.dp
-    val GenreTileMinWidth = 88.dp
-    val GenreTileHorizontalPadding = 18.dp
+    val GenrePillHeight = 48.dp
+    /** Rounded-rect tiles (Netflix categories), not capsules. */
+    val GenreTileCorner = 10.dp
+    val GenreTileMinWidth = 128.dp
+    val GenreTileHorizontalPadding = 22.dp
     const val ShowCataloguePosterLabels = false
 }
 
