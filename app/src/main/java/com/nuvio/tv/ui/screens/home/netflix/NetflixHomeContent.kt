@@ -1099,7 +1099,7 @@ fun NetflixHomeContent(
                                 packActiveForTab -> !tabHasTrailerOptIns
                                 else -> true
                             }
-                        val rowPosterGrow = tabRowPosterGrow[rail.orderKey] != false
+                        val rowPosterGrow = tabRowPosterGrow[rail.orderKey] == true
                         val rowScale = tabRowScales[rail.orderKey] ?: 1f
                         LaunchedEffect(
                             railKey,
@@ -1224,7 +1224,7 @@ fun NetflixHomeContent(
                                     canBecomeTextPills = false,
                                     isTextPills = false,
                                     showFocusedInfo = tabRowShowLabels[rail.orderKey] == true,
-                                    posterGrow = tabRowPosterGrow[rail.orderKey] != false,
+                                    posterGrow = tabRowPosterGrow[rail.orderKey] == true,
                                     trailerEnabled = tabRowTrailers[rail.orderKey] == true,
                                     scalePercent = ((tabRowScales[rail.orderKey] ?: 1f) * 100f).roundToInt(),
                                     canExpandFolders = hasExpandableFolders,

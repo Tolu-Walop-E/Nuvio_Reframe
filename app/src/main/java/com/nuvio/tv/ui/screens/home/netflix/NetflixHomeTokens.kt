@@ -112,12 +112,15 @@ internal object NetflixHomeDimensions {
     /**
      * @param maxAbsoluteRailHeight when set (focused-info footer on), posters cannot grow past
      * this absolute height so facts + ≥2 synopsis lines stay on-screen under the rail.
+     * @param landscapeFocusGrow when true, focused width uses 16:9 (editorial / Top-10 mode).
+     * When false, focused width stays portrait aspect × [NetflixHomeMotion.FocusScale].
      */
     fun catalogueRailGeometry(
         usableWidth: Dp,
         density: Density,
         scale: Float = 1f,
-        maxAbsoluteRailHeight: Dp? = null
+        maxAbsoluteRailHeight: Dp? = null,
+        landscapeFocusGrow: Boolean = false
     ): NetflixRailGeometry {
         val railMinHeight = with(density) { CatalogueRailMinHeightPx.toDp() }
         val railMaxHeight = with(density) { CatalogueRailMaxHeightPx.toDp() }
@@ -139,19 +142,26 @@ internal object NetflixHomeDimensions {
         } else {
             clampedScale
         }
+        val portraitWidth = (railHeight * PORTRAIT_ASPECT_WIDTH)
+            .coerceIn(portraitMinWidth * widthScale.coerceAtMost(clampedScale), portraitMaxWidth * widthScale)
+        val focusedWidth = if (landscapeFocusGrow) {
+            (railHeight * LANDSCAPE_ASPECT_WIDTH)
+                .coerceIn(focusedMinWidth * widthScale.coerceAtMost(clampedScale), focusedMaxWidth * widthScale)
+        } else {
+            portraitWidth * NetflixHomeMotion.FocusScale
+        }
         return NetflixRailGeometry(
             railHeight = railHeight,
-            portraitWidth = (railHeight * PORTRAIT_ASPECT_WIDTH)
-                .coerceIn(portraitMinWidth * widthScale.coerceAtMost(clampedScale), portraitMaxWidth * widthScale),
-            focusedWidth = (railHeight * LANDSCAPE_ASPECT_WIDTH)
-                .coerceIn(focusedMinWidth * widthScale.coerceAtMost(clampedScale), focusedMaxWidth * widthScale)
+            portraitWidth = portraitWidth,
+            focusedWidth = focusedWidth
         )
     }
 }
 
 internal object NetflixHomeSpacing {
     private const val RAIL_HORIZONTAL_GAP_PX = 16f
-    val RailFocusPadding = 10.dp
+    /** Room for portrait focus scale (~1.08) without clipping the pivot ring. */
+    val RailFocusPadding = 16.dp
     val RailTopPadding = 24.dp
     /**
      * Reserved footer under catalogue rails: facts + at least 2 synopsis lines.
@@ -169,6 +179,11 @@ internal object NetflixHomeSpacing {
 
 internal object NetflixHomeMotion {
     const val FocusWidthDurationMs = 120
+    /**
+     * Modest Netflix-style grow for portrait catalogue tiles. Keeps aspect ratio;
+     * applied via [graphicsLayer] scale so neighbours do not reflow.
+     */
+    const val FocusScale = 1.08f
     /** Short / zero when landscape is already memory-cached to avoid poster flicker under trailers. */
     const val ArtworkCrossfadeDurationMs = 80
     val FocusWidthAnimation: TweenSpec<Dp> = tween(durationMillis = FocusWidthDurationMs)

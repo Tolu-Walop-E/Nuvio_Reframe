@@ -34,12 +34,15 @@ import kotlin.math.max
 
 private const val HUE_DEBOUNCE_MS = 40L
 private const val HUE_CACHE_SIZE = 160
-private const val HUE_CROSSFADE_MS = 350
+/** Short crossfade so D-pad scrubbing doesn’t paint the whole stage. */
+private const val HUE_CROSSFADE_MS = 180
 private val SAMPLE_SIZE = Size(48, 48)
+private val StageBlack = Color(0xFF050505)
 
 /**
- * Strong cinematic hue wash from the focused poster’s dominant colour.
- * Cache keeps sampling cheap; colour always blends with a buttery crossfade.
+ * Near-black Netflix stage with a soft local tint from focused artwork.
+ * Keeps the page readable from 10 feet — colour stays under the content, not a
+ * full-screen wash.
  */
 @Composable
 internal fun NetflixPosterBackdrop(
@@ -50,9 +53,9 @@ internal fun NetflixPosterBackdrop(
     val context = LocalContext.current
     val fallback = remember(accentScrim) {
         if (accentScrim.alpha > 0.01f) {
-            lerp(Color(0xFF050505), accentScrim, 0.45f)
+            lerp(StageBlack, accentScrim, 0.18f)
         } else {
-            Color(0xFF050505)
+            StageBlack
         }
     }
 
@@ -66,7 +69,7 @@ internal fun NetflixPosterBackdrop(
         ),
         label = "netflixPosterHuePrimary"
     )
-    val secondary = remember(primary) { darken(shiftHue(primary, 18f), 0.42f) }
+    val secondary = remember(primary) { darken(shiftHue(primary, 12f), 0.55f) }
 
     LaunchedEffect(imageUrl) {
         val url = imageUrl?.takeIf { it.isNotBlank() }
@@ -91,29 +94,27 @@ internal fun NetflixPosterBackdrop(
 
     Box(
         modifier = modifier.drawBehind {
-            // One draw pass — cheaper than stacked background Boxes.
-            drawRect(color = Color.Black)
+            // Black stage first — tint is a soft local glow, not a page wash.
+            drawRect(color = StageBlack)
+            drawRect(
+                brush = Brush.radialGradient(
+                    colorStops = arrayOf(
+                        0f to primary.copy(alpha = 0.22f),
+                        0.45f to secondary.copy(alpha = 0.12f),
+                        1f to Color.Transparent
+                    ),
+                    center = Offset(size.width * 0.28f, size.height * 0.22f),
+                    radius = size.maxDimension * 0.72f
+                )
+            )
             drawRect(
                 brush = Brush.verticalGradient(
-                    0f to primary.copy(alpha = 0.78f),
-                    0.28f to primary.copy(alpha = 0.62f),
-                    0.58f to secondary.copy(alpha = 0.48f),
-                    0.82f to Color.Black.copy(alpha = 0.88f),
-                    1f to Color.Black
+                    0f to StageBlack.copy(alpha = 0.15f),
+                    0.55f to Color.Transparent,
+                    0.88f to StageBlack.copy(alpha = 0.72f),
+                    1f to StageBlack
                 )
             )
-            drawRect(
-                brush = Brush.linearGradient(
-                    colorStops = arrayOf(
-                        0f to primary.copy(alpha = 0.28f),
-                        0.55f to Color.Transparent,
-                        1f to secondary.copy(alpha = 0.34f)
-                    ),
-                    start = Offset.Zero,
-                    end = Offset(size.width, size.height * 0.35f)
-                )
-            )
-            drawRect(color = Color.Black.copy(alpha = 0.28f))
         }
     )
 }
@@ -142,7 +143,8 @@ private suspend fun samplePosterPrimaryHue(
     fallback: Color
 ): Color? = withContext(Dispatchers.IO) {
     val bitmap = loadSampleBitmap(context, imageUrl) ?: return@withContext null
-    saturate(sampleProminentColor(bitmap) ?: fallback, 0.72f, 0.78f)
+    // Mild saturation — enough for a local glow without flooding the stage.
+    saturate(sampleProminentColor(bitmap) ?: fallback, 0.42f, 0.55f)
 }
 
 /**

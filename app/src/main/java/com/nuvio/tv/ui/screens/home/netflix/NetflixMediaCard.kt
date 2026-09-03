@@ -35,6 +35,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -88,6 +89,11 @@ internal fun NetflixMediaCard(
     holdArtworkCacheSizePx: IntSize? = null,
     width: Dp,
     height: Dp,
+    /**
+     * When > 1f, focused cards scale up from top-start (Netflix portrait grow)
+     * without changing layout width — neighbours do not reflow.
+     */
+    focusScale: Float = 1f,
     progress: Float? = null,
     showLabels: Boolean = true,
     showFallbackTitleWhenArtworkMissing: Boolean = true,
@@ -126,6 +132,11 @@ internal fun NetflixMediaCard(
         targetValue = width,
         animationSpec = NetflixHomeMotion.FocusWidthAnimation,
         label = "netflixCardWidth"
+    )
+    val animatedFocusScale by animateFloatAsState(
+        targetValue = if (focused && focusScale > 1f) focusScale else 1f,
+        animationSpec = tween(durationMillis = NetflixHomeMotion.FocusWidthDurationMs),
+        label = "netflixCardFocusScale"
     )
     val shape = RoundedCornerShape(NetflixHomeTokens.CardCornerRadius)
     val shouldHoldPortrait = !imageUrl.isNullOrBlank() &&
@@ -256,7 +267,11 @@ internal fun NetflixMediaCard(
                 }
             }
             .graphicsLayer {
-                shadowElevation = if (focused) 18f else 2f
+                scaleX = animatedFocusScale
+                scaleY = animatedFocusScale
+                // Top-start so the card grows into the larger pivot selector.
+                transformOrigin = TransformOrigin(0f, 0f)
+                shadowElevation = if (focused) 14f else 2f
                 alpha = if (focused) 1f else 0.88f
             }
             .onFocusChanged {
