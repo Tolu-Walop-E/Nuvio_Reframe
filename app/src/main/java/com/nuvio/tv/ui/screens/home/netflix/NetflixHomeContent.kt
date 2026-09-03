@@ -334,12 +334,26 @@ fun NetflixHomeContent(
         }
     }
 
-    // Auto-sync chip destinations to the catalog that owns each genre for this tab.
-    // User long-press remaps in genreRowTargets always win (never overwrite).
-    LaunchedEffect(genreChips, selectedTab, uiState.genreRowTargets) {
+    // Keep valid user remaps, but repair catalog targets whose addon is not
+    // available to the active profile anymore.
+    LaunchedEffect(
+        genreChips,
+        selectedTab,
+        uiState.genreRowTargets,
+        uiState.genreCatalogCandidates
+    ) {
         genreChips.forEach { chip ->
             if (!chip.key.startsWith("genre|")) return@forEach
-            if (uiState.genreRowTargets.containsKey(chip.key)) return@forEach
+            val savedTarget = uiState.genreRowTargets[chip.key]
+            val savedTargetIsUsable = savedTarget != null && (
+                savedTarget.kind != GENRE_ROW_TARGET_CATALOG ||
+                    uiState.genreCatalogCandidates.any { candidate ->
+                        candidate.addonId == savedTarget.addonId &&
+                            candidate.type.equals(savedTarget.type, ignoreCase = true) &&
+                            candidate.catalogId == savedTarget.catalogId
+                    }
+                )
+            if (savedTargetIsUsable) return@forEach
             onGenreTargetChanged(
                 chip.key,
                 SyncGenreRowTarget(
@@ -998,6 +1012,7 @@ fun NetflixHomeContent(
                                 genre = genre,
                                 selectedTab = selectedTab,
                                 mappedTarget = uiState.genreRowTargets[genre.key],
+                                availableCatalogs = uiState.genreCatalogCandidates,
                                 onNavigateToGenre = onNavigateToGenre,
                                 onNavigateToFolderDetail = onNavigateToFolderDetail
                             )
@@ -1869,21 +1884,29 @@ private fun openGenreChip(
     genre: NetflixGenreChip,
     selectedTab: NetflixContentTab,
     mappedTarget: SyncGenreRowTarget?,
+    availableCatalogs: List<GenreCatalogCandidate>,
     onNavigateToGenre: (String, String, String, String?) -> Unit,
     onNavigateToFolderDetail: (String, String) -> Unit
 ) {
-    when (mappedTarget?.kind) {
+    val usableMappedTarget = mappedTarget?.takeIf { target ->
+        target.kind != GENRE_ROW_TARGET_CATALOG || availableCatalogs.any { candidate ->
+            candidate.addonId == target.addonId &&
+                candidate.type.equals(target.type, ignoreCase = true) &&
+                candidate.catalogId == target.catalogId
+        }
+    }
+    when (usableMappedTarget?.kind) {
         GENRE_ROW_TARGET_CATALOG -> {
             val wantedType = when (selectedTab) {
                 NetflixContentTab.MOVIES -> "movie"
                 NetflixContentTab.SHOWS -> "series"
                 NetflixContentTab.HOME -> null
             }
-            if (wantedType == null || mappedTarget.type.equals(wantedType, ignoreCase = true)) {
+            if (wantedType == null || usableMappedTarget.type.equals(wantedType, ignoreCase = true)) {
                 onNavigateToGenre(
-                    mappedTarget.catalogId,
-                    mappedTarget.addonId,
-                    mappedTarget.type,
+                    usableMappedTarget.catalogId,
+                    usableMappedTarget.addonId,
+                    usableMappedTarget.type,
                     genre.genreFilter
                 )
                 return
