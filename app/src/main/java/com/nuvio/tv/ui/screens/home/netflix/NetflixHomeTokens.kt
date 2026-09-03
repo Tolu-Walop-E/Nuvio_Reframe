@@ -31,8 +31,8 @@ internal object NetflixHomeTokens {
      * Shield / leanback overscan — keep nav and first content clear of the clipped
      * bezel. Without this, profile + pill chrome sit under the physical top edge.
      */
-    val TvOverscanTop = 40.dp
-    val TvOverscanBottom = 20.dp
+    val TvOverscanTop = 48.dp
+    val TvOverscanBottom = 24.dp
     /** Extra gap between the in-flow nav and the hero so the focus ring is fully clear. */
     val HeroTopGap = 36.dp
     val HeroHeight = 360.dp

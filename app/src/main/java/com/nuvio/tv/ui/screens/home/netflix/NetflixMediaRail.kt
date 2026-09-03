@@ -637,9 +637,28 @@ internal fun NetflixRailScaffold(
         true
     }
 
+    val railBringIntoViewResponder = remember {
+        object : BringIntoViewResponder {
+            override fun calculateRectForParent(localRect: Rect): Rect {
+                // Pivot row reports only the card strip. Expand to the full rail
+                // (title + cards) so LazyColumn never pins posters flush under nav
+                // and clips the row title.
+                return Rect(
+                    left = 0f,
+                    top = 0f,
+                    right = localRect.right.coerceAtLeast(localRect.left),
+                    bottom = localRect.bottom.coerceAtLeast(0f)
+                )
+            }
+
+            override suspend fun bringChildIntoView(localRect: () -> Rect?) = Unit
+        }
+    }
+
     Column(
         modifier = modifier
             .padding(top = NetflixHomeSpacing.RailTopPadding)
+            .bringIntoViewResponder(railBringIntoViewResponder)
             .onPreviewKeyEvent { keyEvent ->
                 if (keyEvent.type != KeyEventType.KeyDown) {
                     false
