@@ -31,8 +31,8 @@ internal object NetflixHomeTokens {
      * Shield / leanback overscan — keep nav and first content clear of the clipped
      * bezel. Without this, profile + pill chrome sit under the physical top edge.
      */
-    val TvOverscanTop = 48.dp
-    val TvOverscanBottom = 24.dp
+    val TvOverscanTop = 64.dp
+    val TvOverscanBottom = 28.dp
     /** Extra gap between the in-flow nav and the hero so the focus ring is fully clear. */
     val HeroTopGap = 36.dp
     val HeroHeight = 360.dp
@@ -64,8 +64,8 @@ internal object NetflixHomeTokens {
     /** Uniform landscape CW cards; focus expands to [FocusedContinueCard*] like Netflix. */
     val ContinueCardWidth = 260.dp
     val ContinueCardHeight = 146.dp
-    val FocusedContinueCardWidth = 312.dp
-    val FocusedContinueCardHeight = 176.dp
+    val FocusedContinueCardWidth = 340.dp
+    val FocusedContinueCardHeight = 192.dp
     val GenrePillHeight = 40.dp
     const val ShowCataloguePosterLabels = false
 }
