@@ -22,6 +22,8 @@ internal object NetflixHomeTokens {
     val TextMuted = Color.White.copy(alpha = 0.50f)
     val Accent = Color(0xFFE50914)
     val Focus = Color.White
+    /** Match score. Muted so it reads as a fact, not a second accent. */
+    val RatingGreen = Color(0xFF3FA45F)
     val Scrim = Color.Black.copy(alpha = 0.68f)
 
     val PageHorizontalPadding = 40.dp
@@ -35,6 +37,8 @@ internal object NetflixHomeTokens {
     val TvOverscanBottom = 12.dp
     /** Gap between the in-flow nav and the hero, just clear of the focus ring. */
     val HeroTopGap = 8.dp
+    /** Fade at the scroll container's top edge so clipped rows don't cut mid-line. */
+    val ScrollTopFade = 44.dp
     /** Fallback for callers without screen constraints; prefer [heroHeightFor]. */
     val HeroHeight = 320.dp
 
@@ -48,9 +52,9 @@ internal object NetflixHomeTokens {
 
     /** Vertical space the home chrome takes before the first rail can draw. */
     fun homeChromeHeight(): Dp = TvOverscanTop + TopNavHeight + HeroTopGap + TvOverscanBottom
-    val HeroCornerRadius = 18.dp
+    val HeroCornerRadius = 14.dp
     val RailSpacing = 10.dp
-    val CardCornerRadius = 8.dp
+    val CardCornerRadius = 6.dp
     val FocusBorder = 3.dp
     /**
      * Resume bar. Insets must stay clear of [FocusBorder]; the focus ring is drawn
@@ -84,12 +88,30 @@ internal object NetflixHomeTokens {
     val GenreTileMinWidth = 128.dp
     val GenreTileHorizontalPadding = 22.dp
     const val ShowCataloguePosterLabels = false
+
+    /**
+     * Netflix gives the eye one resting place: the lead catalogue row carries full
+     * height and later rows sit slightly back, so the next row's title always peeks.
+     * An explicit per-row scale (ViewPack or Customize) wins over this.
+     */
+    const val SecondaryRailScale = 0.86f
+    const val SecondaryRailTitleScale = 0.93f
+
+    /**
+     * Hierarchy scale for a catalogue row. Returns 1 for the featured row and for
+     * any row the user/pack sized by hand.
+     */
+    fun railHierarchyScale(
+        isFeatured: Boolean,
+        hasExplicitScale: Boolean,
+        secondary: Float
+    ): Float = if (isFeatured || hasExplicitScale) 1f else secondary
 }
 
 internal object NetflixHomeTypography {
     val RowTitle = TextStyle(
-        fontSize = 26.sp,
-        lineHeight = 30.sp,
+        fontSize = 23.sp,
+        lineHeight = 27.sp,
         fontWeight = FontWeight.SemiBold
     )
     val RowSubtitle = TextStyle(
@@ -186,12 +208,13 @@ internal object NetflixHomeSpacing {
     val RailFocusPadding = 12.dp
     val RailTopPadding = 24.dp
     /**
-     * Reserved footer under catalogue rails: facts + at least 2 synopsis lines.
-     * Extra lines fit when space allows; posters may grow via pack scale up to this floor.
+     * Reserved footer under catalogue rails: one middot facts line + 2 synopsis
+     * lines. Netflix never reserves a tall slab here, so this stays tight and the
+     * reclaimed height goes back to the posters.
      */
-    val FocusedMetadataHeight = 100.dp
+    val FocusedMetadataHeight = 84.dp
     /** Title + episode line + short description under CW rail. */
-    val ContinueMetadataHeight = 100.dp
+    val ContinueMetadataHeight = 88.dp
     val BottomFocusClearance = 400.dp
 
     fun railHorizontalGap(density: Density): Dp {
@@ -243,6 +266,17 @@ internal data class NetflixHeroItem(
     val runtime: String?,
     val target: NetflixHomeTarget
 )
+
+/**
+ * Some addons report runtime as a bare minute count ("23"), which reads as a
+ * stray number in the middot facts line. Anything already carrying a unit is
+ * passed through untouched.
+ */
+internal fun netflixRuntimeLabel(raw: String?): String? {
+    val value = raw?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    if (value == "0" || value == "0 min") return null
+    return if (value.all { it.isDigit() }) "$value min" else value
+}
 
 internal fun MetaPreview.netflixAmbientArtUrl(): String? =
     background ?: landscapePoster ?: poster

@@ -856,30 +856,31 @@ private fun NetflixFocusedCatalogMetadata(
         val metadataLineHeight = with(density) {
             NetflixHomeTypography.Metadata.lineHeight.toDp()
         }
-        val synopsisGap = 8.dp
+        val synopsisGap = 6.dp
         val availableForSynopsis = (maxHeight - metadataLineHeight - synopsisGap)
             .coerceAtLeast(0.dp)
-        // Always keep ≥2 description lines; grow up to 7 when the footer has room.
+        // Netflix caps the browse blurb at two lines; never let it grow into a slab.
         val maxSynopsisLines = floor(
             availableForSynopsis / synopsisLineHeight.coerceAtLeast(1.dp)
-        ).toInt().coerceIn(2, 7)
+        ).toInt().coerceIn(2, 3)
 
         Column(modifier = Modifier.fillMaxWidth()) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 item.imdbRating?.let {
                     Text(
                         text = "${String.format("%.0f", it * 10)}%",
-                        color = Color(0xFF31D76B),
+                        color = NetflixHomeTokens.RatingGreen,
                         style = NetflixHomeTypography.Metadata,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.SemiBold
                     )
                 }
-                item.metadataFacts().forEach { fact ->
+                item.metadataFacts().takeIf { it.isNotEmpty() }?.let { facts ->
                     Text(
-                        text = fact,
-                        color = NetflixThemeChrome.textPrimary,
+                        text = facts.joinToString("  •  "),
+                        color = NetflixThemeChrome.textSecondary,
                         style = NetflixHomeTypography.Metadata,
-                        maxLines = 1
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -981,10 +982,8 @@ private fun MetaPreview.metadataFacts(): List<String> {
         ageRating?.takeIf { it.isNotBlank() }?.let(::add)
         genres.take(2)
             .filter { it.isNotBlank() }
-            .takeIf { it.isNotEmpty() }
-            ?.joinToString(" · ")
-            ?.let(::add)
-        runtime?.takeIf { it.isNotBlank() && it != "0 min" }?.let(::add)
+            .forEach(::add)
+        netflixRuntimeLabel(runtime)?.let(::add)
     }
 }
 

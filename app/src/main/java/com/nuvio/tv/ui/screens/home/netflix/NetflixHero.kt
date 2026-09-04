@@ -143,11 +143,14 @@ internal fun NetflixHero(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
+                        // Netflix keeps a strong left gradient on the billboard whether
+                        // or not it is focused. The old near-transparent focused scrim
+                        // left the copy sitting on bare artwork.
                         .background(
                             Brush.horizontalGradient(
-                                0f to Color.Black.copy(alpha = 0.32f),
-                                0.42f to Color.Black.copy(alpha = 0.08f),
-                                0.62f to Color.Transparent
+                                0f to Color.Black.copy(alpha = 0.74f),
+                                0.40f to Color.Black.copy(alpha = 0.42f),
+                                0.70f to Color.Transparent
                             )
                         )
                 )
@@ -155,18 +158,13 @@ internal fun NetflixHero(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .height(96.dp)
+                        .height(120.dp)
                         .background(
                             Brush.verticalGradient(
                                 0f to Color.Transparent,
-                                1f to Color.Black.copy(alpha = 0.40f)
+                                1f to Color.Black.copy(alpha = 0.46f)
                             )
                         )
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.White.copy(alpha = 0.05f))
                 )
             } else {
                 Box(
@@ -303,15 +301,21 @@ internal fun NetflixHero(
     }
 }
 
+/** Netflix keeps the billboard middot line short; 4 is what fits the copy column. */
+private const val MAX_HERO_FACTS = 4
+
 @Composable
 private fun NetflixHeroFacts(item: NetflixHeroItem) {
+    // Blank facts would still draw their leading middot, leaving a dangling
+    // separator. More than [MAX_HERO_FACTS] overflows the copy column and the
+    // squeezed tail renders as a bare ellipsis.
     val facts = buildList {
-        item.rating?.let { add("IMDb $it") }
-        item.year?.let { add(it) }
-        item.certification?.let { add(it) }
-        if (item.genres.isNotEmpty()) add(item.genres.joinToString(" • "))
-        item.runtime?.let { add(it) }
-    }
+        item.rating?.takeIf { it.isNotBlank() }?.let { add("IMDb $it") }
+        item.year?.takeIf { it.isNotBlank() }?.let(::add)
+        item.certification?.takeIf { it.isNotBlank() }?.let(::add)
+        netflixRuntimeLabel(item.runtime)?.let(::add)
+        item.genres.firstOrNull { it.isNotBlank() }?.let(::add)
+    }.take(MAX_HERO_FACTS)
     Row(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -330,7 +334,8 @@ private fun NetflixHeroFacts(item: NetflixHeroItem) {
                 color = NetflixHomeTokens.TextPrimary,
                 style = MaterialTheme.typography.bodySmall,
                 fontWeight = FontWeight.SemiBold,
-                maxLines = 1
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }

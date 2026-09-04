@@ -115,9 +115,10 @@ internal fun NetflixTopNavigation(
             Spacer(modifier = Modifier.weight(1f))
             Row(
                 modifier = Modifier
+                    // Netflix has no nav container. Keep a faint scrim so the labels
+                    // stay legible over a bright hero, but drop the outlined pill.
                     .clip(RoundedCornerShape(50))
-                    .background(Color.Black.copy(alpha = 0.55f))
-                    .border(1.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(50))
+                    .background(Color.Black.copy(alpha = 0.30f))
                     .padding(horizontal = 6.dp, vertical = 5.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically

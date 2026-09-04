@@ -42,8 +42,10 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
@@ -53,6 +55,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -549,6 +552,11 @@ fun NetflixHomeContent(
         }
     }
     val railKeys = remember(visibleRails) { visibleRails.map { it.railKey } }
+    // The lead catalogue row is the eye's resting place; every row after it sits
+    // back a notch so its title and a poster peek stay in frame.
+    val featuredRailOrderKey = remember(visibleRails) {
+        visibleRails.firstOrNull { it is NetflixHomeRail.Catalog }?.orderKey
+    }
     val heroRowCount = if (heroItem != null) 1 else 0
     val showHiddenRailsAction = uiState.viewPackCustomizationModeEnabled &&
         selectedTab == NetflixContentTab.HOME &&
@@ -887,6 +895,9 @@ fun NetflixHomeContent(
             accentScrim = NetflixThemeChrome.accent
         )
 
+        val topFadeColor = NetflixThemeChrome.background
+        val topFadePx = with(LocalDensity.current) { NetflixHomeTokens.ScrollTopFade.toPx() }
+
         // Nav is in normal layout flow (not an overlay). Overlay + LazyColumn
         // bring-into-view was scrolling the focused hero under the absolute nav.
         Column(
@@ -915,7 +926,25 @@ fun NetflixHomeContent(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f),
+                    .weight(1f)
+                    // Content is hard-clipped at the list's top edge, so the row above
+                    // the focused one used to leave half a line of synopsis under the
+                    // nav. Fade the last few dp into the stage like Netflix does.
+                    .drawWithContent {
+                        drawContent()
+                        drawRect(
+                            brush = Brush.verticalGradient(
+                                // Hold the scrim opaque for the first half so a
+                                // clipped text line is covered, not just dimmed.
+                                0f to topFadeColor,
+                                0.45f to topFadeColor,
+                                1f to Color.Transparent,
+                                startY = 0f,
+                                endY = topFadePx
+                            ),
+                            size = Size(size.width, topFadePx)
+                        )
+                    },
                 state = listState,
                 contentPadding = PaddingValues(top = NetflixHomeTokens.HeroTopGap),
                 verticalArrangement = Arrangement.spacedBy(NetflixHomeTokens.RailSpacing)
@@ -1108,6 +1137,16 @@ fun NetflixHomeContent(
                             }
                         val rowPosterGrow = tabRowPosterGrow[rail.orderKey] != false
                         val rowScale = tabRowScales[rail.orderKey] ?: 1f
+                        val rowHierarchyScale = NetflixHomeTokens.railHierarchyScale(
+                            isFeatured = rail.orderKey == featuredRailOrderKey,
+                            hasExplicitScale = tabRowScales.containsKey(rail.orderKey),
+                            secondary = NetflixHomeTokens.SecondaryRailScale
+                        )
+                        val rowHierarchyTitleScale = NetflixHomeTokens.railHierarchyScale(
+                            isFeatured = rail.orderKey == featuredRailOrderKey,
+                            hasExplicitScale = tabRowScales.containsKey(rail.orderKey),
+                            secondary = NetflixHomeTokens.SecondaryRailTitleScale
+                        )
                         LaunchedEffect(
                             railKey,
                             netflixTrailersEnabled,
@@ -1177,7 +1216,7 @@ fun NetflixHomeContent(
                             } else {
                                 uiState.posterLabelsEnabled
                             },
-                            railScale = rowScale * globalRailScale *
+                            railScale = rowScale * globalRailScale * rowHierarchyScale *
                                 if (packActiveForTab) tabCatalogPosterScale else 1f,
                             // Stock Netflix always shows the catalogue footer; packs opt in/out.
                             showFocusedMetadata = if (rowShowMeta != null || packActiveForTab) {
@@ -1196,7 +1235,8 @@ fun NetflixHomeContent(
                                 onRequestTrailerPreview(item.id, item.name, item.releaseInfo, item.apiType)
                             },
                             allowEmpty = packActiveForTab,
-                            titleScale = if (packActiveForTab) tabRailTitleScale else 1f
+                            titleScale = rowHierarchyTitleScale *
+                                if (packActiveForTab) tabRailTitleScale else 1f
                         )
                     }
 
