@@ -3,8 +3,6 @@ package com.nuvio.tv.ui.screens.addon
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.nuvio.tv.R
-import com.nuvio.tv.core.sync.HOME_GENRES_ROW_KEY
 import com.nuvio.tv.core.sync.HomeCatalogSettingsSyncService
 import com.nuvio.tv.core.sync.homeCatalogKey
 import com.nuvio.tv.core.sync.homeLegacyDisabledCatalogKey
@@ -215,13 +213,6 @@ class CatalogOrderViewModel @Inject constructor(
         followAddonsOrder: Boolean = false
     ): List<CatalogOrderItem> {
         val defaultEntries = buildDefaultCatalogEntries(addons)
-        val genreEntry = CatalogOrderEntry(
-            key = HOME_GENRES_ROW_KEY,
-            disableKey = HOME_GENRES_ROW_KEY,
-            catalogName = context.getString(R.string.collections_editor_emoji_category_genres),
-            addonName = context.getString(R.string.app_name),
-            typeLabel = "row"
-        )
         val collectionEntries = collections.map { collection ->
             CatalogOrderEntry(
                 key = "collection_${collection.id}",
@@ -231,8 +222,8 @@ class CatalogOrderViewModel @Inject constructor(
                 typeLabel = "collection"
             )
         }
-        val floatingEntries = listOf(genreEntry) + collectionEntries
-        val allEntries = listOf(genreEntry) + defaultEntries + collectionEntries
+        val floatingEntries = collectionEntries
+        val allEntries = defaultEntries + collectionEntries
         val availableMap = allEntries.associateBy { it.key }
         val defaultOrderKeys = allEntries.map { it.key }
 
@@ -250,15 +241,10 @@ class CatalogOrderViewModel @Inject constructor(
                 // Strategy: walk through savedValid, output addon keys in manifest order,
                 // insert collections at their saved positions relative to addon boundaries.
                 val result = mutableListOf<String>()
-                if (HOME_GENRES_ROW_KEY !in savedValid) {
-                    result.add(HOME_GENRES_ROW_KEY)
-                }
                 var addonPointer = 0 // pointer into addonKeys (manifest order)
 
                 for (savedKey in savedValid) {
                     if (savedKey in floatingKeys) {
-                        // Place collection here - but first flush any addon keys up to this point
-                        // that haven't been placed yet
                         result.add(savedKey)
                     } else {
                         // It's an addon catalog key in saved order - advance manifest pointer
@@ -283,7 +269,7 @@ class CatalogOrderViewModel @Inject constructor(
                     }
                     addonPointer++
                 }
-                // Append synthetic and collection rows not present in saved order.
+                // Append collection rows not present in saved order.
                 for (floatingKey in floatingEntries.map { it.key }) {
                     if (floatingKey !in result) {
                         result.add(floatingKey)
@@ -294,7 +280,7 @@ class CatalogOrderViewModel @Inject constructor(
                 effectiveOrder = normalizeCollectionPositions(result, availableMap)
             } else {
                 // No saved order - addon manifest order + collections at end
-                effectiveOrder = listOf(HOME_GENRES_ROW_KEY) + addonKeys + collectionEntries.map { it.key }
+                effectiveOrder = addonKeys + collectionEntries.map { it.key }
             }
         } else {
             val savedValid = savedOrderKeys
@@ -305,11 +291,7 @@ class CatalogOrderViewModel @Inject constructor(
 
             val savedKeySet = savedValid.toSet()
             val missing = defaultOrderKeys.filterNot { it in savedKeySet }
-            effectiveOrder = if (HOME_GENRES_ROW_KEY in savedKeySet) {
-                savedValid + missing
-            } else {
-                listOf(HOME_GENRES_ROW_KEY) + savedValid + missing.filterNot { it == HOME_GENRES_ROW_KEY }
-            }
+            effectiveOrder = savedValid + missing
         }
 
         return effectiveOrder.mapIndexedNotNull { index, key ->

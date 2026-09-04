@@ -14,7 +14,6 @@ import com.nuvio.tv.domain.model.LibrarySourceMode
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.core.sync.SyncGenreRowTarget
 import com.nuvio.tv.domain.model.WatchProgress
-import com.nuvio.tv.ui.screens.home.netflix.GenreCatalogCandidate
 
 @Immutable
 data class HomeUiState(
@@ -26,8 +25,6 @@ data class HomeUiState(
     val error: String? = null,
     val selectedItemId: String? = null,
     val installedAddonsCount: Int = 0,
-    /** Genre-capable catalogs derived from installed addons (Netflix chip strip). */
-    val genreCatalogCandidates: List<GenreCatalogCandidate> = emptyList(),
     val homeLayout: HomeLayout = HomeLayout.NETFLIX,
     val modernLandscapePostersEnabled: Boolean = false,
     val modernHeroFullScreenBackdropEnabled: Boolean = false,
@@ -97,6 +94,8 @@ data class HomeUiState(
     val viewPackRowTrailers: Map<String, Boolean> = emptyMap(),
     /** Per-rail focus-grow (landscape expand) from the active view pack. */
     val viewPackRowPosterGrow: Map<String, Boolean> = emptyMap(),
+    /** Per-rail text-tile mode (Studio `genreRail` blocks) from the active view pack. */
+    val viewPackRowAsText: Map<String, Boolean> = emptyMap(),
     /** Pack-global catalog/media poster scale (1 = default). */
     val viewPackCatalogPosterScale: Float = 1f,
     /** Pack-global collection landscape tile scale (1 = default). */
@@ -121,9 +120,7 @@ data class HomeUiState(
     /** Studio Movies tab pack; null = type-filter / discovery fallback. */
     val moviesScreenPack: NetflixScreenPackState? = null,
     /** Studio TV Shows tab pack; null = type-filter / discovery fallback. */
-    val showsScreenPack: NetflixScreenPackState? = null,
-    /** Home-pack text-pill rail bound to `collection:id`; null = catalog-derived chips. */
-    val viewPackGenreCollectionId: String? = null
+    val showsScreenPack: NetflixScreenPackState? = null
 )
 
 @Immutable
@@ -133,6 +130,8 @@ data class NetflixScreenPackState(
     val rowShowLabels: Map<String, Boolean> = emptyMap(),
     val rowTrailers: Map<String, Boolean> = emptyMap(),
     val rowPosterGrow: Map<String, Boolean> = emptyMap(),
+    /** Rails the pack authored as text tiles (Studio `genreRail` blocks). */
+    val rowAsText: Map<String, Boolean> = emptyMap(),
     val catalogPosterScale: Float = 1f,
     val collectionLandscapeScale: Float = 1f,
     val collectionTitleScale: Float = 1f,
@@ -141,9 +140,7 @@ data class NetflixScreenPackState(
     val heroLabel: String = "Featured",
     val heroDataSource: String? = null,
     val featuredHeightPx: Int? = null,
-    val hasContinueWatching: Boolean = false,
-    /** Text-pill `genreRail` bound to `collection:id`; null = catalog-derived chips. */
-    val genreCollectionId: String? = null
+    val hasContinueWatching: Boolean = false
 )
 
 @Immutable

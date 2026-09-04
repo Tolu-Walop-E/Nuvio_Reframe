@@ -131,12 +131,6 @@ fun CatalogSeeAllScreen(
         val browseTitle = normalizedGenre?.replaceFirstChar { it.uppercase() }
             ?: catalogRow?.catalogName
             ?: stringResource(R.string.catalog_see_all_title_fallback)
-        val exitToGenres = remember(viewModel, onBackPress) {
-            {
-                viewModel.requestNetflixGenreRailFocus()
-                onBackPress()
-            }
-        }
         NetflixCatalogBrowseContent(
             title = browseTitle,
             rows = browseRows,
@@ -159,7 +153,7 @@ fun CatalogSeeAllScreen(
             onRequestTrailerPreview = { itemId, title, releaseInfo, apiType ->
                 viewModel.requestTrailerPreview(itemId, title, releaseInfo, apiType)
             },
-            onExitUp = exitToGenres
+            onExitUp = onBackPress
         )
         val posterOptionsState by posterOptionsController.state.collectAsState()
         com.nuvio.tv.ui.components.posteroptions.PosterOptionsHost(

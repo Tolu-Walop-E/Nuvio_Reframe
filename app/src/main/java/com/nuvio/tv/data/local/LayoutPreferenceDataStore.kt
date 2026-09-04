@@ -11,6 +11,7 @@ import androidx.datastore.preferences.core.stringSetPreferencesKey
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.core.sync.HomeRailKeyMigration
 import com.nuvio.tv.core.sync.LocalHomeCatalogSettingsState
 import com.nuvio.tv.core.sync.SyncGenreRowTarget
 import com.nuvio.tv.core.sync.SyncHomeCatalogPayload
@@ -541,6 +542,63 @@ class LayoutPreferenceDataStore @Inject constructor(
         }
     }
 
+    /**
+     * Rebinds saved home-rail settings after an addon reinstall changed its manifest id.
+     *
+     * Order, hidden, titles, hero sources and per-rail customizations are all keyed by
+     * addon id, so an updated addon that publishes a new id would otherwise drop the
+     * user's entire home layout back to defaults. Runs as one edit so the stores cannot
+     * disagree.
+     *
+     * Returns `old key -> new key` so callers can apply the same remap to in-memory
+     * state before the DataStore flows emit.
+     */
+    internal suspend fun migrateHomeRailKeysForReinstalledAddons(
+        installed: List<HomeRailKeyMigration.InstalledCatalog>
+    ): Map<String, String> {
+        if (installed.isEmpty()) return emptyMap()
+        var moves: Map<String, String> = emptyMap()
+        store().edit { prefs ->
+            val orderKeys = parseCatalogKeys(prefs.getStringOrMigrateSet(homeCatalogOrderKeysKey))
+            val disabledKeys = parseCatalogKeys(prefs.getStringOrMigrateSet(disabledHomeCatalogKeysKey))
+            val titles = parseCustomTitles(prefs.getStringOrMigrateSet(customCatalogTitlesKey))
+            val customizations = parseHomeRailCustomizations(prefs[homeRailCustomizationsKey])
+            val heroKeys = parseCatalogKeys(prefs.getStringOrMigrateSet(heroCatalogKeysKey))
+
+            val savedKeys = LinkedHashSet<String>().apply {
+                addAll(orderKeys)
+                addAll(disabledKeys)
+                addAll(titles.keys)
+                addAll(customizations.keys)
+                addAll(heroKeys)
+            }
+            moves = HomeRailKeyMigration.plan(savedKeys, installed)
+            if (moves.isEmpty()) return@edit
+
+            HomeRailKeyMigration.applyToList(orderKeys, moves).let { updated ->
+                if (updated != orderKeys) prefs[homeCatalogOrderKeysKey] = gson.toJson(updated)
+            }
+            HomeRailKeyMigration.applyToList(disabledKeys, moves).let { updated ->
+                if (updated != disabledKeys) prefs[disabledHomeCatalogKeysKey] = gson.toJson(updated)
+            }
+            HomeRailKeyMigration.applyToMap(titles, moves).let { updated ->
+                if (updated != titles) prefs[customCatalogTitlesKey] = gson.toJson(updated)
+            }
+            HomeRailKeyMigration.applyToMap(customizations, moves).let { updated ->
+                if (updated != customizations) {
+                    prefs[homeRailCustomizationsKey] = gson.toJson(updated)
+                }
+            }
+            HomeRailKeyMigration.applyToList(heroKeys, moves).let { updated ->
+                if (updated != heroKeys) {
+                    if (updated.isEmpty()) prefs.remove(heroCatalogKeysKey)
+                    else prefs[heroCatalogKeysKey] = gson.toJson(updated)
+                }
+            }
+        }
+        return moves
+    }
+
     suspend fun setHomeRailShuffleEnabled(enabled: Boolean) {
         store().edit { prefs -> prefs[homeRailShuffleEnabledKey] = enabled }
     }
@@ -1045,7 +1103,8 @@ class LayoutPreferenceDataStore @Inject constructor(
             posterGrow == null &&
             trailer == null &&
             expandedFolders == null &&
-            locked == null
+            locked == null &&
+            asText == null
 }
 
 internal val legacySearchDiscoverEnabledKey = booleanPreferencesKey("search_discover_enabled")

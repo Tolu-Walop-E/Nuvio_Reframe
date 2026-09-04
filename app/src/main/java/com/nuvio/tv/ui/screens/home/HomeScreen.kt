@@ -672,10 +672,6 @@ private fun ModernHomeRoute(
             isCatalogItemWatched = isCatalogItemWatched,
             onCatalogItemLongPress = onCatalogItemLongPress,
             onNavigateToFolderDetail = onNavigateToFolderDetail,
-            onNavigateToGenre = onNavigateToGenre,
-            onGenreTargetChanged = remember(viewModel) {
-                { chipKey, target -> viewModel.setGenreRowTarget(chipKey, target) }
-            },
             onItemFocus = remember(viewModel) {
                 { item -> viewModel.onItemFocus(item) }
             },
@@ -699,8 +695,8 @@ private fun ModernHomeRoute(
             onRailScaleChange = remember(viewModel) {
                 { orderKey, percent -> viewModel.updateActiveViewPackRailScale(orderKey, percent) }
             },
-            onRailTextPillsToggle = remember(viewModel) {
-                { orderKey, enabled -> viewModel.updateActiveViewPackRailTextPills(orderKey, enabled) }
+            onRailAsTextToggle = remember(viewModel) {
+                { orderKey, enabled -> viewModel.updateHomeRailAsText(orderKey, enabled) }
             },
             onRailFocusedInfoToggle = remember(viewModel) {
                 { orderKey, enabled -> viewModel.updateActiveViewPackRailPosterLabels(orderKey, enabled) }

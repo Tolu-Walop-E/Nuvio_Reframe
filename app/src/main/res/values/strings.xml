@@ -2196,7 +2196,7 @@
     <string name="home_customize_tile_detail">Tile detail</string>
     <string name="home_customize_focus_grow">Focus grow</string>
     <string name="home_customize_trailers">Trailers</string>
-    <string name="home_customize_text_pills">Text pills</string>
+    <string name="home_customize_as_text">Show as text</string>
     <string name="home_customize_expand_folders">Expand folders into rails</string>
     <string name="home_customize_enabled">%1$s: On</string>
     <string name="home_customize_disabled">%1$s: Off</string>

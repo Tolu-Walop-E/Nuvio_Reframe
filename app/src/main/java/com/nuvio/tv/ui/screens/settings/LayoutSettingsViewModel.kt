@@ -1189,7 +1189,6 @@ private fun buildNuvioHomeViewPack(
     val collectionKeys = collections.map { "collection_${it.id}" }
     val availableKeys = catalogsByKey.keys + collectionKeys
     val orderedKeys = buildList {
-        add("_special_genres")
         orderedCatalogKeys
             .asSequence()
             .filter { it in availableKeys }
@@ -1253,16 +1252,6 @@ private fun buildNuvioHomeViewPack(
     val addedFolderRails = LinkedHashSet<String>()
     for (key in orderedKeys) {
         when {
-            key == "_special_genres" -> {
-                blocks += block(
-                    id = "genres",
-                    type = "genreRail",
-                    dataSource = "genres",
-                    label = "Genres",
-                    height = 96,
-                    locked = true
-                )
-            }
             key in catalogsByKey -> {
                 val rail = catalogsByKey.getValue(key)
                 blocks += block(

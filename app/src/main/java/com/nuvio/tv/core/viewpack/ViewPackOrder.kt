@@ -1,8 +1,5 @@
 package com.nuvio.tv.core.viewpack
 
-/** Injected home-order key for Studio's genres / genreRail block. */
-const val PACK_GENRES_ROW_KEY = "_special_genres"
-
 const val MIN_PACK_CARD_SCALE = 0.7f
 const val MAX_PACK_CARD_SCALE = 2f
 
@@ -20,7 +17,9 @@ fun homeOrderKeyForDataSource(dataSource: String): String? {
     when {
         ds.isEmpty() || ds == "none" || ds == "featured" -> return null
         ds == "continueWatching" -> return null
-        ds == "genres" -> return PACK_GENRES_ROW_KEY
+        // Legacy Studio source that generated a synthetic genres rail. Rails are now
+        // real content rails that can be shown as text, so there is nothing to place.
+        ds == "genres" -> return null
         ds.startsWith("catalog:") -> {
             // catalog:addonId:type:catalogId  (addonId may contain dots, not colons)
             val parts = ds.removePrefix("catalog:").split(":", limit = 3)
@@ -51,21 +50,37 @@ fun homeOrderKeyForDataSource(dataSource: String): String? {
 
 /**
  * Extract strict home order keys from pack blocks (Y order after shuffle).
- * Dedupes: first occurrence wins. Keeps [PACK_GENRES_ROW_KEY]; skips hero/nav chrome.
+ * Dedupes: first occurrence wins; skips hero/nav chrome.
+ *
+ * A `genreRail` block is just its own data source rendered as text (see
+ * [homeRowAsTextFromPack]), so it takes the same slot any other rail would.
  */
 fun homeOrderKeysFromPack(pack: ViewPack): List<String> {
     val ordered = pack.blocks.sortedWith(compareBy({ it.y }, { it.x }, { it.id }))
     val keys = LinkedHashSet<String>()
     for (block in ordered) {
         if (block.type == "topNav" || block.type == "hero" || block.type == "spacer") continue
-        if (block.type == "genreRail") {
-            keys.add(PACK_GENRES_ROW_KEY)
-            continue
-        }
         val key = homeOrderKeyForDataSource(block.dataSource) ?: continue
         keys.add(key)
     }
     return keys.toList()
+}
+
+/**
+ * Rails a pack wants rendered as text tiles rather than posters.
+ *
+ * Studio authors this as a `genreRail` block. It used to swap the rail for a synthetic
+ * genres strip; now it is an ordinary rail flagged for text mode, which is the same
+ * thing the in-app "Show as text" toggle sets.
+ */
+fun homeRowAsTextFromPack(pack: ViewPack): Map<String, Boolean> {
+    val out = LinkedHashMap<String, Boolean>()
+    for (block in pack.blocks.sortedWith(compareBy({ it.y }, { it.x }, { it.id }))) {
+        if (block.type != "genreRail") continue
+        val key = homeOrderKeyForDataSource(block.dataSource) ?: continue
+        out[key] = true
+    }
+    return out
 }
 
 /** True when the pack includes a Continue Watching rail. */
@@ -111,28 +126,6 @@ fun packHeroHeightPx(pack: ViewPack): Int? =
         .firstOrNull { it.type == "hero" || it.dataSource.trim() == "featured" }
         ?.h
         ?.takeIf { it > 0 }
-
-/** True when the pack includes a Studio genres / genreRail block. */
-fun packHasGenresRail(pack: ViewPack): Boolean =
-    pack.blocks.any {
-        it.type == "genreRail" || it.dataSource.trim() == "genres"
-    }
-
-/**
- * Collection id for a text-pill `genreRail` bound to `collection:id`.
- * Null for the legacy builtin `genres` source (TV fills from catalogs).
- */
-fun packGenreCollectionId(pack: ViewPack): String? {
-    val ordered = pack.blocks.sortedWith(compareBy({ it.y }, { it.x }, { it.id }))
-    for (block in ordered) {
-        if (block.type != "genreRail") continue
-        val ds = block.dataSource.trim()
-        if (!ds.startsWith("collection:") || ds.contains(":folder:")) continue
-        val collectionId = ds.removePrefix("collection:").trim()
-        if (collectionId.isNotEmpty()) return collectionId
-    }
-    return null
-}
 
 /**
  * Studio canvas px reserved for the rail title row when focused poster info is on.
@@ -547,7 +540,6 @@ fun packCatalogRefs(pack: ViewPack): Map<String, PackCatalogRef> {
 fun packCollectionHubRefs(pack: ViewPack): Map<String, PackCollectionHubRef> {
     val out = LinkedHashMap<String, PackCollectionHubRef>()
     for (block in pack.blocks.sortedWith(compareBy({ it.y }, { it.x }, { it.id }))) {
-        if (block.type == "genreRail") continue
         val ds = block.dataSource.trim()
         if (!ds.startsWith("collection:") || ds.contains(":folder:")) continue
         val collectionId = ds.removePrefix("collection:").trim()
@@ -606,7 +598,7 @@ fun resolvePackHeroMeta(
         ds == "featured" -> {
             val order = packOrderKeys.orEmpty()
             for (key in order) {
-                if (key == PACK_GENRES_ROW_KEY || key.startsWith("collection_")) continue
+                if (key.startsWith("collection_")) continue
                 firstItemForKey(key)?.let { return it }
             }
             return catalogRowsByLegacyKey.values

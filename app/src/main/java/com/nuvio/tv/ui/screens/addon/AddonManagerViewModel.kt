@@ -5,7 +5,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.R
 import com.nuvio.tv.core.sync.CollectionSyncService
-import com.nuvio.tv.core.sync.HOME_GENRES_ROW_KEY
 import com.nuvio.tv.core.sync.HomeCatalogSettingsSyncService
 import com.nuvio.tv.core.sync.StartupSyncService
 import com.nuvio.tv.core.sync.homeCatalogKey
@@ -289,27 +288,18 @@ class AddonManagerViewModel @Inject constructor(
                         isDisabled = colKey in disabledHomeCatalogKeys
                     )
                 }
-                val genreInfo = CatalogInfo(
-                    key = HOME_GENRES_ROW_KEY,
-                    disableKey = HOME_GENRES_ROW_KEY,
-                    catalogName = context.getString(R.string.collections_editor_emoji_category_genres),
-                    addonName = context.getString(R.string.app_name),
-                    type = "row",
-                    isDisabled = HOME_GENRES_ROW_KEY in disabledHomeCatalogKeys
-                )
 
                 val unifiedCatalogs: List<CatalogInfo>
                 if (followAddonsOrderEnabled) {
                     // In follow mode: addon catalogs in manifest order, collections placed by saved position
                     val addonKeys = addonCatalogInfos.map { it.key }
-                    val floatingInfos = listOf(genreInfo) + collectionInfos
+                    val floatingInfos = collectionInfos
                     val floatingKeysSet = floatingInfos.map { it.key }.toSet()
                     val catalogByKey = (addonCatalogInfos + floatingInfos).associateBy { it.key }
                     val savedValid = homeCatalogOrderKeys.filter { it in catalogByKey }.distinct()
 
                     if (savedValid.isNotEmpty()) {
                         val result = mutableListOf<String>()
-                        if (HOME_GENRES_ROW_KEY !in savedValid) result.add(HOME_GENRES_ROW_KEY)
                         var addonPointer = 0
                         for (savedKey in savedValid) {
                             if (savedKey in floatingKeysSet) {
@@ -335,17 +325,11 @@ class AddonManagerViewModel @Inject constructor(
                         }
                         unifiedCatalogs = result.mapNotNull { catalogByKey[it] }
                     } else {
-                        unifiedCatalogs = listOf(genreInfo) + addonCatalogInfos + collectionInfos
+                        unifiedCatalogs = addonCatalogInfos + collectionInfos
                     }
                 } else {
-                    // Interleave based on saved order
-                    val catalogByKey = (listOf(genreInfo) + addonCatalogInfos + collectionInfos).associateBy { it.key }
-                    val savedOrder = if (HOME_GENRES_ROW_KEY in homeCatalogOrderKeys) {
-                        homeCatalogOrderKeys
-                    } else {
-                        listOf(HOME_GENRES_ROW_KEY) + homeCatalogOrderKeys
-                    }
-                    val orderedKeys = savedOrder.filter { it in catalogByKey }
+                    val catalogByKey = (addonCatalogInfos + collectionInfos).associateBy { it.key }
+                    val orderedKeys = homeCatalogOrderKeys.filter { it in catalogByKey }
                     val unseenKeys = catalogByKey.keys - orderedKeys.toSet()
                     unifiedCatalogs = (orderedKeys + unseenKeys).mapNotNull { catalogByKey[it] }
                 }
@@ -518,17 +502,17 @@ class AddonManagerViewModel @Inject constructor(
         )
         val availableCatalogKeys = currentCatalogEntries.map { it.key }.toSet()
         val collectionKeysSet = currentCollections.map { "collection_${it.id}" }.toSet()
-        val allValidOrderKeys = availableCatalogKeys + collectionKeysSet + HOME_GENRES_ROW_KEY
+        val allValidOrderKeys = availableCatalogKeys + collectionKeysSet
         val availableDisableKeyToName = currentCatalogEntries.associate { entry ->
             entry.disableKey to "${entry.catalogName} • ${entry.addonName}"
-        } + (HOME_GENRES_ROW_KEY to context.getString(R.string.collections_editor_emoji_category_genres))
+        }
 
         val added = change.proposedUrls.filter { normalizeUrlForComparison(it) !in currentUrls }
         val removed = _uiState.value.installedAddons
             .map { it.baseUrl }
             .filter { normalizeUrlForComparison(it) !in proposedNormalized }
         val resolvedProposedCatalogOrderKeys = if (change.proposedCatalogOrderKeys.isEmpty()) {
-            listOf(HOME_GENRES_ROW_KEY) + currentCatalogEntries.map { it.key }
+            currentCatalogEntries.map { it.key }
         } else {
             change.proposedCatalogOrderKeys
                 .asSequence()
@@ -539,11 +523,7 @@ class AddonManagerViewModel @Inject constructor(
         val currentDisabledCatalogKeys = currentCatalogEntries
             .filter { it.isDisabled }
             .map { it.disableKey }
-            .toSet() + if (HOME_GENRES_ROW_KEY in disabledHomeCatalogKeys) {
-                setOf(HOME_GENRES_ROW_KEY)
-            } else {
-                emptySet()
-            }
+            .toSet()
         val resolvedProposedDisabledCatalogKeys = if (change.proposedDisabledCatalogKeys.isEmpty()) {
             currentDisabledCatalogKeys.toList()
         } else {
@@ -682,8 +662,8 @@ class AddonManagerViewModel @Inject constructor(
         val availableDisableKeys = availableCatalogEntries.map { it.disableKey }.toSet()
         // Collection keys are also valid in the ordering
         val collectionKeys = currentCollections.map { "collection_${it.id}" }.toSet()
-        val allValidOrderKeys = availableCatalogKeys + collectionKeys + HOME_GENRES_ROW_KEY
-        val allValidDisableKeys = availableDisableKeys + HOME_GENRES_ROW_KEY
+        val allValidOrderKeys = availableCatalogKeys + collectionKeys
+        val allValidDisableKeys = availableDisableKeys
 
         val validCatalogOrder = pending.proposedCatalogOrderKeys
             .asSequence()

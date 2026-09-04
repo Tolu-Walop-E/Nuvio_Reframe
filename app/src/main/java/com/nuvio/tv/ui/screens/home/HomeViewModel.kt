@@ -247,9 +247,13 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    fun updateActiveViewPackRailTextPills(orderKey: String, enabled: Boolean) {
-        // Text-pill conversion remains a Studio/template concern until the
-        // dynamic home renderer has a first-class pill rail for arbitrary hubs.
+    /** Renders a rail's items as text tiles instead of posters. */
+    fun updateHomeRailAsText(orderKey: String, enabled: Boolean) {
+        viewModelScope.launch {
+            layoutPreferenceDataStore.updateHomeRailCustomization(orderKey) {
+                it.copy(asText = enabled)
+            }
+        }
     }
 
     fun setActiveViewPackCollectionExpanded(collectionId: String, expanded: Boolean) {
@@ -258,10 +262,6 @@ class HomeViewModel @Inject constructor(
                 it.copy(expandedFolders = expanded)
             }
         }
-    }
-
-    fun requestNetflixGenreRailFocus() {
-        _pendingNetflixFocusRailKey.value = "genre_strip"
     }
 
     fun consumePendingNetflixFocusRailKey(): String? {
@@ -380,6 +380,8 @@ class HomeViewModel @Inject constructor(
     internal var homeCatalogOrderKeys: List<String> = emptyList()
     internal var disabledHomeCatalogKeys: Set<String> = emptySet()
     internal var followAddonsOrderEnabled: Boolean = false
+    /** Installed-catalog signature the rail key migration last ran against. */
+    internal var lastHomeRailKeyMigrationSignature: String? = null
     /** When non-null, home catalog/collection order is strictly this pack-derived list. */
     internal var activeViewPackOrderKeys: List<String>? = null
     /** Per-rail size scales from the active view pack, keyed by home order key. */
@@ -387,6 +389,8 @@ class HomeViewModel @Inject constructor(
     internal var activeViewPackRowShowLabels: Map<String, Boolean> = emptyMap()
     internal var activeViewPackRowTrailers: Map<String, Boolean> = emptyMap()
     internal var activeViewPackRowPosterGrow: Map<String, Boolean> = emptyMap()
+    /** Rails the active pack authored as text tiles, keyed by home order key. */
+    internal var activeViewPackRowAsText: Map<String, Boolean> = emptyMap()
     /** Expanded Studio `catalog:…` rails → load refs (for ensureCatalogLoaded). */
     internal var activeViewPackCatalogRefs:
         Map<String, com.nuvio.tv.core.viewpack.PackCatalogRef> = emptyMap()

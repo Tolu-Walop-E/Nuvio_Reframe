@@ -6,5 +6,7 @@ data class HomeRailCustomization(
     val posterGrow: Boolean? = null,
     val trailer: Boolean? = null,
     val expandedFolders: Boolean? = null,
-    val locked: Boolean? = null
+    val locked: Boolean? = null,
+    /** Render this rail's items as text tiles instead of posters. */
+    val asText: Boolean? = null
 )

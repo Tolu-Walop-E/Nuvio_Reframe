@@ -1,6 +1,6 @@
 package com.nuvio.tv.ui.screens.home
 
-import com.nuvio.tv.core.sync.HOME_GENRES_ROW_KEY
+import com.nuvio.tv.core.sync.HomeRailKeyMigration
 import com.nuvio.tv.core.sync.isFloatingHomeRowKey
 import com.nuvio.tv.domain.model.Addon
 import com.nuvio.tv.domain.model.AddonCatalogCollectionSource
@@ -8,6 +8,7 @@ import com.nuvio.tv.domain.model.CatalogDescriptor
 import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.HomeLayout
 import com.nuvio.tv.domain.model.MetaPreview
+import com.nuvio.tv.domain.model.enabledAddons
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.update
 
@@ -208,10 +209,74 @@ internal fun HomeViewModel.removeTruncatedRowCacheEntry(key: String) {
     }
 }
 
+/**
+ * Moves saved rail settings onto the current addon ids when an addon was reinstalled
+ * under a new manifest id.
+ *
+ * Covers every catalog an enabled addon offers, not just the home-visible ones, so a
+ * rail the user had hidden stays hidden rather than reappearing after the update.
+ */
+internal suspend fun HomeViewModel.migrateHomeRailKeysForReinstalledAddons(addons: List<Addon>) {
+    val installed = addons.enabledAddons()
+        .flatMap { addon ->
+            addon.catalogs.map { catalog ->
+                HomeRailKeyMigration.InstalledCatalog(
+                    addonId = addon.id,
+                    type = catalog.apiType,
+                    catalogId = catalog.id
+                )
+            }
+        }
+        .distinct()
+    if (installed.isEmpty()) return
+
+    // Idempotent, but the settings read is not free and this runs on every catalog
+    // reload, so only bother when the installed set actually changed.
+    val signature = installed.joinToString("|") { "${it.addonId}/${it.type}/${it.catalogId}" }
+    if (signature == lastHomeRailKeyMigrationSignature) return
+    lastHomeRailKeyMigrationSignature = signature
+
+    val moves = runCatching {
+        layoutPreferenceDataStore.migrateHomeRailKeysForReinstalledAddons(installed)
+    }.getOrElse { error ->
+        android.util.Log.w("HomeViewModel", "Home rail key migration failed", error)
+        lastHomeRailKeyMigrationSignature = null
+        emptyMap()
+    }
+    if (moves.isEmpty()) return
+
+    // The DataStore flows will emit the remapped keys, but rebuildCatalogOrder runs
+    // in this same catalogs reload *before* those collectors fire. Apply the remap
+    // here so the first paint after an xPerience-style reinstall already has the
+    // user's order / hidden / as-text / scale instead of flashing defaults.
+    homeCatalogOrderKeys = HomeRailKeyMigration.applyToList(homeCatalogOrderKeys, moves)
+    disabledHomeCatalogKeys = HomeRailKeyMigration.applyToList(
+        disabledHomeCatalogKeys.toList(),
+        moves
+    ).toSet()
+    customCatalogTitles = HomeRailKeyMigration.applyToMap(customCatalogTitles, moves)
+    currentHeroCatalogKeys = HomeRailKeyMigration.applyToList(currentHeroCatalogKeys, moves)
+    _uiState.update { state ->
+        state.copy(
+            homeCatalogOrderKeys = homeCatalogOrderKeys,
+            disabledHomeCatalogKeys = disabledHomeCatalogKeys,
+            homeRailCustomizations = HomeRailKeyMigration.applyToMap(
+                state.homeRailCustomizations,
+                moves
+            ),
+            heroCatalogKeys = currentHeroCatalogKeys
+        )
+    }
+    android.util.Log.i(
+        "HomeViewModel",
+        "Rebound ${moves.size} home rail setting key(s) onto reinstalled addon ids"
+    )
+}
+
 internal fun HomeViewModel.rebuildCatalogOrder(addons: List<Addon>) {
     val defaultOrder = buildDefaultCatalogOrder(addons)
     val collectionKeys = collectionsCache.map { "collection_${it.id}" }
-    val floatingKeys = listOf(HOME_GENRES_ROW_KEY) + collectionKeys
+    val floatingKeys = collectionKeys
     val allAvailable = (defaultOrder + floatingKeys).toSet()
 
     if (followAddonsOrderEnabled) {
@@ -227,9 +292,6 @@ internal fun HomeViewModel.rebuildCatalogOrder(addons: List<Addon>) {
 
         if (savedValid.isNotEmpty()) {
             val result = mutableListOf<String>()
-            if (HOME_GENRES_ROW_KEY !in savedValid) {
-                result.add(HOME_GENRES_ROW_KEY)
-            }
             var addonPointer = 0
 
             for (savedKey in savedValid) {
@@ -257,7 +319,7 @@ internal fun HomeViewModel.rebuildCatalogOrder(addons: List<Addon>) {
                 }
                 addonPointer++
             }
-            // Append any synthetic or collection rows not in saved order.
+            // Append collection rows not in saved order.
             for (floatingKey in floatingKeys) {
                 if (floatingKey !in result) {
                     result.add(floatingKey)
@@ -276,7 +338,7 @@ internal fun HomeViewModel.rebuildCatalogOrder(addons: List<Addon>) {
             // No saved order - manifest order + collections at end
             synchronized(catalogStateLock) {
                 catalogOrder.clear()
-                catalogOrder.addAll(listOf(HOME_GENRES_ROW_KEY) + defaultOrder + collectionKeys)
+                catalogOrder.addAll(defaultOrder + collectionKeys)
             }
         }
     } else {
@@ -289,11 +351,7 @@ internal fun HomeViewModel.rebuildCatalogOrder(addons: List<Addon>) {
         val savedSet = savedValid.toSet()
         val unsavedCatalogs = defaultOrder.filterNot { it in savedSet }
         val unsavedCollections = collectionKeys.filterNot { it in savedSet }
-        val mergedOrder = if (HOME_GENRES_ROW_KEY in savedSet) {
-            savedValid + unsavedCatalogs + unsavedCollections
-        } else {
-            listOf(HOME_GENRES_ROW_KEY) + savedValid + unsavedCatalogs + unsavedCollections
-        }
+        val mergedOrder = savedValid + unsavedCatalogs + unsavedCollections
 
         synchronized(catalogStateLock) {
             catalogOrder.clear()
@@ -434,6 +492,11 @@ private fun HomeViewModel.applyActiveViewPackOrderIfNeeded(allAvailable: Set<Str
         activeViewPackCatalogRefs,
         installed
     )
+    activeViewPackRowAsText = com.nuvio.tv.core.viewpack.remapPackKeyedMap(
+        activeViewPackRowAsText,
+        activeViewPackCatalogRefs,
+        installed
+    )
     _uiState.update { state ->
         fun remapScreen(pack: NetflixScreenPackState?): NetflixScreenPackState? {
             if (pack == null) return null
@@ -462,6 +525,11 @@ private fun HomeViewModel.applyActiveViewPackOrderIfNeeded(allAvailable: Set<Str
                     pack.rowPosterGrow,
                     activeViewPackCatalogRefs,
                     installed
+                ),
+                rowAsText = com.nuvio.tv.core.viewpack.remapPackKeyedMap(
+                    pack.rowAsText,
+                    activeViewPackCatalogRefs,
+                    installed
                 )
             )
         }
@@ -471,6 +539,7 @@ private fun HomeViewModel.applyActiveViewPackOrderIfNeeded(allAvailable: Set<Str
             viewPackRowShowLabels = activeViewPackRowShowLabels,
             viewPackRowTrailers = activeViewPackRowTrailers,
             viewPackRowPosterGrow = activeViewPackRowPosterGrow,
+            viewPackRowAsText = activeViewPackRowAsText,
             moviesScreenPack = remapScreen(state.moviesScreenPack),
             showsScreenPack = remapScreen(state.showsScreenPack)
         )
@@ -480,12 +549,6 @@ private fun HomeViewModel.applyActiveViewPackOrderIfNeeded(allAvailable: Set<Str
         addAll(remappedKeys)
         addAll(remappedMovies.orEmpty())
         addAll(remappedShows.orEmpty())
-        if (com.nuvio.tv.core.viewpack.PACK_GENRES_ROW_KEY in packKeys ||
-            com.nuvio.tv.core.viewpack.PACK_GENRES_ROW_KEY in remappedMovies.orEmpty() ||
-            com.nuvio.tv.core.viewpack.PACK_GENRES_ROW_KEY in remappedShows.orEmpty()
-        ) {
-            add(com.nuvio.tv.core.viewpack.PACK_GENRES_ROW_KEY)
-        }
     }
     val ordered = com.nuvio.tv.core.viewpack.applyStrictPackOrder(
         packKeys = remappedKeys,

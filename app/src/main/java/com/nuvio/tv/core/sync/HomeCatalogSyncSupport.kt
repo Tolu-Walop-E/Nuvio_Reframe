@@ -5,8 +5,6 @@ import com.nuvio.tv.domain.model.CatalogDescriptor
 import com.nuvio.tv.domain.model.Collection
 import com.nuvio.tv.domain.model.enabledAddons
 
-internal const val HOME_GENRES_ROW_TYPE = "special"
-internal const val HOME_GENRES_ROW_ID = "genres"
 internal const val HOME_GENRES_ROW_KEY = "_special_genres"
 
 internal data class LocalHomeCatalogSettingsState(
@@ -37,7 +35,7 @@ internal fun homeCollectionKey(collectionId: String): String {
 }
 
 internal fun isFloatingHomeRowKey(key: String): Boolean {
-    return key.startsWith("collection_") || key == HOME_GENRES_ROW_KEY
+    return key.startsWith("collection_")
 }
 
 internal fun homeLegacyDisabledCatalogKey(
@@ -78,13 +76,7 @@ internal fun buildHomeCatalogSyncPayload(
             collectionId = collection.id
         )
     }
-    val genreEntry = HomeCatalogSyncEntry(
-        key = HOME_GENRES_ROW_KEY,
-        type = HOME_GENRES_ROW_TYPE,
-        catalogId = HOME_GENRES_ROW_ID,
-        catalogName = "Genres"
-    )
-    val entryByKey = (listOf(genreEntry) + catalogEntries + collectionEntries).associateBy { it.key }
+    val entryByKey = (catalogEntries + collectionEntries).associateBy { it.key }
     val catalogKeys = catalogEntries.map { it.key }
     val collectionKeys = collectionEntries.map { it.key }
 
@@ -93,13 +85,8 @@ internal fun buildHomeCatalogSyncPayload(
         .filter { it in entryByKey }
         .distinct()
         .toList()
-    val migratedSavedOrder = if (HOME_GENRES_ROW_KEY in savedValid) {
-        savedValid
-    } else {
-        listOf(HOME_GENRES_ROW_KEY) + savedValid
-    }
-    val savedSet = migratedSavedOrder.toSet()
-    val mergedOrder = migratedSavedOrder +
+    val savedSet = savedValid.toSet()
+    val mergedOrder = savedValid +
         catalogKeys.filterNot { it in savedSet } +
         collectionKeys.filterNot { it in savedSet }
 

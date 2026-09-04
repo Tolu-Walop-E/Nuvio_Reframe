@@ -73,10 +73,6 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import com.nuvio.tv.R
-import com.nuvio.tv.core.sync.GENRE_ROW_TARGET_CATALOG
-import com.nuvio.tv.core.sync.GENRE_ROW_TARGET_COLLECTION_FOLDER
-import com.nuvio.tv.core.sync.HOME_GENRES_ROW_KEY
-import com.nuvio.tv.core.sync.SyncGenreRowTarget
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.legacyKey
 import com.nuvio.tv.ui.components.ContinueWatchingOptionsDialog
@@ -117,8 +113,6 @@ fun NetflixHomeContent(
     isCatalogItemWatched: (MetaPreview) -> Boolean = { false },
     onCatalogItemLongPress: (MetaPreview, String) -> Unit = { _, _ -> },
     onNavigateToFolderDetail: (String, String) -> Unit = { _, _ -> },
-    onNavigateToGenre: (String, String, String, String?) -> Unit = { _, _, _, _ -> },
-    onGenreTargetChanged: (String, SyncGenreRowTarget?) -> Unit = { _, _ -> },
     onItemFocus: (MetaPreview) -> Unit = {},
     onPreloadAdjacentItem: (MetaPreview) -> Unit = {},
     trailerPreviewUrls: Map<String, String> = emptyMap(),
@@ -132,7 +126,7 @@ fun NetflixHomeContent(
     netflixFolderRails: Map<String, com.nuvio.tv.domain.model.CatalogRow> = emptyMap(),
     onEnsureFolderRails: (List<NetflixFolderRailRequest>) -> Unit = {},
     onRailScaleChange: (String, Int) -> Unit = { _, _ -> },
-    onRailTextPillsToggle: (String, Boolean) -> Unit = { _, _ -> },
+    onRailAsTextToggle: (String, Boolean) -> Unit = { _, _ -> },
     onRailFocusedInfoToggle: (String, Boolean) -> Unit = { _, _ -> },
     onRailPosterGrowToggle: (String, Boolean) -> Unit = { _, _ -> },
     onRailTrailerToggle: (String, Boolean) -> Unit = { _, _ -> },
@@ -180,7 +174,6 @@ fun NetflixHomeContent(
     var pendingFocusRailKey by remember { mutableStateOf(seededFocusRailKey) }
     var railFocusJob by remember { mutableStateOf<Job?>(null) }
     var continueWatchingOptionsItem by remember { mutableStateOf<ContinueWatchingItem?>(null) }
-    var genreTargetPickerChip by remember { mutableStateOf<NetflixGenreChip?>(null) }
     var restoredSavedFocus by remember {
         mutableStateOf(false)
     }
@@ -260,6 +253,12 @@ fun NetflixHomeContent(
             value.posterGrow?.let { key to it }
         }.toMap()
     }
+    val baseTabRowAsText = tabScreenPack?.rowAsText ?: uiState.viewPackRowAsText
+    val tabRowAsText = remember(baseTabRowAsText, uiState.homeRailCustomizations) {
+        baseTabRowAsText + uiState.homeRailCustomizations.mapNotNull { (key, value) ->
+            value.asText?.let { key to it }
+        }.toMap()
+    }
     val tabCatalogPosterScale = tabScreenPack?.catalogPosterScale ?: uiState.viewPackCatalogPosterScale
     val tabCollectionLandscapeScale =
         tabScreenPack?.collectionLandscapeScale ?: uiState.viewPackCollectionLandscapeScale
@@ -270,11 +269,6 @@ fun NetflixHomeContent(
         tabScreenPack?.collectionTitleScale ?: uiState.viewPackCollectionTitleScale
     val tabHeroTrailerEnabled =
         tabScreenPack?.heroTrailerEnabled ?: uiState.viewPackHeroTrailerEnabled
-    val tabGenreCollectionId = when {
-        selectedTab == NetflixContentTab.HOME && packActiveForTab -> uiState.viewPackGenreCollectionId
-        tabScreenPack != null -> tabScreenPack.genreCollectionId
-        else -> null
-    }
     val contentRails = remember(uiState.homeRows, uiState.catalogRows, packActiveForTab) {
         buildNetflixContentRails(
             homeRows = uiState.homeRows,
@@ -324,86 +318,11 @@ fun NetflixHomeContent(
             }
         }
     }
-    val genreChips = remember(
-        uiState.genreCatalogCandidates,
-        uiState.collections,
-        selectedTab,
-        tabGenreCollectionId
-    ) {
-        val collectionId = tabGenreCollectionId?.trim().orEmpty()
-        if (collectionId.isNotEmpty()) {
-            val collection = uiState.collections.firstOrNull { it.id == collectionId }
-            if (collection != null) {
-                return@remember buildGenrePillsFromCollection(collection)
-            }
-            emptyList()
-        } else {
-            buildGenreChipsFromAvailableCatalogs(
-                candidates = uiState.genreCatalogCandidates,
-                collections = uiState.collections,
-                tab = selectedTab
-            )
-        }
-    }
-    val genreTargetOptions = remember(uiState.collections, catalogEntries, selectedTab, context) {
-        buildGenreTargetOptions(uiState.collections, catalogEntries, selectedTab) { resourceId, value ->
-            context.getString(resourceId, value)
-        }
-    }
-
-    // Keep valid user remaps, but repair catalog targets whose addon is not
-    // available to the active profile anymore.
-    LaunchedEffect(
-        genreChips,
-        selectedTab,
-        uiState.genreRowTargets,
-        uiState.genreCatalogCandidates
-    ) {
-        genreChips.forEach { chip ->
-            if (!chip.key.startsWith("genre|")) return@forEach
-            val savedTarget = uiState.genreRowTargets[chip.key]
-            val savedTargetIsUsable = savedTarget != null && (
-                savedTarget.kind != GENRE_ROW_TARGET_CATALOG ||
-                    uiState.genreCatalogCandidates.any { candidate ->
-                        candidate.addonId == savedTarget.addonId &&
-                            candidate.type.equals(savedTarget.type, ignoreCase = true) &&
-                            candidate.catalogId == savedTarget.catalogId
-                    }
-                )
-            if (savedTargetIsUsable) return@forEach
-            onGenreTargetChanged(
-                chip.key,
-                SyncGenreRowTarget(
-                    kind = GENRE_ROW_TARGET_CATALOG,
-                    addonId = chip.addonId,
-                    type = chip.type,
-                    catalogId = chip.catalogId
-                )
-            )
-        }
-    }
-    val orderedContentRails = remember(
-        contentRails,
-        genreChips,
-        uiState.homeCatalogOrderKeys,
-        uiState.disabledHomeCatalogKeys,
-        packActiveForTab,
-        tabOrderKeys
-    ) {
-        val withGenres = insertGenresRail(
-            contentRails = contentRails,
-            hasGenres = genreChips.isNotEmpty(),
-            orderKeys = if (packActiveForTab && tabOrderKeys.isNotEmpty()) {
-                tabOrderKeys
-            } else {
-                uiState.homeCatalogOrderKeys
-            },
-            disabledKeys = if (packActiveForTab) emptySet() else uiState.disabledHomeCatalogKeys
-        )
+    val orderedContentRails = remember(contentRails, packActiveForTab, tabOrderKeys) {
         if (packActiveForTab && tabOrderKeys.isNotEmpty()) {
-            railsInPackOrder(withGenres, tabOrderKeys)
+            railsInPackOrder(contentRails, tabOrderKeys)
         } else {
-            withGenres
+            contentRails
         }
     }
     var homeShuffleClock by remember { mutableStateOf(System.currentTimeMillis()) }
@@ -514,10 +433,6 @@ fun NetflixHomeContent(
             }
         }
         val built = buildList {
-            val genresFirst = expanded.firstOrNull() is NetflixHomeRail.Genres
-            if (genresFirst) {
-                add(NetflixHomeRail.Genres)
-            }
             val cwItems = uiState.continueWatchingItems.filter { item ->
                 continueWatchingMatchesTab(item, selectedTab)
             }
@@ -530,7 +445,7 @@ fun NetflixHomeContent(
             if (showCw) {
                 add(NetflixHomeRail.ContinueWatching)
             }
-            addAll(if (genresFirst) withoutDuplicatePlaceholders.drop(1) else withoutDuplicatePlaceholders)
+            addAll(withoutDuplicatePlaceholders)
             addAll(discoveryRails)
         }
         val enabled = built.filterNot { rail -> rail.railKey in uiState.disabledHomeCatalogKeys }
@@ -539,11 +454,8 @@ fun NetflixHomeContent(
             if (uiState.homeRailShuffleEnabled) {
                 val intervalMs = uiState.homeRailShuffleIntervalHours.coerceIn(1, 168) * 60L * 60L * 1000L
                 val continueWatching = ordered.firstOrNull { it is NetflixHomeRail.ContinueWatching }
-                val genres = ordered.firstOrNull { it is NetflixHomeRail.Genres }
-                val movable = ordered.filterNot {
-                    it is NetflixHomeRail.ContinueWatching || it is NetflixHomeRail.Genres
-                }
-                listOfNotNull(continueWatching, genres) + shuffleUnlockedHomeRails(
+                val movable = ordered.filterNot { it is NetflixHomeRail.ContinueWatching }
+                listOfNotNull(continueWatching) + shuffleUnlockedHomeRails(
                     rails = movable,
                     lockedKeys = uiState.homeRailCustomizations
                         .filterValues { it.locked == true }
@@ -1095,41 +1007,6 @@ fun NetflixHomeContent(
                 }
 
                 when (rail) {
-                    NetflixHomeRail.Genres -> NetflixGenreRail(
-                        railKey = railKey,
-                        genres = genreChips,
-                        pendingFocusRailKey = pendingFocusRailKey,
-                        lastFocusedIndex = lastFocusedIndexByRail[railKey] ?: 0,
-                        onFocusedItemChanged = saveFocus,
-                        onPendingFocusConsumed = { pendingFocusRailKey = null },
-                        onFirstCardRequesterReady = registerRequester,
-                        onMoveUp = moveUp,
-                        onMoveDown = moveDown,
-                        onFirstItemMoveLeft = {
-                            if (!uiState.viewPackCustomizationModeEnabled) false else {
-                                railCustomizationTarget = moveOnlyCustomizationTarget(
-                                    rail = rail,
-                                    title = context.getString(R.string.home_customize_genres_title),
-                                    customizations = uiState.homeRailCustomizations,
-                                    selectedTab = selectedTab,
-                                    movable = false
-                                )
-                                true
-                            }
-                        },
-                        onGenreSelected = { genre ->
-                            openGenreChip(
-                                genre = genre,
-                                selectedTab = selectedTab,
-                                mappedTarget = uiState.genreRowTargets[genre.key],
-                                availableCatalogs = uiState.genreCatalogCandidates,
-                                onNavigateToGenre = onNavigateToGenre,
-                                onNavigateToFolderDetail = onNavigateToFolderDetail
-                            )
-                        },
-                        onGenreLongPressed = { genre -> genreTargetPickerChip = genre }
-                    )
-
                     NetflixHomeRail.ContinueWatching -> NetflixContinueWatchingRail(
                         railKey = railKey,
                         title = "Continue Watching",
@@ -1167,6 +1044,7 @@ fun NetflixHomeContent(
                     is NetflixHomeRail.Catalog -> {
                         val row = rail.entry.row
                         val rowShowMeta = tabRowShowLabels[rail.orderKey]
+                        val rowAsText = tabRowAsText[rail.orderKey] == true
                         val rowTrailerOverride = tabRowTrailers[rail.orderKey]
                         val rowTrailerEnabled = netflixTrailersEnabled &&
                             when {
@@ -1202,6 +1080,68 @@ fun NetflixHomeContent(
                                     "hasRowOptIns=$tabHasTrailerOptIns"
                             )
                         }
+                        val openCatalogRailEditor: () -> Boolean = {
+                            if (!uiState.viewPackCustomizationModeEnabled) {
+                                false
+                            } else {
+                                railCustomizationTarget = NetflixRailCustomizationTarget(
+                                    orderKey = rail.orderKey,
+                                    focusRailKey = railKey,
+                                    title = row.catalogName.replaceFirstChar { it.uppercase() },
+                                    isCollection = false,
+                                    collectionId = null,
+                                    canBecomeText = true,
+                                    isText = rowAsText,
+                                    showFocusedInfo = rowShowMeta ?: if (packActiveForTab) false else true,
+                                    posterGrow = rowPosterGrow,
+                                    trailerEnabled = rowTrailerEnabled,
+                                    scalePercent = (rowScale * 100f).roundToInt(),
+                                    canExpandFolders = false,
+                                    foldersExpanded = false,
+                                    locked = uiState.homeRailCustomizations[rail.orderKey]?.locked == true,
+                                    canMove = selectedTab == NetflixContentTab.HOME,
+                                    canHide = selectedTab == NetflixContentTab.HOME,
+                                    canEditStyle = true
+                                )
+                                true
+                            }
+                        }
+                        if (rowAsText) {
+                            val textEntries = remember(row.items) {
+                                row.items.mapIndexed { index, item ->
+                                    NetflixTextRailEntry(
+                                        key = "${item.id}|$index",
+                                        label = item.name
+                                    )
+                                }
+                            }
+                            NetflixTextRail(
+                                railKey = railKey,
+                                title = row.catalogName.replaceFirstChar { it.uppercase() },
+                                entries = textEntries,
+                                pendingFocusRailKey = pendingFocusRailKey,
+                                lastFocusedIndex = lastFocusedIndexByRail[railKey] ?: 0,
+                                onFocusedItemChanged = saveFocus,
+                                onPendingFocusConsumed = { pendingFocusRailKey = null },
+                                onFirstCardRequesterReady = registerRequester,
+                                onMoveUp = moveUp,
+                                onMoveDown = moveDown,
+                                onEntrySelected = { index ->
+                                    row.items.getOrNull(index)?.let { item ->
+                                        onNavigateToDetail(item.id, item.apiType, row.addonBaseUrl)
+                                    }
+                                },
+                                onEntryLongPressed = { index ->
+                                    row.items.getOrNull(index)?.let { item ->
+                                        onCatalogItemLongPress(item, row.addonBaseUrl)
+                                    }
+                                },
+                                onFirstItemMoveLeft = openCatalogRailEditor,
+                                titleScale = rowHierarchyTitleScale *
+                                    if (packActiveForTab) tabRailTitleScale else 1f
+                            )
+                            return@items
+                        }
                         NetflixCatalogRail(
                             railKey = railKey,
                             row = row,
@@ -1224,32 +1164,7 @@ fun NetflixHomeContent(
                             onFirstCardRequesterReady = registerRequester,
                             onMoveUp = moveUp,
                             onMoveDown = moveDown,
-                            onFirstItemMoveLeft = {
-                                if (!uiState.viewPackCustomizationModeEnabled) {
-                                    false
-                                } else {
-                                    railCustomizationTarget = NetflixRailCustomizationTarget(
-                                        orderKey = rail.orderKey,
-                                        focusRailKey = railKey,
-                                        title = row.catalogName.replaceFirstChar { it.uppercase() },
-                                        isCollection = false,
-                                        collectionId = null,
-                                        canBecomeTextPills = false,
-                                        isTextPills = false,
-                                        showFocusedInfo = rowShowMeta ?: if (packActiveForTab) false else true,
-                                        posterGrow = rowPosterGrow,
-                                        trailerEnabled = rowTrailerEnabled,
-                                        scalePercent = (rowScale * 100f).roundToInt(),
-                                        canExpandFolders = false,
-                                        foldersExpanded = false,
-                                        locked = uiState.homeRailCustomizations[rail.orderKey]?.locked == true,
-                                        canMove = selectedTab == NetflixContentTab.HOME,
-                                        canHide = selectedTab == NetflixContentTab.HOME,
-                                        canEditStyle = true
-                                    )
-                                    true
-                                }
-                            },
+                            onFirstItemMoveLeft = openCatalogRailEditor,
                             posterLabelsEnabled = if (rowShowMeta != null || packActiveForTab) {
                                 rowShowMeta == true
                             } else {
@@ -1279,22 +1194,9 @@ fun NetflixHomeContent(
                         )
                     }
 
-                    is NetflixHomeRail.Collection -> NetflixCollectionRail(
-                        railKey = railKey,
-                        collection = rail.collection,
-                        pendingFocusRailKey = pendingFocusRailKey,
-                        lastFocusedIndex = lastFocusedIndexByRail[railKey] ?: 0,
-                        onFolderClick = onNavigateToFolderDetail,
-                        onFocusedItemChanged = { index, key ->
-                            saveFocus(index, key)
-                            val folder = rail.collection.folders.getOrNull(index)
-                            ambientArtUrl = folder?.coverImageUrl ?: ambientArtUrl
-                        },
-                        onPendingFocusConsumed = { pendingFocusRailKey = null },
-                        onFirstCardRequesterReady = registerRequester,
-                        onMoveUp = moveUp,
-                        onMoveDown = moveDown,
-                        onFirstItemMoveLeft = {
+                    is NetflixHomeRail.Collection -> {
+                        val collectionAsText = tabRowAsText[rail.orderKey] == true
+                        val openCollectionRailEditor: () -> Boolean = {
                             if (!uiState.viewPackCustomizationModeEnabled) {
                                 false
                             } else {
@@ -1307,8 +1209,8 @@ fun NetflixHomeContent(
                                     title = rail.collection.title,
                                     isCollection = true,
                                     collectionId = rail.collection.id,
-                                    canBecomeTextPills = false,
-                                    isTextPills = false,
+                                    canBecomeText = true,
+                                    isText = collectionAsText,
                                     showFocusedInfo = tabRowShowLabels[rail.orderKey] == true,
                                     posterGrow = tabRowPosterGrow[rail.orderKey] != false,
                                     trailerEnabled = tabRowTrailers[rail.orderKey] == true,
@@ -1322,16 +1224,65 @@ fun NetflixHomeContent(
                                 )
                                 true
                             }
-                        },
-                        landscapeScale = (tabRowScales[rail.orderKey] ?: 1f) * globalRailScale *
-                            if (packActiveForTab) tabCollectionLandscapeScale else 1f,
-                        titleScale = if (packActiveForTab) {
-                            tabRailTitleScale
-                        } else {
-                            1f
-                        },
-                        allowEmpty = packActiveForTab
-                    )
+                        }
+                        if (collectionAsText) {
+                            val folders = rail.collection.folders
+                            val textEntries = remember(folders) {
+                                folders.mapIndexed { index, folder ->
+                                    NetflixTextRailEntry(
+                                        key = "${folder.id}|$index",
+                                        label = folder.title
+                                    )
+                                }
+                            }
+                            NetflixTextRail(
+                                railKey = railKey,
+                                title = rail.collection.title,
+                                entries = textEntries,
+                                pendingFocusRailKey = pendingFocusRailKey,
+                                lastFocusedIndex = lastFocusedIndexByRail[railKey] ?: 0,
+                                onFocusedItemChanged = saveFocus,
+                                onPendingFocusConsumed = { pendingFocusRailKey = null },
+                                onFirstCardRequesterReady = registerRequester,
+                                onMoveUp = moveUp,
+                                onMoveDown = moveDown,
+                                onEntrySelected = { index ->
+                                    folders.getOrNull(index)?.let { folder ->
+                                        onNavigateToFolderDetail(rail.collection.id, folder.id)
+                                    }
+                                },
+                                onEntryLongPressed = { openCollectionRailEditor() },
+                                onFirstItemMoveLeft = openCollectionRailEditor,
+                                titleScale = if (packActiveForTab) tabRailTitleScale else 1f
+                            )
+                            return@items
+                        }
+                        NetflixCollectionRail(
+                            railKey = railKey,
+                            collection = rail.collection,
+                            pendingFocusRailKey = pendingFocusRailKey,
+                            lastFocusedIndex = lastFocusedIndexByRail[railKey] ?: 0,
+                            onFolderClick = onNavigateToFolderDetail,
+                            onFocusedItemChanged = { index, key ->
+                                saveFocus(index, key)
+                                val folder = rail.collection.folders.getOrNull(index)
+                                ambientArtUrl = folder?.coverImageUrl ?: ambientArtUrl
+                            },
+                            onPendingFocusConsumed = { pendingFocusRailKey = null },
+                            onFirstCardRequesterReady = registerRequester,
+                            onMoveUp = moveUp,
+                            onMoveDown = moveDown,
+                            onFirstItemMoveLeft = openCollectionRailEditor,
+                            landscapeScale = (tabRowScales[rail.orderKey] ?: 1f) * globalRailScale *
+                                if (packActiveForTab) tabCollectionLandscapeScale else 1f,
+                            titleScale = if (packActiveForTab) {
+                                tabRailTitleScale
+                            } else {
+                                1f
+                            },
+                            allowEmpty = packActiveForTab
+                        )
+                    }
                 }
             }
             if (showHiddenRailsAction) {
@@ -1390,10 +1341,10 @@ fun NetflixHomeContent(
                     onRailTrailerToggle(target.orderKey, next)
                     railCustomizationTarget = target.copy(trailerEnabled = next)
                 },
-                onTextPillsToggle = {
-                    val next = !target.isTextPills
-                    onRailTextPillsToggle(target.orderKey, next)
-                    railCustomizationTarget = target.copy(isTextPills = next)
+                onTextToggle = {
+                    val next = !target.isText
+                    onRailAsTextToggle(target.orderKey, next)
+                    railCustomizationTarget = target.copy(isText = next)
                 },
                 onExpandFoldersToggle = {
                     val collectionId = target.collectionId
@@ -1410,9 +1361,7 @@ fun NetflixHomeContent(
                 },
                 onMove = { direction ->
                     val movableRailKeys = visibleRails
-                        .filterNot {
-                            it is NetflixHomeRail.ContinueWatching || it is NetflixHomeRail.Genres
-                        }
+                        .filterNot { it is NetflixHomeRail.ContinueWatching }
                         .map { it.railKey }
                     val from = movableRailKeys.indexOf(target.focusRailKey)
                     val to = from + direction.coerceIn(-1, 1)
@@ -1483,23 +1432,6 @@ fun NetflixHomeContent(
             )
         }
 
-        val pickerChip = genreTargetPickerChip
-        if (pickerChip != null) {
-            NetflixGenreTargetDialog(
-                chip = pickerChip,
-                options = genreTargetOptions,
-                selectedTarget = uiState.genreRowTargets[pickerChip.key],
-                onSelect = { target ->
-                    onGenreTargetChanged(pickerChip.key, target)
-                    genreTargetPickerChip = null
-                    requestRailFocus(NETFLIX_GENRE_RAIL_KEY)
-                },
-                onDismiss = {
-                    genreTargetPickerChip = null
-                    requestRailFocus(NETFLIX_GENRE_RAIL_KEY)
-                }
-            )
-        }
     }
 }
 
@@ -1509,8 +1441,8 @@ private data class NetflixRailCustomizationTarget(
     val title: String,
     val isCollection: Boolean,
     val collectionId: String?,
-    val canBecomeTextPills: Boolean,
-    val isTextPills: Boolean,
+    val canBecomeText: Boolean,
+    val isText: Boolean,
     val showFocusedInfo: Boolean,
     val posterGrow: Boolean,
     val trailerEnabled: Boolean,
@@ -1540,8 +1472,8 @@ private fun moveOnlyCustomizationTarget(
     title = title,
     isCollection = false,
     collectionId = null,
-    canBecomeTextPills = false,
-    isTextPills = false,
+    canBecomeText = false,
+    isText = false,
     showFocusedInfo = false,
     posterGrow = false,
     trailerEnabled = false,
@@ -1562,7 +1494,7 @@ private fun NetflixRailCustomizationPanel(
     onFocusedInfoToggle: () -> Unit,
     onPosterGrowToggle: () -> Unit,
     onTrailerToggle: () -> Unit,
-    onTextPillsToggle: () -> Unit,
+    onTextToggle: () -> Unit,
     onExpandFoldersToggle: () -> Unit,
     onLockedToggle: () -> Unit,
     onMove: (Int) -> Unit,
@@ -1680,11 +1612,11 @@ private fun NetflixRailCustomizationPanel(
                         selected = target.trailerEnabled,
                         onClick = onTrailerToggle
                     )
-                    if (target.canBecomeTextPills) {
+                    if (target.canBecomeText) {
                         NetflixRailEditorButton(
-                            label = stringResource(R.string.home_customize_text_pills),
-                            selected = target.isTextPills,
-                            onClick = onTextPillsToggle
+                            label = stringResource(R.string.home_customize_as_text),
+                            selected = target.isText,
+                            onClick = onTextToggle
                         )
                     }
                     if (target.canExpandFolders) {
@@ -1721,7 +1653,6 @@ private fun NetflixRailEditorButton(
 }
 
 private const val NETFLIX_CONTINUE_WATCHING_RAIL_KEY = "continue_watching"
-private const val NETFLIX_GENRE_RAIL_KEY = "genre_strip"
 private const val NETFLIX_HOME_HERO_ROW_INDEX = 0
 private const val NETFLIX_HOME_STATIC_ROW_COUNT = 1
 private const val NETFLIX_TOP_NAV_ITEM_COUNT = 8
@@ -1737,11 +1668,6 @@ private const val NETFLIX_HOME_NAV_INDEX = 1
 private sealed interface NetflixHomeRail {
     val railKey: String
     val orderKey: String
-
-    data object Genres : NetflixHomeRail {
-        override val railKey: String = NETFLIX_GENRE_RAIL_KEY
-        override val orderKey: String = HOME_GENRES_ROW_KEY
-    }
 
     data object ContinueWatching : NetflixHomeRail {
         override val railKey: String = NETFLIX_CONTINUE_WATCHING_RAIL_KEY
@@ -1836,25 +1762,19 @@ private fun railsInRenderedOrder(
     keys: List<String>
 ): List<NetflixHomeRail> {
     val continueWatching = rails.firstOrNull { it is NetflixHomeRail.ContinueWatching }
-    val genres = rails.firstOrNull { it is NetflixHomeRail.Genres }
-    val movableRails = rails.filterNot {
-        it is NetflixHomeRail.ContinueWatching || it is NetflixHomeRail.Genres
-    }
-    if (keys.isEmpty()) return listOfNotNull(continueWatching, genres) + movableRails
+    val movableRails = rails.filterNot { it is NetflixHomeRail.ContinueWatching }
+    if (keys.isEmpty()) return listOfNotNull(continueWatching) + movableRails
     val positions = keys.withIndex().associate { it.value to it.index }
     val orderedMovableRails = movableRails.withIndex()
         .sortedWith(compareBy({ positions[it.value.railKey] ?: Int.MAX_VALUE }, { it.index }))
         .map { it.value }
-    return listOfNotNull(continueWatching, genres) + orderedMovableRails
+    return listOfNotNull(continueWatching) + orderedMovableRails
 }
 
 private fun railsWithPinnedHubRows(rails: List<NetflixHomeRail>): List<NetflixHomeRail> {
     val continueWatching = rails.firstOrNull { it is NetflixHomeRail.ContinueWatching }
-    val genres = rails.firstOrNull { it is NetflixHomeRail.Genres }
-    val remaining = rails.filterNot {
-        it is NetflixHomeRail.ContinueWatching || it is NetflixHomeRail.Genres
-    }
-    return listOfNotNull(continueWatching, genres) + remaining
+    val remaining = rails.filterNot { it is NetflixHomeRail.ContinueWatching }
+    return listOfNotNull(continueWatching) + remaining
 }
 
 private fun continueWatchingMatchesTab(
@@ -1972,8 +1892,6 @@ private fun expandNetflixRails(
     return buildList {
         orderedContentRails.forEach { rail ->
             when (rail) {
-                NetflixHomeRail.Genres -> add(rail)
-
                 is NetflixHomeRail.Catalog -> {
                     if (wantedType == null || rail.entry.row.apiType == wantedType) {
                         add(rail)
@@ -2017,27 +1935,6 @@ private fun expandNetflixRails(
     }
 }
 
-private fun insertGenresRail(
-    contentRails: List<NetflixHomeRail>,
-    hasGenres: Boolean,
-    orderKeys: List<String>,
-    disabledKeys: Set<String>
-): List<NetflixHomeRail> {
-    if (!hasGenres || HOME_GENRES_ROW_KEY in disabledKeys) return contentRails
-
-    val explicitIndex = orderKeys.indexOf(HOME_GENRES_ROW_KEY)
-    val insertionIndex = if (explicitIndex < 0) {
-        0
-    } else {
-        val precedingKeys = orderKeys.take(explicitIndex).toSet()
-        contentRails.count { rail -> rail.orderKey in precedingKeys }
-    }.coerceIn(0, contentRails.size)
-
-    return contentRails.toMutableList().apply {
-        add(insertionIndex, NetflixHomeRail.Genres)
-    }
-}
-
 private fun List<com.nuvio.tv.domain.model.CatalogRow>.netflixCatalogEntries(): List<NetflixCatalogEntry> {
     return filter { row -> row.items.isNotEmpty() }
         .mapIndexed { index, row ->
@@ -2046,107 +1943,6 @@ private fun List<com.nuvio.tv.domain.model.CatalogRow>.netflixCatalogEntries(): 
                 railKey = "${row.netflixRailKey()}|position|$index"
             )
         }
-}
-
-/**
- * Always open the type-matched catalog via CatalogSeeAll. FolderDetail for
- * Genres boards pulls 6+ sources and feels stuck; dedicated genre catalogs
- * (genre_action_movies, etc.) load as a single rail.
- *
- * [NetflixGenreChip.genreFilter] is passed as the CatalogSeeAll genre query —
- * null for dedicated genre_* catalogs so results aren't double-filtered.
- */
-private fun openGenreChip(
-    genre: NetflixGenreChip,
-    selectedTab: NetflixContentTab,
-    mappedTarget: SyncGenreRowTarget?,
-    availableCatalogs: List<GenreCatalogCandidate>,
-    onNavigateToGenre: (String, String, String, String?) -> Unit,
-    onNavigateToFolderDetail: (String, String) -> Unit
-) {
-    val usableMappedTarget = mappedTarget?.takeIf { target ->
-        target.kind != GENRE_ROW_TARGET_CATALOG || availableCatalogs.any { candidate ->
-            candidate.addonId == target.addonId &&
-                candidate.type.equals(target.type, ignoreCase = true) &&
-                candidate.catalogId == target.catalogId
-        }
-    }
-    when (usableMappedTarget?.kind) {
-        GENRE_ROW_TARGET_CATALOG -> {
-            val wantedType = when (selectedTab) {
-                NetflixContentTab.MOVIES -> "movie"
-                NetflixContentTab.SHOWS -> "series"
-                NetflixContentTab.HOME -> null
-            }
-            if (wantedType == null || usableMappedTarget.type.equals(wantedType, ignoreCase = true)) {
-                onNavigateToGenre(
-                    usableMappedTarget.catalogId,
-                    usableMappedTarget.addonId,
-                    usableMappedTarget.type,
-                    genre.genreFilter
-                )
-                return
-            }
-        }
-        else -> Unit
-    }
-    val collectionId = genre.collectionId
-    val folderId = genre.folderId
-    if (!collectionId.isNullOrBlank() && !folderId.isNullOrBlank()) {
-        onNavigateToFolderDetail(collectionId, folderId)
-        return
-    }
-    onNavigateToGenre(genre.catalogId, genre.addonId, genre.type, genre.genreFilter)
-}
-
-private fun buildGenreTargetOptions(
-    collections: List<com.nuvio.tv.domain.model.Collection>,
-    catalogEntries: List<NetflixCatalogEntry>,
-    tab: NetflixContentTab,
-    formatSubtitle: (Int, String) -> String
-): List<NetflixGenreTargetOption> {
-    val wantedType = when (tab) {
-        NetflixContentTab.MOVIES -> "movie"
-        NetflixContentTab.SHOWS -> "series"
-        NetflixContentTab.HOME -> null
-    }
-    val catalogOptions = catalogEntries
-        .map { it.row }
-        .filter { row -> wantedType == null || row.apiType.equals(wantedType, ignoreCase = true) }
-        .distinctBy { it.legacyKey() }
-        .map { row ->
-            NetflixGenreTargetOption(
-                key = "catalog|${row.legacyKey()}",
-                title = row.catalogName,
-                subtitle = formatSubtitle(R.string.genre_target_catalog_subtitle, row.addonName),
-                target = SyncGenreRowTarget(
-                    kind = GENRE_ROW_TARGET_CATALOG,
-                    addonId = row.addonId,
-                    type = row.apiType,
-                    catalogId = row.catalogId
-                )
-            )
-        }
-    val collectionOptions = collections.flatMap { collection ->
-        collection.folders.mapNotNull { folder ->
-            if (wantedType != null &&
-                NetflixCollectionLayout.pickSourceStrict(folder, tab) == null
-            ) {
-                return@mapNotNull null
-            }
-            NetflixGenreTargetOption(
-                key = "collection|${collection.id}|${folder.id}",
-                title = folder.title,
-                subtitle = formatSubtitle(R.string.genre_target_collection_subtitle, collection.title),
-                target = SyncGenreRowTarget(
-                    kind = GENRE_ROW_TARGET_COLLECTION_FOLDER,
-                    collectionId = collection.id,
-                    folderId = folder.id
-                )
-            )
-        }
-    }
-    return catalogOptions + collectionOptions
 }
 
 private fun navigateToTargetDetails(

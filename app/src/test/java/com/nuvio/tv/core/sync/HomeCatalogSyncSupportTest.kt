@@ -43,7 +43,7 @@ class HomeCatalogSyncSupportTest {
             )
         )
 
-        assertEquals(2, payload.items.size)
+        assertEquals(1, payload.items.size)
         val addonItem = payload.items.single { it.addonId == "com.test.addon" }
         assertFalse(addonItem.enabled)
     }
@@ -85,7 +85,6 @@ class HomeCatalogSyncSupportTest {
 
         assertEquals(
             listOf(
-                HOME_GENRES_ROW_KEY,
                 homeCatalogKey("com.test.first", "movie", "top"),
                 homeCatalogKey("com.test.second", "series", "latest")
             ),
@@ -103,7 +102,7 @@ class HomeCatalogSyncSupportTest {
         )
 
         assertTrue(payload.hideUnreleasedContent)
-        assertEquals(HOME_GENRES_ROW_KEY, payload.items.single().syncKey())
+        assertTrue(payload.items.isEmpty())
     }
 
     @Test
@@ -128,7 +127,7 @@ class HomeCatalogSyncSupportTest {
             localState = LocalHomeCatalogSettingsState()
         )
 
-        assertEquals(HOME_GENRES_ROW_KEY, payload.items.single().syncKey())
+        assertTrue(payload.items.isEmpty())
     }
 
     @Test
@@ -156,14 +155,14 @@ class HomeCatalogSyncSupportTest {
             )
         )
 
-        assertEquals(3, payload.items.size)
+        assertEquals(2, payload.items.size)
         assertTrue(payload.items.last().isCollection)
         assertEquals("col-1", payload.items.last().collectionId)
         assertFalse(payload.items.last().enabled)
     }
 
     @Test
-    fun `build payload preserves explicit genre row order and disabled state`() {
+    fun `build payload drops leftover synthetic genre row keys`() {
         val addon = testAddon(
             id = "com.test.addon",
             baseUrl = "https://example.com/manifest.json",
@@ -186,8 +185,8 @@ class HomeCatalogSyncSupportTest {
             )
         )
 
-        assertEquals(listOf(catalogKey, HOME_GENRES_ROW_KEY), payload.items.map { it.syncKey() })
-        assertFalse(payload.items.last().enabled)
+        assertEquals(listOf(catalogKey), payload.items.map { it.syncKey() })
+        assertTrue(payload.items.single().enabled)
     }
 
     @Test

@@ -93,6 +93,7 @@ internal fun HomeViewModel.loadActiveViewPackPipeline() {
                 activeViewPackRowShowLabels = emptyMap()
                 activeViewPackRowTrailers = emptyMap()
                 activeViewPackRowPosterGrow = emptyMap()
+                activeViewPackRowAsText = emptyMap()
                 activeViewPackCatalogRefs = emptyMap()
                 activeViewPackCollectionHubRefs = emptyMap()
                 activeViewPackHeroDataSource = null
@@ -116,6 +117,7 @@ internal fun HomeViewModel.loadActiveViewPackPipeline() {
                             viewPackRowShowLabels = emptyMap(),
                             viewPackRowTrailers = emptyMap(),
                             viewPackRowPosterGrow = emptyMap(),
+                            viewPackRowAsText = emptyMap(),
                             viewPackCatalogPosterScale = 1f,
                             viewPackCollectionLandscapeScale = 1f,
                             viewPackCollectionTitleScale = 1f,
@@ -128,8 +130,7 @@ internal fun HomeViewModel.loadActiveViewPackPipeline() {
                             viewPackFeaturedAddonBaseUrl = "",
                             viewPackFeaturedHeightPx = null,
                             moviesScreenPack = null,
-                            showsScreenPack = null,
-                            viewPackGenreCollectionId = null
+                            showsScreenPack = null
                         )
                     }
                 }
@@ -152,6 +153,7 @@ internal fun HomeViewModel.loadActiveViewPackPipeline() {
                 activeViewPackRowShowLabels = com.nuvio.tv.core.viewpack.homeRowShowLabelsFromPack(rotated)
                 activeViewPackRowTrailers = com.nuvio.tv.core.viewpack.homeRowTrailersFromPack(rotated)
                 activeViewPackRowPosterGrow = com.nuvio.tv.core.viewpack.homeRowPosterGrowFromPack(rotated)
+                activeViewPackRowAsText = com.nuvio.tv.core.viewpack.homeRowAsTextFromPack(rotated)
                 activeViewPackCatalogRefs = com.nuvio.tv.core.viewpack.mergePackCatalogRefs(
                     rotated,
                     moviesPack,
@@ -203,6 +205,7 @@ internal fun HomeViewModel.loadActiveViewPackPipeline() {
                         viewPackRowShowLabels = activeViewPackRowShowLabels,
                         viewPackRowTrailers = activeViewPackRowTrailers,
                         viewPackRowPosterGrow = activeViewPackRowPosterGrow,
+                        viewPackRowAsText = activeViewPackRowAsText,
                         viewPackCatalogPosterScale =
                             com.nuvio.tv.core.viewpack.normalizePackCardScale(
                                 rotated.catalogPosterScale
@@ -222,9 +225,7 @@ internal fun HomeViewModel.loadActiveViewPackPipeline() {
                         viewPackHeroDataSource = activeViewPackHeroDataSource,
                         viewPackFeaturedHeightPx = com.nuvio.tv.core.viewpack.packHeroHeightPx(rotated),
                         moviesScreenPack = moviesPack?.toNetflixScreenPackState(),
-                        showsScreenPack = showsPack?.toNetflixScreenPackState(),
-                        viewPackGenreCollectionId =
-                            com.nuvio.tv.core.viewpack.packGenreCollectionId(rotated)
+                        showsScreenPack = showsPack?.toNetflixScreenPackState()
                     )
                 }
             } catch (e: Exception) {
@@ -234,6 +235,7 @@ internal fun HomeViewModel.loadActiveViewPackPipeline() {
                 activeViewPackRowShowLabels = emptyMap()
                 activeViewPackRowTrailers = emptyMap()
                 activeViewPackRowPosterGrow = emptyMap()
+                activeViewPackRowAsText = emptyMap()
                 activeViewPackCatalogRefs = emptyMap()
                 activeViewPackCollectionHubRefs = emptyMap()
                 activeViewPackHeroDataSource = null
@@ -248,6 +250,7 @@ internal fun HomeViewModel.loadActiveViewPackPipeline() {
                         viewPackRowShowLabels = emptyMap(),
                         viewPackRowTrailers = emptyMap(),
                         viewPackRowPosterGrow = emptyMap(),
+                        viewPackRowAsText = emptyMap(),
                         viewPackCatalogPosterScale = 1f,
                         viewPackCollectionLandscapeScale = 1f,
                         viewPackCollectionTitleScale = 1f,
@@ -260,8 +263,7 @@ internal fun HomeViewModel.loadActiveViewPackPipeline() {
                         viewPackFeaturedAddonBaseUrl = "",
                         viewPackFeaturedHeightPx = null,
                         moviesScreenPack = null,
-                        showsScreenPack = null,
-                        viewPackGenreCollectionId = null
+                        showsScreenPack = null
                     )
                 }
             }
@@ -366,12 +368,6 @@ internal fun HomeViewModel.observeInstalledAddonsPipeline() {
             .collectLatest { installedAddons ->
                 val addons = installedAddons.enabledAddons()
                 addonsCache = addons
-                _uiState.update {
-                    it.copy(
-                        genreCatalogCandidates =
-                            com.nuvio.tv.ui.screens.home.netflix.buildGenreCatalogCandidates(addons)
-                    )
-                }
                 loadAllCatalogsPipeline(addons)
             }
     }
@@ -437,6 +433,12 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
             _uiState.update { it.copy(isLoading = false, error = appContext.getString(R.string.home_error_no_addons)) }
             return
         }
+
+        // An addon update that ships a new manifest id would orphan every saved
+        // rail setting for its catalogs. Rebind them before the order is built,
+        // otherwise the first render falls back to defaults and the user's layout
+        // looks lost even though the settings were still on disk.
+        migrateHomeRailKeysForReinstalledAddons(addons)
 
         rebuildCatalogOrder(addons)
 
@@ -1498,6 +1500,7 @@ private fun com.nuvio.tv.core.viewpack.ViewPack.toNetflixScreenPackState(): Netf
         rowShowLabels = com.nuvio.tv.core.viewpack.homeRowShowLabelsFromPack(this),
         rowTrailers = com.nuvio.tv.core.viewpack.homeRowTrailersFromPack(this),
         rowPosterGrow = com.nuvio.tv.core.viewpack.homeRowPosterGrowFromPack(this),
+        rowAsText = com.nuvio.tv.core.viewpack.homeRowAsTextFromPack(this),
         catalogPosterScale = com.nuvio.tv.core.viewpack.normalizePackCardScale(catalogPosterScale),
         collectionLandscapeScale = com.nuvio.tv.core.viewpack.normalizePackCardScale(
             collectionLandscapeScale
@@ -1510,7 +1513,6 @@ private fun com.nuvio.tv.core.viewpack.ViewPack.toNetflixScreenPackState(): Netf
         heroLabel = com.nuvio.tv.core.viewpack.packHeroLabel(this),
         heroDataSource = com.nuvio.tv.core.viewpack.packHeroDataSource(this),
         featuredHeightPx = com.nuvio.tv.core.viewpack.packHeroHeightPx(this),
-        hasContinueWatching = com.nuvio.tv.core.viewpack.packHasContinueWatching(this),
-        genreCollectionId = com.nuvio.tv.core.viewpack.packGenreCollectionId(this)
+        hasContinueWatching = com.nuvio.tv.core.viewpack.packHasContinueWatching(this)
     )
 }

@@ -75,7 +75,7 @@ class ViewPackScreenPacksTest {
         val again = parseViewPackJson(serializeViewPackJson(pack))
         assertNotNull(again.moviesScreen)
         assertNotNull(again.showsScreen)
-        assertEquals("a_movie_popular", again.moviesScreen?.blocks?.last()?.dataSource)
-        assertEquals("a_series_trending", again.showsScreen?.blocks?.last()?.dataSource)
+        assertEquals("catalog:a:movie:popular", again.moviesScreen?.blocks?.last()?.dataSource)
+        assertEquals("catalog:a:series:trending", again.showsScreen?.blocks?.last()?.dataSource)
     }
 }

@@ -90,11 +90,15 @@ internal object NetflixHomeTokens {
     val ContinueCardHeight = 146.dp
     val FocusedContinueCardWidth = 340.dp
     val FocusedContinueCardHeight = 192.dp
-    val GenrePillHeight = 48.dp
+    /**
+     * Text-mode rail tiles. Any rail can be switched to these instead of posters;
+     * the proportions come from Netflix's "Browse by category" tiles.
+     */
+    val TextTileHeight = 48.dp
     /** Rounded-rect tiles (Netflix categories), not capsules. */
-    val GenreTileCorner = 10.dp
-    val GenreTileMinWidth = 128.dp
-    val GenreTileHorizontalPadding = 22.dp
+    val TextTileCorner = 10.dp
+    val TextTileMinWidth = 128.dp
+    val TextTileHorizontalPadding = 22.dp
     const val ShowCataloguePosterLabels = false
 
     /**

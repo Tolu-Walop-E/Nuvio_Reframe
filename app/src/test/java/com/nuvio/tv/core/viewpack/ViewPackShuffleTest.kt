@@ -112,13 +112,14 @@ class ViewPackShuffleTest {
         assertEquals(24, pack.rotateIntervalHours)
         val keys = homeOrderKeysFromPack(pack)
         assertEquals(
-            listOf("com.addon_movie_top", "collection_abc", "_special_genres"),
+            listOf("com.addon_movie_top", "collection_abc"),
             keys
         )
+        assertTrue(homeRowAsTextFromPack(pack).isEmpty())
     }
 
     @Test
-    fun genreRailOnCollectionMapsToPillsNotHub() {
+    fun genreRailOnCollectionIsThatCollectionShownAsText() {
         val json = """
             {
               "schemaVersion": 1,
@@ -131,8 +132,8 @@ class ViewPackShuffleTest {
             }
         """.trimIndent()
         val pack = parseViewPackJson(json)
-        assertEquals(listOf("_special_genres"), homeOrderKeysFromPack(pack))
-        assertTrue(packCollectionHubRefs(pack).isEmpty())
-        assertEquals("abc", packGenreCollectionId(pack))
+        assertEquals(listOf("collection_abc"), homeOrderKeysFromPack(pack))
+        assertEquals(mapOf("collection_abc" to true), homeRowAsTextFromPack(pack))
+        assertEquals("abc", packCollectionHubRefs(pack).values.single().collectionId)
     }
 }

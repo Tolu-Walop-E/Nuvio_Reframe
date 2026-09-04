@@ -69,15 +69,14 @@ class ViewPackExpandedRailsTest {
         )
         val installed = listOf(Triple("app.xperience.new", "movie", "snoak_top100_movies"))
         val remapped = remapPackOrderKeys(
-            listOf("_special_genres", studioKey, "collection_hub1"),
+            listOf("collection_hub1", studioKey),
             refs,
             installed
         )
         assertEquals(
             listOf(
-                "_special_genres",
-                "app.xperience.new_movie_snoak_top100_movies",
-                "collection_hub1"
+                "collection_hub1",
+                "app.xperience.new_movie_snoak_top100_movies"
             ),
             remapped
         )
@@ -102,7 +101,6 @@ class ViewPackExpandedRailsTest {
     @Test
     fun applyStrictPackOrder_keepsFolderAndCatalogKeysWhenUnioned() {
         val packKeys = listOf(
-            PACK_GENRES_ROW_KEY,
             "folder_col1_fold1",
             "app.x_movie_cat1",
             "collection_col2"
