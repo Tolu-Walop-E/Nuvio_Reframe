@@ -45,6 +45,7 @@ import com.nuvio.tv.domain.model.HomeLayout
 import com.nuvio.tv.domain.model.LibraryListTab
 import com.nuvio.tv.domain.model.LibrarySourceMode
 import com.nuvio.tv.domain.model.MetaPreview
+import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.ui.components.ErrorState
 import com.nuvio.tv.ui.components.LoadingIndicator
 import com.nuvio.tv.ui.components.NuvioDialog
@@ -67,7 +68,16 @@ private data class HomePosterOptionsTarget(
     val addonBaseUrl: String
 )
 
-private const val HOME_STABLE_GATE_TIMEOUT_MS = 2_000L
+/**
+ * First paint of Netflix home on Shield is the hitch: LazyColumn, rails, Coil and
+ * the hero all compose in the same frames the user can see. Keep the spinner up
+ * until real rails exist, then let that first composition happen *under* the
+ * loader so enter is a fade of the spinner, not a stuttering layout.
+ */
+private const val HOME_FIRST_PAINT_SETTLE_MS = 1_500L
+/** Don't trap the user on the spinner if addons are slow or missing. */
+private const val HOME_STABLE_GATE_TIMEOUT_MS = 8_000L
+private const val HOME_PLACEHOLDER_ITEM_PREFIX = "__placeholder_"
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -102,6 +112,7 @@ fun HomeScreen(
     val hasCatalogContent = uiState.catalogRows.any { it.items.isNotEmpty() }
     val hasCollectionContent = uiState.homeRows.any { it is HomeRow.CollectionRow }
     val hasHeroContent = uiState.heroItems.isNotEmpty()
+    val hasRealHomeRails = uiState.hasRealHomeRails()
     // Netflix / view-pack Netflix presentation renders from homeRows/catalogs directly —
     // don't block first paint on the classic modern presentation builder.
     val modernPresentationReady =
@@ -112,8 +123,11 @@ fun HomeScreen(
             (uiState.heroSectionEnabled && hasHeroContent && !hasCatalogContent && !hasCollectionContent)
     var showHomeContentWithAnimation by rememberSaveable { mutableStateOf(false) }
     var hasShownInitialHomeContent by rememberSaveable { mutableStateOf(false) }
-    // Once we've shown stable home content, never go back to loading gate.
+    // Home is composed under the spinner; this flag only dismisses the overlay.
     var homeStableGateReleased by rememberSaveable { mutableStateOf(false) }
+    // Mount the real home (still covered) once rails exist so first composition
+    // is not the frame the user walks into.
+    var homeContentMounted by rememberSaveable { mutableStateOf(false) }
     // Track that catalog loading has started at least once (isLoading went true→false).
     var catalogLoadingStarted by rememberSaveable { mutableStateOf(false) }
     var posterOptionsTarget by remember { mutableStateOf<HomePosterOptionsTarget?>(null) }
@@ -162,6 +176,7 @@ fun HomeScreen(
         hasCatalogContent,
         hasCollectionContent,
         hasHeroContent,
+        hasRealHomeRails,
         initialCwResolved,
         modernPresentationReady,
         uiState.continueWatchingItems.size,
@@ -171,37 +186,42 @@ fun HomeScreen(
         if (uiState.installedAddonsCount > 0 || hasCatalogContent || hasCollectionContent || hasHeroContent) {
             catalogLoadingStarted = true
         }
-        // Reveal as soon as there is something useful — catalogs, collections,
-        // hero, or CW. Continue-watching can arrive progressively afterward.
-        val hasPaintWorthyContent =
-            hasCatalogContent ||
+        // Continue Watching and placeholder shimmer cards used to open the gate
+        // immediately. The real catalog rails then mounted on-screen and hitch.
+        // Wait for at least one real rail (or a genuine empty-addon state).
+        val canMountHome =
+            hasRealHomeRails ||
                 hasCollectionContent ||
-                hasHeroContent ||
-                (initialCwResolved && uiState.continueWatchingItems.isNotEmpty()) ||
                 (uiState.installedAddonsCount == 0 && initialCwResolved)
-        if (!homeStableGateReleased &&
-            catalogLoadingStarted &&
-            hasPaintWorthyContent &&
-            modernPresentationReady
-        ) {
+        if (!homeContentMounted && catalogLoadingStarted && canMountHome && modernPresentationReady) {
             Log.d(
                 "HomeGate",
-                "RELEASE: catalogs=$hasCatalogContent collections=$hasCollectionContent " +
-                    "hero=$hasHeroContent cwResolved=$initialCwResolved " +
-                    "cwItems=${uiState.continueWatchingItems.size} addons=${uiState.installedAddonsCount}"
+                "MOUNT: realRails=$hasRealHomeRails collections=$hasCollectionContent " +
+                    "hero=$hasHeroContent addons=${uiState.installedAddonsCount}"
             )
-            homeStableGateReleased = true
+            homeContentMounted = true
         }
     }
 
+    LaunchedEffect(homeContentMounted) {
+        if (!homeContentMounted || homeStableGateReleased) return@LaunchedEffect
+        delay(HOME_FIRST_PAINT_SETTLE_MS)
+        Log.d("HomeGate", "RELEASE after ${HOME_FIRST_PAINT_SETTLE_MS}ms settle")
+        homeStableGateReleased = true
+    }
+
     LaunchedEffect(Unit) {
-        // Safety timeout — if catalogs and CW haven't loaded within this
-        // window, show whatever is available.  Covers edge cases like
-        // clean cache (addons loading from remote sync) and users with
-        // no addons at all.
+        // Safety timeout — if catalogs haven't arrived, show whatever is
+        // available rather than spinning forever (cleared cache, no addons).
         delay(HOME_STABLE_GATE_TIMEOUT_MS)
         if (!homeStableGateReleased) {
-            Log.d("HomeGate", "RELEASE timeout: isLoading=${uiState.isLoading} cwResolved=$initialCwResolved catalogs=$hasCatalogContent cwItems=${uiState.continueWatchingItems.size}")
+            Log.d(
+                "HomeGate",
+                "RELEASE timeout: isLoading=${uiState.isLoading} cwResolved=$initialCwResolved " +
+                    "realRails=$hasRealHomeRails catalogs=$hasCatalogContent " +
+                    "cwItems=${uiState.continueWatchingItems.size}"
+            )
+            homeContentMounted = true
             homeStableGateReleased = true
         }
     }
@@ -312,24 +332,20 @@ fun HomeScreen(
             }
 
             else -> {
-                // On first launch, wait for stable content before revealing home.
-                // Once released, never go back to loading (homeStableGateReleased is rememberSaveable).
-                if (!homeStableGateReleased) {
+                // Mount under the spinner once rails exist so first composition
+                // is covered. The overlay stays until [homeStableGateReleased].
+                if (!homeContentMounted) {
                     Unit
                 } else if (!modernPresentationReady) {
                     Unit
                 } else {
-                    // Flip showHomeContentWithAnimation on the next frame so
-                    // AnimatedVisibility can run its enter transition.
+                    // First composition is covered by the spinner — skip the
+                    // slide-in so those frames aren't spent on an animation the
+                    // user cannot see.
                     LaunchedEffect(Unit) {
                         if (!showHomeContentWithAnimation) {
-                            kotlinx.coroutines.yield()
-                            showHomeContentWithAnimation = true
-                        }
-                    }
-                    LaunchedEffect(showHomeContentWithAnimation) {
-                        if (showHomeContentWithAnimation) {
                             hasShownInitialHomeContent = true
+                            showHomeContentWithAnimation = true
                         }
                     }
                     // Keep loading visible during the single-frame gap before animation starts.
@@ -401,7 +417,9 @@ fun HomeScreen(
 
         if (showStartupLoader) {
             Box(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(NuvioTheme.colors.Background),
                 contentAlignment = Alignment.Center
             ) {
                 LoadingIndicator()
@@ -928,6 +946,26 @@ private fun HomeLibraryListPickerDialog(
             ) {
                 Text(if (isPending) stringResource(R.string.action_saving) else stringResource(R.string.action_save))
             }
+        }
+    }
+}
+
+/** True when a catalog row has real titles, not shimmer placeholders. */
+internal fun CatalogRow.hasRealCatalogItems(): Boolean =
+    items.isNotEmpty() && items.none { it.id.startsWith(HOME_PLACEHOLDER_ITEM_PREFIX) }
+
+/**
+ * Enough real home content that first composition is worth hiding under the spinner.
+ * Placeholder rows and Continue Watching alone do not count — those used to open
+ * the gate while catalog rails were still building.
+ */
+internal fun HomeUiState.hasRealHomeRails(): Boolean {
+    if (catalogRows.any { it.hasRealCatalogItems() }) return true
+    return homeRows.any { row ->
+        when (row) {
+            is HomeRow.Catalog -> row.row.hasRealCatalogItems()
+            is HomeRow.CollectionRow -> true
+            is HomeRow.PlaceholderCatalog -> false
         }
     }
 }
