@@ -306,15 +306,7 @@ internal fun NetflixCatalogRail(
             // Must also subtract the home chrome (safe area + nav), or the footer text
             // lands below the bottom edge once a rail is scrolled into view.
             val maxPosterHeight = if (showFocusedMetadata) {
-                (
-                    screenHeightDp -
-                        NetflixHomeTokens.homeChromeHeight() -
-                        NetflixHomeSpacing.FocusedMetadataHeight -
-                        36.dp - // row title
-                        NetflixHomeSpacing.RailTopPadding -
-                        NetflixHomeSpacing.RailFocusPadding -
-                        24.dp // breathing room / next-rail peek
-                    ).coerceAtLeast(200.dp)
+                NetflixHomeSpacing.focusedPosterCap(screenHeightDp)
             } else {
                 null
             }
@@ -640,17 +632,20 @@ internal fun NetflixRailScaffold(
         true
     }
 
-    val railBringIntoViewResponder = remember {
+    val scaffoldDensity = LocalDensity.current
+    val nextRowPeekPx = with(scaffoldDensity) { NetflixHomeSpacing.NextRowPeek.toPx() }
+    val railBringIntoViewResponder = remember(nextRowPeekPx) {
         object : BringIntoViewResponder {
             override fun calculateRectForParent(localRect: Rect): Rect {
                 // Pivot row reports only the card strip. Expand to the full rail
-                // (title + cards) so LazyColumn never pins posters flush under nav
-                // and clips the row title.
+                // (title + cards) so LazyColumn never pins posters flush under the
+                // nav gap and clips the row title, and ask for a slice below the
+                // rail so the next row's title always peeks.
                 return Rect(
                     left = 0f,
                     top = 0f,
                     right = localRect.right.coerceAtLeast(localRect.left),
-                    bottom = localRect.bottom.coerceAtLeast(0f)
+                    bottom = localRect.bottom.coerceAtLeast(0f) + nextRowPeekPx
                 )
             }
 

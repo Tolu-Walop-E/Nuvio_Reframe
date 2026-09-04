@@ -128,9 +128,7 @@ internal fun NetflixLoadingSkeletonRails(
     cardsPerRail: Int = 8
 ) {
     Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(top = NetflixHomeTokens.HeroTopGap),
+        modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(NetflixHomeTokens.RailSpacing)
     ) {
         // Hero placeholder

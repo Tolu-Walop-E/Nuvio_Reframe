@@ -1,10 +1,44 @@
 package com.nuvio.tv.ui.screens.home.netflix
 
+import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NetflixHomeChromeTest {
+
+    /**
+     * A focused rail asks bring-into-view for its own height plus a peek of the row
+     * below. That has to fit under the nav strip, or rows start clipping again.
+     */
+    @Test
+    fun `focused rail budget fits the shield viewport`() {
+        val screenHeight = 540.dp // Shield 1080p at density 2.0
+        val poster = NetflixHomeSpacing.focusedPosterCap(screenHeight)
+        val requested = NetflixHomeSpacing.RailTopPadding +
+            NetflixHomeSpacing.RailTitleHeight +
+            poster +
+            NetflixHomeSpacing.RailFocusPadding +
+            NetflixHomeSpacing.FocusedMetadataHeight +
+            NetflixHomeSpacing.NextRowPeek
+        val scrollViewport = screenHeight - NetflixHomeTokens.homeChromeHeight()
+        assertTrue(
+            "requested $requested must fit $scrollViewport",
+            requested <= scrollViewport
+        )
+        // Guard against the cap collapsing to its floor on a normal TV.
+        assertTrue("poster cap collapsed to $poster", poster > 200.dp)
+    }
+
+    @Test
+    fun `full bleed hero leaves the next row title on screen`() {
+        val screenHeight = 540.dp
+        val below = screenHeight -
+            NetflixHomeTokens.homeChromeHeight() -
+            NetflixHomeTokens.heroHeightFor(screenHeight)
+        assertTrue("only $below below the hero", below >= NetflixHomeSpacing.RailTitleHeight)
+    }
 
     @Test
     fun `bare minute counts get a unit`() {

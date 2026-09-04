@@ -28,30 +28,34 @@ internal object NetflixHomeTokens {
 
     val PageHorizontalPadding = 40.dp
     /** Absolute / measured top nav row height. */
-    val TopNavHeight = 56.dp
+    val TopNavHeight = 48.dp
     /**
      * Leanback safe-area inset. Kept small: the earlier clipping was vertical
      * overflow (nav + gap + fixed hero exceeded the screen), not real overscan.
      */
-    val TvOverscanTop = 20.dp
+    val TvOverscanTop = 12.dp
     val TvOverscanBottom = 12.dp
-    /** Gap between the in-flow nav and the hero, just clear of the focus ring. */
-    val HeroTopGap = 8.dp
+    /**
+     * Netflix keeps the nav on its own dark strip with clear air under it — the
+     * rails start below and never scroll behind it. The nav therefore stays in
+     * normal layout flow and this gap is real, reserved space.
+     */
+    val NavContentGap = 12.dp
     /** Fade at the scroll container's top edge so clipped rows don't cut mid-line. */
-    val ScrollTopFade = 44.dp
+    val ScrollTopFade = 48.dp
     /** Fallback for callers without screen constraints; prefer [heroHeightFor]. */
     val HeroHeight = 320.dp
 
     /**
-     * Hero must leave room for the next rail's title plus a poster peek, or focus
-     * moves push rail headings under the nav. Netflix spends ~55% of the viewport
-     * on the billboard and lets the following row peek.
+     * Netflix's billboard is full-bleed and owns roughly the top three quarters of
+     * the viewport, with the next row's title and a poster sliver below it.
      */
     fun heroHeightFor(screenHeight: Dp): Dp =
-        (screenHeight * 0.55f).coerceIn(232.dp, 372.dp)
+        (screenHeight * 0.72f).coerceIn(300.dp, 460.dp)
 
     /** Vertical space the home chrome takes before the first rail can draw. */
-    fun homeChromeHeight(): Dp = TvOverscanTop + TopNavHeight + HeroTopGap + TvOverscanBottom
+    fun homeChromeHeight(): Dp =
+        TvOverscanTop + TopNavHeight + NavContentGap + TvOverscanBottom
     val HeroCornerRadius = 14.dp
     val RailSpacing = 10.dp
     val CardCornerRadius = 6.dp
@@ -206,15 +210,39 @@ internal object NetflixHomeSpacing {
     private const val RAIL_HORIZONTAL_GAP_PX = 16f
     /** Room for focus ring / modest scale without clipping the pivot selector. */
     val RailFocusPadding = 12.dp
-    val RailTopPadding = 24.dp
+    val RailTopPadding = 18.dp
+    /** Measured height of a rail heading at the default title scale. */
+    val RailTitleHeight = 36.dp
+    /**
+     * Slice of the following row that stays on screen when a rail is focused.
+     * Netflix always leaves the next title visible; that is what tells you there
+     * is more below. The rail asks bring-into-view for exactly this, so the
+     * scroll anchor and the poster budget below cannot drift apart.
+     */
+    val NextRowPeek = 48.dp
+
+    /**
+     * Tallest poster a focused rail may use while keeping its title, footer and
+     * the next row's peek on screen below the nav strip.
+     */
+    fun focusedPosterCap(screenHeight: Dp): Dp =
+        (
+            screenHeight -
+                NetflixHomeTokens.homeChromeHeight() -
+                RailTopPadding -
+                RailTitleHeight -
+                RailFocusPadding -
+                FocusedMetadataHeight -
+                NextRowPeek
+            ).coerceAtLeast(180.dp)
     /**
      * Reserved footer under catalogue rails: one middot facts line + 2 synopsis
      * lines. Netflix never reserves a tall slab here, so this stays tight and the
      * reclaimed height goes back to the posters.
      */
-    val FocusedMetadataHeight = 84.dp
+    val FocusedMetadataHeight = 78.dp
     /** Title + episode line + short description under CW rail. */
-    val ContinueMetadataHeight = 88.dp
+    val ContinueMetadataHeight = 82.dp
     val BottomFocusClearance = 400.dp
 
     fun railHorizontalGap(density: Density): Dp {

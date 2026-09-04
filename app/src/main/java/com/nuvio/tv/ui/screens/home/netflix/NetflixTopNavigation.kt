@@ -48,6 +48,10 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.R
 import com.nuvio.tv.ui.navigation.Screen
+import kotlinx.coroutines.delay
+
+/** Focus dwell before a hovered nav hub actually swaps the content below. */
+private const val TAB_HOVER_SETTLE_MS = 220L
 
 @Composable
 internal fun NetflixTopNavigation(
@@ -70,9 +74,24 @@ internal fun NetflixTopNavigation(
         stringResource(R.string.nav_watchlist) to Screen.Library.route
     )
     var focusedNavIndex by remember { mutableStateOf<Int?>(null) }
+    /** Indices of the in-place hubs, i.e. the center items with no route. */
+    val tabIndices = remember(centerItems) {
+        centerItems.mapIndexedNotNull { index, (_, route) ->
+            (index + 1).takeIf { route == null }
+        }.toSet()
+    }
 
     LaunchedEffect(focusedNavIndex) {
         onNavFocusChanged(focusedNavIndex != null)
+    }
+
+    // Netflix switches hubs on hover, not on click. Scrubbing across the nav with
+    // the D-pad would otherwise kick off a catalog load per item, so settle first.
+    LaunchedEffect(focusedNavIndex) {
+        val index = focusedNavIndex ?: return@LaunchedEffect
+        if (index !in tabIndices || index == selectedTabIndex) return@LaunchedEffect
+        delay(TAB_HOVER_SETTLE_MS)
+        onTabSelected(index)
     }
 
     fun onItemFocusChanged(focused: Boolean, index: Int) {

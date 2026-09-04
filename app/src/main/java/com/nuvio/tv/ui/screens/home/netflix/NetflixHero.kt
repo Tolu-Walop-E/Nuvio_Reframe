@@ -33,6 +33,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
@@ -67,9 +68,19 @@ internal fun NetflixHero(
     trailerStartDelayMs: Int = NetflixHomeTokens.TrailerStartDelayMs,
     onTrailerEnded: () -> Unit,
     onFocusedChanged: (Boolean) -> Unit = {},
+    /**
+     * Netflix's home billboard runs edge to edge with the nav floating on top of
+     * it, so there is no card to outline — focus shows on the action button.
+     * Browse surfaces still use the inset card.
+     */
+    fullBleed: Boolean = false,
     onViewDetails: (NetflixHomeTarget) -> Unit
 ) {
-    val shape = RoundedCornerShape(NetflixHomeTokens.HeroCornerRadius)
+    val shape = if (fullBleed) {
+        RectangleShape
+    } else {
+        RoundedCornerShape(NetflixHomeTokens.HeroCornerRadius)
+    }
     var focused by remember { mutableStateOf(false) }
     val context = LocalContext.current
     var hasTrailerFrame by remember(item?.key) { mutableStateOf(false) }
@@ -97,10 +108,20 @@ internal fun NetflixHero(
             .fillMaxWidth()
             .clip(shape)
             .background(NetflixHomeTokens.SurfaceRaised)
-            .border(
-                width = if (focused) NetflixHomeTokens.FocusBorder else 1.dp,
-                color = if (focused) NetflixThemeChrome.focus else Color.White.copy(alpha = 0.10f),
-                shape = shape
+            .then(
+                if (fullBleed) {
+                    Modifier
+                } else {
+                    Modifier.border(
+                        width = if (focused) NetflixHomeTokens.FocusBorder else 1.dp,
+                        color = if (focused) {
+                            NetflixThemeChrome.focus
+                        } else {
+                            Color.White.copy(alpha = 0.10f)
+                        },
+                        shape = shape
+                    )
+                }
             )
     ) {
         // Media layer — never focusable. Keys are owned by the overlay below so
@@ -241,7 +262,16 @@ internal fun NetflixHero(
                     modifier = Modifier
                         .fillMaxHeight()
                         .fillMaxWidth(0.52f)
-                        .padding(start = 34.dp, top = 20.dp, bottom = 22.dp),
+                        .padding(
+                            // Full-bleed copy lines up with the rail titles below it.
+                            start = if (fullBleed) {
+                                NetflixHomeTokens.PageHorizontalPadding
+                            } else {
+                                34.dp
+                            },
+                            top = 20.dp,
+                            bottom = 24.dp
+                        ),
                     verticalArrangement = Arrangement.Bottom
                 ) {
                     // The logo stays over a playing trailer — dropping it left a bare

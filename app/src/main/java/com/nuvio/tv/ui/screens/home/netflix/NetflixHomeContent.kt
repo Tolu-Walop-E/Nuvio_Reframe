@@ -2,6 +2,8 @@ package com.nuvio.tv.ui.screens.home.netflix
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -48,6 +50,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -93,6 +96,7 @@ import android.util.Log
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 private const val NETFLIX_TRAILER_LOG = "NetflixTrailer"
@@ -884,6 +888,23 @@ fun NetflixHomeContent(
         }
     }
 
+    // Hub switches slide in from the direction of travel instead of hard-cutting,
+    // so hovering Movies / TV Shows reads as moving sideways between hubs.
+    val tabSlide = remember { Animatable(0f) }
+    val tabSlideDistancePx = with(LocalDensity.current) { 44.dp.toPx() }
+    var lastAnimatedTabIndex by remember { mutableStateOf(selectedTab.navIndex) }
+    LaunchedEffect(selectedTab) {
+        val target = selectedTab.navIndex
+        if (target == lastAnimatedTabIndex) return@LaunchedEffect
+        val fromRight = target > lastAnimatedTabIndex
+        lastAnimatedTabIndex = target
+        tabSlide.snapTo(if (fromRight) 1f else -1f)
+        tabSlide.animateTo(
+            targetValue = 0f,
+            animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing)
+        )
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -898,8 +919,8 @@ fun NetflixHomeContent(
         val topFadeColor = NetflixThemeChrome.background
         val topFadePx = with(LocalDensity.current) { NetflixHomeTokens.ScrollTopFade.toPx() }
 
-        // Nav is in normal layout flow (not an overlay). Overlay + LazyColumn
-        // bring-into-view was scrolling the focused hero under the absolute nav.
+        // Nav owns a reserved dark strip with a real gap under it, and the rails
+        // live entirely below that. Nothing scrolls behind the nav.
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -920,6 +941,7 @@ fun NetflixHomeContent(
                 },
                 modifier = Modifier.fillMaxWidth()
             )
+            Spacer(modifier = Modifier.height(NetflixHomeTokens.NavContentGap))
             if (visibleRails.isEmpty() && (uiState.isLoading || uiState.homeRows.any { it is HomeRow.PlaceholderCatalog })) {
                 NetflixLoadingSkeletonRails(modifier = Modifier.weight(1f))
             } else {
@@ -927,17 +949,21 @@ fun NetflixHomeContent(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    // Content is hard-clipped at the list's top edge, so the row above
-                    // the focused one used to leave half a line of synopsis under the
-                    // nav. Fade the last few dp into the stage like Netflix does.
+                    .graphicsLayer {
+                        translationX = tabSlide.value * tabSlideDistancePx
+                        alpha = 1f - (abs(tabSlide.value) * 0.55f)
+                    }
+                    // Rows scrolled past are hard-clipped at this edge. Fade the
+                    // last few dp so a partial line of synopsis dissolves into the
+                    // gap instead of sitting there half-cut.
                     .drawWithContent {
                         drawContent()
                         drawRect(
                             brush = Brush.verticalGradient(
-                                // Hold the scrim opaque for the first half so a
-                                // clipped text line is covered, not just dimmed.
+                                // Hold opaque long enough to swallow a whole row
+                                // title; a half-faded heading looks like a glitch.
                                 0f to topFadeColor,
-                                0.45f to topFadeColor,
+                                0.68f to topFadeColor,
                                 1f to Color.Transparent,
                                 startY = 0f,
                                 endY = topFadePx
@@ -946,20 +972,18 @@ fun NetflixHomeContent(
                         )
                     },
                 state = listState,
-                contentPadding = PaddingValues(top = NetflixHomeTokens.HeroTopGap),
                 verticalArrangement = Arrangement.spacedBy(NetflixHomeTokens.RailSpacing)
             ) {
             if (heroItem != null) {
                 item(key = "hero") {
                     Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = NetflixHomeTokens.PageHorizontalPadding),
+                        modifier = Modifier.fillMaxWidth(),
                         contentAlignment = Alignment.Center
                     ) {
                         NetflixHero(
                             item = heroItem,
                             modifier = Modifier,
+                            fullBleed = true,
                             topNavigationRequester = topNavigationRequesters.getOrElse(focusedTopNavigationIndex) {
                                 topNavigationRequesters[NETFLIX_HOME_NAV_INDEX]
                             },
