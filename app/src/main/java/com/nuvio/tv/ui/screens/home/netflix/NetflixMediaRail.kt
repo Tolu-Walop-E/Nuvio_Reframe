@@ -633,17 +633,22 @@ internal fun NetflixRailScaffold(
     }
 
     val scaffoldDensity = LocalDensity.current
+    val topFadePx = with(scaffoldDensity) { NetflixHomeTokens.ScrollTopFade.toPx() }
     val nextRowPeekPx = with(scaffoldDensity) { NetflixHomeSpacing.NextRowPeek.toPx() }
-    val railBringIntoViewResponder = remember(nextRowPeekPx) {
+    val railBringIntoViewResponder = remember(topFadePx, nextRowPeekPx) {
         object : BringIntoViewResponder {
             override fun calculateRectForParent(localRect: Rect): Rect {
                 // Pivot row reports only the card strip. Expand to the full rail
                 // (title + cards) so LazyColumn never pins posters flush under the
-                // nav gap and clips the row title, and ask for a slice below the
-                // rail so the next row's title always peeks.
+                // nav gap and clips the row title.
+                //
+                // Claim the top fade's height above the rail as well, or the fade
+                // lands right on this rail's own title. That headroom is where the
+                // row above dissolves. Below, claim enough for the next row's
+                // title plus a poster sliver.
                 return Rect(
                     left = 0f,
-                    top = 0f,
+                    top = -topFadePx,
                     right = localRect.right.coerceAtLeast(localRect.left),
                     bottom = localRect.bottom.coerceAtLeast(0f) + nextRowPeekPx
                 )

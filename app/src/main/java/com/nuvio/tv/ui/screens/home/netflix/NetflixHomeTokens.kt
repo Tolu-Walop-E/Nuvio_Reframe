@@ -34,15 +34,19 @@ internal object NetflixHomeTokens {
      * overflow (nav + gap + fixed hero exceeded the screen), not real overscan.
      */
     val TvOverscanTop = 12.dp
-    val TvOverscanBottom = 12.dp
+    val TvOverscanBottom = 8.dp
     /**
      * Netflix keeps the nav on its own dark strip with clear air under it — the
      * rails start below and never scroll behind it. The nav therefore stays in
      * normal layout flow and this gap is real, reserved space.
      */
-    val NavContentGap = 12.dp
-    /** Fade at the scroll container's top edge so clipped rows don't cut mid-line. */
-    val ScrollTopFade = 48.dp
+    val NavContentGap = 8.dp
+    /**
+     * Fade at the scroll container's top edge so rows scrolled past dissolve
+     * instead of cutting mid-line. A focused rail reserves this much headroom in
+     * its bring-into-view rect, otherwise the fade eats its own title.
+     */
+    val ScrollTopFade = 40.dp
     /** Fallback for callers without screen constraints; prefer [heroHeightFor]. */
     val HeroHeight = 320.dp
 
@@ -210,25 +214,28 @@ internal object NetflixHomeSpacing {
     private const val RAIL_HORIZONTAL_GAP_PX = 16f
     /** Room for focus ring / modest scale without clipping the pivot selector. */
     val RailFocusPadding = 12.dp
-    val RailTopPadding = 18.dp
+    val RailTopPadding = 12.dp
     /** Measured height of a rail heading at the default title scale. */
     val RailTitleHeight = 36.dp
     /**
      * Slice of the following row that stays on screen when a rail is focused.
-     * Netflix always leaves the next title visible; that is what tells you there
-     * is more below. The rail asks bring-into-view for exactly this, so the
-     * scroll anchor and the poster budget below cannot drift apart.
+     * Must cover the gap between rails, the next rail's own top padding, its
+     * whole title and a sliver of poster — a half-cut title reads as a bug, not
+     * as a peek. The rail asks bring-into-view for exactly this, so the scroll
+     * anchor and the poster budget below cannot drift apart.
      */
-    val NextRowPeek = 48.dp
+    val NextRowPeek =
+        NetflixHomeTokens.RailSpacing + RailTopPadding + RailTitleHeight + 24.dp
 
     /**
-     * Tallest poster a focused rail may use while keeping its title, footer and
-     * the next row's peek on screen below the nav strip.
+     * Tallest poster a focused rail may use while keeping the top fade clear of
+     * its title and the next row's title-plus-sliver on screen.
      */
     fun focusedPosterCap(screenHeight: Dp): Dp =
         (
             screenHeight -
                 NetflixHomeTokens.homeChromeHeight() -
+                NetflixHomeTokens.ScrollTopFade -
                 RailTopPadding -
                 RailTitleHeight -
                 RailFocusPadding -

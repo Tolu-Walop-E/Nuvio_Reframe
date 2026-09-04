@@ -3,7 +3,8 @@ package com.nuvio.tv.ui.screens.home.netflix
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -33,6 +34,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -888,21 +890,28 @@ fun NetflixHomeContent(
         }
     }
 
-    // Hub switches slide in from the direction of travel instead of hard-cutting,
-    // so hovering Movies / TV Shows reads as moving sideways between hubs.
+    // Hub switches read as sideways travel rather than a hard cut.
+    //
+    // Swapping hubs costs one long frame: every rail remounts and starts fetching
+    // artwork. Animating *across* that frame is what made this janky — the slide
+    // and the stall competed and the tween visibly skipped. So the slide only ever
+    // runs on the outgoing hub, which is already composed and just gets a
+    // translation, then the swap lands with the content at rest.
     val tabSlide = remember { Animatable(0f) }
-    val tabSlideDistancePx = with(LocalDensity.current) { 44.dp.toPx() }
-    var lastAnimatedTabIndex by remember { mutableStateOf(selectedTab.navIndex) }
-    LaunchedEffect(selectedTab) {
-        val target = selectedTab.navIndex
-        if (target == lastAnimatedTabIndex) return@LaunchedEffect
-        val fromRight = target > lastAnimatedTabIndex
-        lastAnimatedTabIndex = target
-        tabSlide.snapTo(if (fromRight) 1f else -1f)
-        tabSlide.animateTo(
-            targetValue = 0f,
-            animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing)
-        )
+    val tabSlideDistancePx = with(LocalDensity.current) { 28.dp.toPx() }
+    val selectTabAnimated: (Int) -> Unit = { index ->
+        val target = NetflixContentTab.fromNavIndex(index)
+        if (target != null && target != selectedTab) {
+            coroutineScope.launch {
+                val exitLeft = index > selectedTab.navIndex
+                tabSlide.animateTo(
+                    targetValue = if (exitLeft) -1f else 1f,
+                    animationSpec = tween(durationMillis = 130, easing = LinearOutSlowInEasing)
+                )
+                selectedTab = target
+                tabSlide.snapTo(0f)
+            }
+        }
     }
 
     Box(
@@ -918,6 +927,14 @@ fun NetflixHomeContent(
 
         val topFadeColor = NetflixThemeChrome.background
         val topFadePx = with(LocalDensity.current) { NetflixHomeTokens.ScrollTopFade.toPx() }
+        // Only fade once something is actually scrolled past. At rest the fade
+        // would sit on the hero's top edge and read as a grey bar capping it.
+        val canScrollUp by remember { derivedStateOf { listState.canScrollBackward } }
+        val topFadeAlpha by animateFloatAsState(
+            targetValue = if (canScrollUp) 1f else 0f,
+            animationSpec = tween(durationMillis = 160),
+            label = "netflixTopFade"
+        )
 
         // Nav owns a reserved dark strip with a real gap under it, and the rails
         // live entirely below that. Nothing scrolls behind the nav.
@@ -936,9 +953,7 @@ fun NetflixHomeContent(
                 onFocusedIndexChanged = { focusedTopNavigationIndex = it },
                 onNavFocusChanged = { topNavFocused = it },
                 selectedTabIndex = selectedTab.navIndex,
-                onTabSelected = { index ->
-                    NetflixContentTab.fromNavIndex(index)?.let { tab -> selectedTab = tab }
-                },
+                onTabSelected = selectTabAnimated,
                 modifier = Modifier.fillMaxWidth()
             )
             Spacer(modifier = Modifier.height(NetflixHomeTokens.NavContentGap))
@@ -949,27 +964,27 @@ fun NetflixHomeContent(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .graphicsLayer {
-                        translationX = tabSlide.value * tabSlideDistancePx
-                        alpha = 1f - (abs(tabSlide.value) * 0.55f)
-                    }
+                    // Translation only, no layer alpha: fading a full-screen list
+                    // forces an offscreen buffer every frame, which is exactly
+                    // what made the hub switch stutter on Tegra.
+                    .graphicsLayer { translationX = tabSlide.value * tabSlideDistancePx }
                     // Rows scrolled past are hard-clipped at this edge. Fade the
                     // last few dp so a partial line of synopsis dissolves into the
                     // gap instead of sitting there half-cut.
                     .drawWithContent {
                         drawContent()
-                        drawRect(
-                            brush = Brush.verticalGradient(
-                                // Hold opaque long enough to swallow a whole row
-                                // title; a half-faded heading looks like a glitch.
-                                0f to topFadeColor,
-                                0.68f to topFadeColor,
-                                1f to Color.Transparent,
-                                startY = 0f,
-                                endY = topFadePx
-                            ),
-                            size = Size(size.width, topFadePx)
-                        )
+                        if (topFadeAlpha > 0.01f) {
+                            drawRect(
+                                brush = Brush.verticalGradient(
+                                    0f to topFadeColor.copy(alpha = topFadeAlpha),
+                                    0.62f to topFadeColor.copy(alpha = topFadeAlpha),
+                                    1f to Color.Transparent,
+                                    startY = 0f,
+                                    endY = topFadePx
+                                ),
+                                size = Size(size.width, topFadePx)
+                            )
+                        }
                     },
                 state = listState,
                 verticalArrangement = Arrangement.spacedBy(NetflixHomeTokens.RailSpacing)

@@ -9,14 +9,16 @@ import org.junit.Test
 class NetflixHomeChromeTest {
 
     /**
-     * A focused rail asks bring-into-view for its own height plus a peek of the row
-     * below. That has to fit under the nav strip, or rows start clipping again.
+     * A focused rail asks bring-into-view for the top fade's headroom, its own
+     * height, and a peek of the row below. That has to fit under the nav strip, or
+     * rows start clipping again.
      */
     @Test
     fun `focused rail budget fits the shield viewport`() {
         val screenHeight = 540.dp // Shield 1080p at density 2.0
         val poster = NetflixHomeSpacing.focusedPosterCap(screenHeight)
-        val requested = NetflixHomeSpacing.RailTopPadding +
+        val requested = NetflixHomeTokens.ScrollTopFade +
+            NetflixHomeSpacing.RailTopPadding +
             NetflixHomeSpacing.RailTitleHeight +
             poster +
             NetflixHomeSpacing.RailFocusPadding +
@@ -29,6 +31,30 @@ class NetflixHomeChromeTest {
         )
         // Guard against the cap collapsing to its floor on a normal TV.
         assertTrue("poster cap collapsed to $poster", poster > 200.dp)
+    }
+
+    /**
+     * The fade headroom is what keeps the fade off the focused rail's own title,
+     * so it can never be shorter than a title.
+     */
+    @Test
+    fun `top fade cannot swallow a row title`() {
+        assertTrue(
+            "fade ${NetflixHomeTokens.ScrollTopFade} is shorter than a title",
+            NetflixHomeTokens.ScrollTopFade >= NetflixHomeSpacing.RailTitleHeight
+        )
+    }
+
+    /** "Sneak peek" means a whole readable title plus poster, not a cut heading. */
+    @Test
+    fun `next row peek shows a full title and a poster sliver`() {
+        val toNextTitleBottom = NetflixHomeTokens.RailSpacing +
+            NetflixHomeSpacing.RailTopPadding +
+            NetflixHomeSpacing.RailTitleHeight
+        assertTrue(
+            "peek ${NetflixHomeSpacing.NextRowPeek} clips the next title",
+            NetflixHomeSpacing.NextRowPeek > toNextTitleBottom
+        )
     }
 
     @Test

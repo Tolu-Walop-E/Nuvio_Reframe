@@ -1,5 +1,6 @@
 package com.nuvio.tv.ui.screens.home.netflix
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -142,12 +143,17 @@ internal fun NetflixTopNavigation(
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // Exactly one white pill at a time: it tracks the hovered hub while
+                // the nav has focus, otherwise it rests on the active hub. Two lit
+                // pills during the hover settle would read as a stuck selection.
+                val pillIndex = focusedNavIndex?.takeIf { it in 1..centerItems.size }
+                    ?: selectedTabIndex
                 centerItems.forEachIndexed { itemIndex, (label, route) ->
                     val absoluteIndex = itemIndex + 1
                     NetflixTopNavigationItem(
                         index = absoluteIndex,
                         label = label,
-                        selected = if (route == null) selectedTabIndex == absoluteIndex else selectedIndex == absoluteIndex,
+                        highlighted = pillIndex == absoluteIndex,
                         focusRequester = itemFocusRequesters.getOrElse(absoluteIndex) { FocusRequester.Default },
                         onItemFocusChanged = ::onItemFocusChanged,
                         onClick = {
@@ -217,7 +223,7 @@ internal fun NetflixTopNavigation(
 private fun NetflixTopNavigationItem(
     index: Int,
     label: String,
-    selected: Boolean,
+    highlighted: Boolean,
     focusRequester: FocusRequester,
     onItemFocusChanged: (Boolean, Int) -> Unit,
     onClick: () -> Unit,
@@ -228,6 +234,18 @@ private fun NetflixTopNavigationItem(
         targetValue = if (focused) 1.05f else 1f,
         animationSpec = tween(durationMillis = 160),
         label = "netflixTopNavScale"
+    )
+    // Crossfading the pill rather than swapping it makes the hub hand-off read as
+    // the highlight travelling along the nav.
+    val pillColor by animateColorAsState(
+        targetValue = if (highlighted) Color.White else Color.Transparent,
+        animationSpec = tween(durationMillis = 180),
+        label = "netflixTopNavPill"
+    )
+    val labelColor by animateColorAsState(
+        targetValue = if (highlighted) Color.Black else Color.White,
+        animationSpec = tween(durationMillis = 180),
+        label = "netflixTopNavLabel"
     )
 
     Text(
@@ -248,34 +266,15 @@ private fun NetflixTopNavigationItem(
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
-                alpha = if (focused || selected) 1f else 0.78f
+                alpha = if (highlighted) 1f else 0.78f
             }
             .clip(RoundedCornerShape(50))
-            .background(
-                when {
-                    focused -> NetflixThemeChrome.accent.copy(alpha = 0.42f)
-                    selected -> NetflixThemeChrome.accent.copy(alpha = 0.30f)
-                    else -> Color.Transparent
-                }
-            )
-            .border(
-                width = when {
-                    focused -> 2.dp
-                    selected -> 1.5.dp
-                    else -> 0.dp
-                },
-                color = when {
-                    focused -> NetflixThemeChrome.focus
-                    selected -> NetflixThemeChrome.accent.copy(alpha = 0.95f)
-                    else -> Color.Transparent
-                },
-                shape = RoundedCornerShape(50)
-            )
+            .background(pillColor)
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 8.dp),
-        color = Color.White,
+        color = labelColor,
         style = MaterialTheme.typography.bodyMedium,
-        fontWeight = if (selected || focused) FontWeight.Bold else FontWeight.Medium
+        fontWeight = if (highlighted) FontWeight.Bold else FontWeight.Medium
     )
 }
 
